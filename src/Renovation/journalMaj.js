@@ -24,6 +24,22 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
+    type: "amelioration",
+    titre: "« Préparer le chantier » reprend le style des autres écrans de l'application",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "Le parcours « Préparer le chantier » ne remplace plus tout l'écran avec de gros titres et de gros boutons : il s'ouvre dans une grande fenêtre, comme les autres fenêtres du Phasage, avec les mêmes tailles de texte, les mêmes boutons et le même en-tête. Rien ne change dans son fonctionnement.",
+    comment: "Phasage → « Préparer le chantier ». En-tête habituel (icône, titre, nom du chantier), étapes en barre compacte (Point de départ › Les pièces › Où se fait chaque ouvrage › Consignes & plans), « Quitter sans enregistrer » et « Enregistrer et quitter » en haut à droite, boutons d'étape en bas comme avant.",
+  },
+  {
+    date: "2026-11-06",
+    type: "amelioration",
+    titre: "Espace ouvrier : l'onglet « Phases » se range aussi par pièce, avec les consignes et tous les détails préparés par le conducteur",
+    pages: [], // espace ouvrier (mobile), hors pages bureau
+    quoi: "Quand le conducteur de travaux a préparé le logement (« Préparer le chantier »), l'onglet « Phases » du téléphone s'ouvre maintenant par pièce, comme le compte rendu : les pièces dans l'ordre de visite, la consigne de la pièce, les consignes par mur et les photos en haut, puis les tâches de la pièce. Chaque tâche affiche ce que le conducteur a personnalisé : son nom, sa pièce, son mur et sa surface (« Chambre · Mur extérieur · 16 m² »), et le nom d'origine du devis quand elle a été renommée. Les heures, l'avancement et les pastilles ne changent pas : ce sont exactement les mêmes tâches que dans la vue par phase, et les ouvriers ne voient toujours ni prix ni pourcentages de marge.",
+    comment: "Espace ouvrier → onglet « Phases ». En haut, « Par pièce » / « Par phase » (la bascule n'apparaît que si le logement a des pièces). En « Par pièce » : des onglets par pièce (avec le nombre de tâches), les consignes en encadré jaune, les photos en miniatures (toucher une photo l'agrandit), puis la liste des tâches avec heures et avancement. « Mes tâches » montre seulement les tâches où l'ouvrier est affecté, « Tout le chantier » toutes les tâches. Les tâches des ouvrages prévus dans tout le logement sont dans « Tout le logement », les autres tâches sans pièce dans « Sans pièce » : aucune tâche n'est cachée. En « Par phase », chaque tâche affiche aussi sa pièce, son mur et sa surface.",
+  },
+  {
+    date: "2026-11-06",
     type: "nouveaute",
     titre: "Préparer le chantier : reprendre la préparation d'un autre logement de la même opération",
     pages: [{ id: "phasage-v2", label: "Phasage" }],

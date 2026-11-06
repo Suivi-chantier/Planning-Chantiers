@@ -94,7 +94,8 @@ export function construireArbre(payload, { lotsDefaut = [], tachesDuJourIds = []
 
 // Pièce lue : id, nom, et ce que le conducteur a préparé (consigne, consignes
 // par mur, photos). Les textes vides sont écartés ; rien d'autre n'est gardé.
-function pieceLue(p) {
+// Exportée pour l'onglet « Phases » (mesPhasesV1) : même lecture partout.
+export function pieceLue(p) {
   const murs = [];
   tableau(p?.consignes_murs).forEach(c => {
     const mur = net(c?.mur); const texte = net(c?.texte);

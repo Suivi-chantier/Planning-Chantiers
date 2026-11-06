@@ -43,6 +43,7 @@
 import { avancementOuvrage, statsGroupeChrono, SEUIL_RATIO_DERIVE, fmtH } from "../chantierFinance.mjs";
 import { libelleNature } from "./motifsCompteRendu.mjs";
 import { etatSuivi, MODE_QUANTITE } from "./suiviQuantite.mjs";
+import { pieceLue, sousTitrePart, SANS_PIECE, TOUT_LOGEMENT } from "./phasageMobileV1.mjs";
 
 // Suivi en quantité d'une tâche (null : en pourcentage, ou RPC d'avant
 // l'étape 4 qui ne renvoie pas les quantités). Règle : suiviQuantite.mjs.
@@ -250,10 +251,10 @@ export function agregerPhase(ph) {
 //        "sans_groupes" (tout dans « À organiser ») | "ok".
 export function construireMesPhases(payload) {
   if (!payload || typeof payload !== "object") {
-    return { etat: "absent", modele: null, prenom: null, phases: [], nbMiennes: 0, nbTout: 0, phaseEnCoursId: null };
+    return { etat: "absent", modele: null, prenom: null, phases: [], pieces: [], ouvragesLogement: [], nbMiennes: 0, nbTout: 0, phaseEnCoursId: null };
   }
   if (payload.acces_refuse) {
-    return { etat: "acces_refuse", modele: null, prenom: null, phases: [], nbMiennes: 0, nbTout: 0, phaseEnCoursId: null };
+    return { etat: "acces_refuse", modele: null, prenom: null, phases: [], pieces: [], ouvragesLogement: [], nbMiennes: 0, nbTout: 0, phaseEnCoursId: null };
   }
   const modele = payload.modele || "absent";
   const brutes = Array.isArray(payload.phases) ? payload.phases : [];
@@ -271,8 +272,27 @@ export function construireMesPhases(payload) {
     || null;
   let etat = modele === "v2" ? "ok" : modele;
   if (modele === "v2" && reelles.length === 0) etat = "sans_groupes";
+  // Préparer le chantier : pièces (consignes, photos) lues comme dans le
+  // compte rendu (pieceLue) ; chaque tâche reçoit le nom de sa pièce, son
+  // ouvrage et « mur · quantité » (sousTitrePart). Champs facultatifs : sans
+  // eux (RPC d'avant le 06/11/2026), rien de vide n'est ajouté.
+  const pieces = (Array.isArray(payload.pieces) ? payload.pieces : [])
+    .filter(p => String(p?.id ?? "").trim() && String(p?.nom ?? "").trim()).map(pieceLue);
+  const nomsPieces = new Map(pieces.map(p => [p.id, p.nom]));
+  const ouvragesLogement = [...new Set((Array.isArray(payload.ouvrages_logement) ? payload.ouvrages_logement : [])
+    .map(x => String(x ?? "").trim()).filter(Boolean))];
+  phases.forEach(p => p.ouvrages.forEach(o => o.taches.forEach(t => {
+    const pid = String(t.piece_id ?? "").trim();
+    t.pieceId = pid || null;
+    t.pieceNom = pid ? (nomsPieces.get(pid) || null) : null;
+    t.ouvrageId = String(o.id);
+    t.ouvrageLibelle = o.libelle;
+    t.phaseNom = p.nom;
+    t.part = sousTitrePart({ mur: t.mur, quantite_part: t.quantite_part, unitePart: o.unite });
+  })));
   return {
     etat, modele,
+    pieces, ouvragesLogement,
     prenom: payload.prenom || null,
     chantierNom: payload.chantier_nom || null,
     phases,
@@ -285,6 +305,42 @@ export function construireMesPhases(payload) {
 export function filtrerPhases(resultat, vue) {
   const phases = resultat?.phases || [];
   return vue === "miennes" ? phases.filter(p => p.estMienne) : phases;
+}
+
+// ── Rangement par pièce (onglet « Phases », vue « Par pièce ») ───────────────
+// [{ id, nom, consigne, consignes_murs, photos, taches }] dans l'ordre des
+// pièces du conducteur (meta.pieces), puis « Tout le logement » (tâches sans
+// pièce des ouvrages placés « Tout le logement »), puis « Sans pièce » (pas de
+// pièce, ou pièce retirée) — même règle que le compte rendu (parPiece).
+// Aucune tâche cachée ; une pièce sans tâche n'est pas listée. Vue
+// « miennes » : seulement les tâches où l'ouvrier est affecté (est_mienne).
+// Les tâches sont celles de construireMesPhases : mêmes heures, mêmes
+// pastilles, rien n'est recalculé.
+export function phasesParPiece(resultat, vue = "tout") {
+  const toutes = (resultat?.phases || []).flatMap(p => p.ouvrages.flatMap(o => o.taches));
+  const taches = vue === "miennes" ? toutes.filter(t => t.est_mienne === true) : toutes;
+  const pieces = resultat?.pieces || [];
+  const out = pieces.map(p => ({
+    id: p.id, nom: p.nom, consigne: p.consigne ?? null, consignes_murs: p.consignes_murs || [], photos: p.photos || [],
+    taches: taches.filter(t => t.pieceId === p.id),
+  }));
+  const connues = new Set(pieces.map(p => p.id));
+  const logement = new Set(resultat?.ouvragesLogement || []);
+  const sans = taches.filter(t => !t.pieceId || !connues.has(t.pieceId));
+  const tout = sans.filter(t => !t.pieceId && logement.has(t.ouvrageId));
+  const reste = sans.filter(t => !tout.includes(t));
+  const vide = { consigne: null, consignes_murs: [], photos: [] };
+  if (tout.length) out.push({ id: TOUT_LOGEMENT, nom: "Tout le logement", ...vide, taches: tout });
+  if (reste.length) out.push({ id: SANS_PIECE, nom: "Sans pièce", ...vide, taches: reste });
+  return out.filter(p => p.taches.length > 0);
+}
+
+// Détails préparés par le conducteur, sous le nom d'une tâche :
+// « Chambre · Mur extérieur · 16 m² ». Dans la vue par pièce, la pièce est
+// déjà le titre : on met l'ouvrage à la place. "" s'il n'y a rien.
+export function detailsTache(t, { vuePiece = false } = {}) {
+  const debut = vuePiece ? (t?.ouvrageLibelle || "") : (t?.pieceNom || "");
+  return [debut, t?.part || ""].filter(Boolean).join(" · ");
 }
 
 // ── Chantier proposé par défaut ─────────────────────────────────────────────

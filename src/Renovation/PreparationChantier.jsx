@@ -11,7 +11,7 @@
 // `conflit`) : « Enregistrer et quitter » ne ferme le parcours qu'une fois
 // l'écriture confirmée, et jamais en silence si la sauvegarde est en pause.
 import React, { useEffect, useRef, useState } from "react";
-import { ChevronUp, ChevronDown, Pencil, X, Check, AlertTriangle } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronRight, ClipboardList, Pencil, X, Check, AlertTriangle } from "lucide-react";
 import { THEMES, FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { ajouterPiece, renommerPiece, deplacerPiece, supprimerPiece, detacherPiece, piecesDuPhasage } from "./piecesPhasageV1";
@@ -25,7 +25,7 @@ import { copierPreparation, compterPiecesACreer, preparationApresCopie, retirerP
 const ETAPES_DISPONIBLES = ["depart", "pieces", "repartition", "consignes"];
 const rid = () => Math.random().toString(36).slice(2, 10);
 const memeNom = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
-const TOUCHE = 44; // taille minimale d'un bouton (tablette au chantier)
+const TOUCHE = 34; // hauteur des boutons, alignée sur le reste de l'appli
 const DELAI_MIN_FERMETURE = 1200; // > 800 ms d'attente de la sauvegarde des ouvrages dans Phasage V2
 const DELAI_MAX_FERMETURE = 20000;
 const MSG_CONFLIT = "Enregistrement en pause : le phasage a été modifié ailleurs (autre poste ou autre personne). "
@@ -228,24 +228,35 @@ export default function PreparationChantier({ chantierNom, chantierId = null, lo
   };
 
   const btn = (plein = false) => ({
-    minHeight: TOUCHE, padding: "0 18px", borderRadius: RADIUS.md, fontFamily: "inherit",
-    fontSize: FONT.sm.size + 1, fontWeight: 700, cursor: "pointer",
+    minHeight: TOUCHE, padding: "0 14px", borderRadius: RADIUS.md, fontFamily: "inherit",
+    fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
     border: `1px solid ${plein ? accent : T.border}`,
     background: plein ? accent : "transparent", color: plein ? surAccent : T.text,
   });
   const btnIcone = { width: TOUCHE, height: TOUCHE, border: "none", background: "transparent", color: T.textSub, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: RADIUS.sm };
-  const champ = { minHeight: TOUCHE, boxSizing: "border-box", padding: "0 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.fieldBorder || T.border}`, background: T.inputBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size + 2 };
-  const titreSection = { color: T.textSub, fontSize: FONT.xs.size + 1, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 };
+  const champ = { minHeight: TOUCHE, boxSizing: "border-box", padding: "0 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.fieldBorder || T.border}`, background: T.inputBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size + 1 };
+  const titreSection = { color: T.textSub, fontSize: FONT.xs.size, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 };
 
   return (
+    // Même présentation que les fenêtres du Phasage : fond assombri, fenêtre
+    // centrée (surface, bord fin, coins de 14 px), en-tête icône + titre +
+    // sous-titre, boutons compacts. Grande fenêtre : le parcours a plusieurs
+    // colonnes (liste des ouvrages, répartition).
+    <div style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
     <div role="dialog" aria-modal="true" aria-label="Préparer le chantier"
-      style={{ position: "fixed", inset: 0, zIndex: 1100, background: T.bg, color: T.text, display: "flex", flexDirection: "column", fontFamily: "inherit" }}>
+      style={{ width: "min(1240px, 100%)", height: "min(920px, 100%)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
+        boxShadow: "0 20px 60px rgba(0,0,0,0.5)", overflow: "hidden", color: T.text, display: "flex", flexDirection: "column", fontFamily: "inherit" }}>
       {/* En-tête */}
-      <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-          <span style={{ width: 12, height: 12, borderRadius: 3, background: accent, flexShrink: 0 }}/>
-          <div style={{ fontSize: FONT.lg.size + 4, fontWeight: 800, letterSpacing: 0.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chantierNom || "Chantier"}</div>
-          <div style={{ color: T.textSub, fontSize: FONT.sm.size }}>Préparer le chantier</div>
+      <header style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "14px 20px", borderBottom: `1px solid ${T.border}` }}>
+        <span style={{ width: 30, height: 30, borderRadius: RADIUS.md, flexShrink: 0, background: `color-mix(in srgb, ${accent} 20%, transparent)`, color: accent,
+          display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon as={ClipboardList} size={16}/>
+        </span>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>Préparer le chantier</div>
+          <div style={{ fontSize: FONT.xs.size, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {chantierNom || "Chantier"} · pièces, répartition des ouvrages et consignes pour les ouvriers
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={fermerSansEnregistrer} style={btn()}>Quitter sans enregistrer</button>
@@ -256,36 +267,39 @@ export default function PreparationChantier({ chantierNom, chantierId = null, lo
       </header>
 
       {/* Étapes */}
-      <nav aria-label="Étapes" style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "12px 20px", borderBottom: `1px solid ${T.sectionDivider || T.border}` }}>
+      <nav aria-label="Étapes" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, padding: "8px 20px", borderBottom: `1px solid ${T.sectionDivider || T.border}`, background: T.card }}>
         {ETAPES.map((e, i) => {
           const active = e.id === etape;
           const dispo = ETAPES_DISPONIBLES.includes(e.id);
           return (
-            <div key={e.id} aria-current={active ? "step" : undefined} title={dispo ? e.label : `${e.label} : bientôt disponible`}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: RADIUS.pill, minHeight: 28,
-                background: active ? (T.tagBg || "rgba(255,194,0,0.14)") : "transparent",
-                color: active ? accent : T.textSub, fontWeight: active ? 700 : 500, fontSize: FONT.sm.size, opacity: dispo ? 1 : 0.65 }}>
-              <span style={{ width: 24, height: 24, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13,
-                background: active ? accent : "transparent", color: active ? surAccent : T.textSub, border: active ? "none" : `1px solid ${T.textMuted}` }}>{i + 1}</span>
-              {e.label}
-              {!dispo && <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: RADIUS.pill, border: `1px solid ${T.border}`, color: T.textMuted }}>bientôt</span>}
-            </div>
+            <React.Fragment key={e.id}>
+              {i > 0 && <Icon as={ChevronRight} size={14} style={{ color: T.textMuted, flexShrink: 0 }}/>}
+              <div aria-current={active ? "step" : undefined} title={dispo ? e.label : `${e.label} : bientôt disponible`}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: RADIUS.md,
+                  background: active ? (T.tagBg || "rgba(255,194,0,0.14)") : "transparent",
+                  color: active ? (T.tagColor || accent) : T.textSub, fontWeight: active ? 700 : 500, fontSize: FONT.sm.size, opacity: dispo ? 1 : 0.65 }}>
+                <span style={{ width: 18, height: 18, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT.xs.size, fontWeight: 700,
+                  background: active ? accent : "transparent", color: active ? surAccent : T.textSub, border: active ? "none" : `1px solid ${T.textMuted}` }}>{i + 1}</span>
+                {e.label}
+                {!dispo && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: RADIUS.pill, border: `1px solid ${T.border}`, color: T.textMuted }}>bientôt</span>}
+              </div>
+            </React.Fragment>
           );
         })}
       </nav>
 
       {message && (
-        <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 20px", background: "#e15a5a18", borderBottom: "1px solid #e15a5a55", color: T.text, fontSize: FONT.sm.size + 2, lineHeight: 1.5 }}>
-          <Icon as={AlertTriangle} size={18} style={{ color: "#e15a5a", flexShrink: 0, marginTop: 2 }}/>
+        <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 20px", background: "#e15a5a18", borderBottom: "1px solid #e15a5a55", color: T.text, fontSize: FONT.sm.size + 1, lineHeight: 1.5 }}>
+          <Icon as={AlertTriangle} size={15} style={{ color: "#e15a5a", flexShrink: 0, marginTop: 2 }}/>
           <span style={{ flex: 1 }}>{message}</span>
-          <button onClick={() => setMessage("")} aria-label="Masquer le message" style={btnIcone}><Icon as={X} size={18}/></button>
+          <button onClick={() => setMessage("")} aria-label="Masquer le message" style={btnIcone}><Icon as={X} size={15}/></button>
         </div>
       )}
 
       {info && etape !== "depart" && (
-        <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 20px", background: T.tagBg || "transparent", borderBottom: `1px solid ${T.border}`, color: T.text, fontSize: FONT.sm.size + 2, lineHeight: 1.5 }}>
+        <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 20px", background: T.tagBg || "transparent", borderBottom: `1px solid ${T.border}`, color: T.text, fontSize: FONT.sm.size + 1, lineHeight: 1.5 }}>
           <span style={{ flex: 1 }}>{info}</span>
-          <button onClick={() => setInfo("")} aria-label="Masquer le message" style={btnIcone}><Icon as={X} size={18}/></button>
+          <button onClick={() => setInfo("")} aria-label="Masquer le message" style={btnIcone}><Icon as={X} size={15}/></button>
         </div>
       )}
 
@@ -304,10 +318,10 @@ export default function PreparationChantier({ chantierNom, chantierId = null, lo
             onValider={validerOuvrage} onRetourPieces={() => setEtape("pieces")} T={T} accent={accent} surAccent={surAccent}/>
         )}
         {/* Étape « Les pièces » */}
-        {etape === "pieces" && <div style={{ width: "100%", maxWidth: 860, margin: "0 auto", padding: "28px 20px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 24 }}>
+        {etape === "pieces" && <div style={{ width: "100%", maxWidth: 860, margin: "0 auto", padding: "20px 24px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 24 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800 }}>Quelles pièces dans ce logement ?</h1>
-            <p style={{ margin: 0, color: T.textSub, fontSize: FONT.sm.size + 2, lineHeight: 1.5 }}>
+            <h1 style={{ margin: 0, fontSize: FONT.xl.size, fontWeight: 800, letterSpacing: -0.2 }}>Quelles pièces dans ce logement ?</h1>
+            <p style={{ margin: 0, color: T.textSub, fontSize: FONT.sm.size + 1, lineHeight: 1.5 }}>
               Touche une pièce pour l'ajouter. L'ordre de la liste sera l'ordre de visite sur le téléphone des ouvriers.
             </p>
           </div>
@@ -320,7 +334,7 @@ export default function PreparationChantier({ chantierNom, chantierId = null, lo
                 return (
                   <button key={nom} onClick={() => !deja && ajouter(nom)} aria-pressed={deja} disabled={deja}
                     title={deja ? "Déjà dans la liste" : `Ajouter « ${nom} »`}
-                    style={{ minHeight: TOUCHE, padding: "0 16px", borderRadius: RADIUS.pill, fontFamily: "inherit", fontSize: FONT.sm.size + 2, cursor: deja ? "default" : "pointer",
+                    style={{ minHeight: TOUCHE, padding: "0 16px", borderRadius: RADIUS.pill, fontFamily: "inherit", fontSize: FONT.sm.size + 1, cursor: deja ? "default" : "pointer",
                       border: `1px solid ${deja ? accent : T.border}`, background: deja ? (T.tagBg || "transparent") : T.card, color: deja ? accent : T.text,
                       display: "inline-flex", alignItems: "center", gap: 6 }}>
                     {deja && <Icon as={Check} size={15}/>}{nom}
@@ -329,7 +343,7 @@ export default function PreparationChantier({ chantierNom, chantierId = null, lo
               })}
               {autre == null ? (
                 <button onClick={() => setAutre("")}
-                  style={{ minHeight: TOUCHE, padding: "0 16px", borderRadius: RADIUS.pill, fontFamily: "inherit", fontSize: FONT.sm.size + 2, cursor: "pointer", border: `1px dashed ${T.textMuted}`, background: "transparent", color: T.text }}>
+                  style={{ minHeight: TOUCHE, padding: "0 16px", borderRadius: RADIUS.pill, fontFamily: "inherit", fontSize: FONT.sm.size + 1, cursor: "pointer", border: `1px dashed ${T.textMuted}`, background: "transparent", color: T.text }}>
                   + Autre pièce…
                 </button>
               ) : (
@@ -347,7 +361,7 @@ export default function PreparationChantier({ chantierNom, chantierId = null, lo
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={titreSection}>Pièces du logement · {pieces.length}</div>
             {pieces.length === 0 && (
-              <div style={{ color: T.textSub, fontSize: FONT.sm.size + 1, padding: "14px 16px", border: `1px dashed ${T.border}`, borderRadius: RADIUS.md }}>
+              <div style={{ color: T.textSub, fontSize: FONT.sm.size, padding: "14px 16px", border: `1px dashed ${T.border}`, borderRadius: RADIUS.md }}>
                 Aucune pièce pour l'instant. Touche une pièce ci-dessus pour commencer.
               </div>
             )}
@@ -360,17 +374,17 @@ export default function PreparationChantier({ chantierNom, chantierId = null, lo
                       <input autoFocus value={renommage.nom} onChange={e => setRenommage({ id: p.id, nom: e.target.value })}
                         onKeyDown={e => { if (e.key === "Enter") validerRenommage(); if (e.key === "Escape") setRenommage(null); }}
                         aria-label={`Nouveau nom pour ${p.nom}`} style={{ ...champ, flex: 1, minWidth: 0 }}/>
-                      <button onClick={validerRenommage} aria-label="Valider le nom" style={{ ...btnIcone, color: accent }}><Icon as={Check} size={18}/></button>
+                      <button onClick={validerRenommage} aria-label="Valider le nom" style={{ ...btnIcone, color: accent }}><Icon as={Check} size={15}/></button>
                     </>
                   ) : (
                     <>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: FONT.sm.size + 3, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>{p.nom}</span>
-                      <button onClick={() => setRenommage({ id: p.id, nom: p.nom })} aria-label={`Renommer ${p.nom}`} style={btnIcone}><Icon as={Pencil} size={18}/></button>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: FONT.base.size, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>{p.nom}</span>
+                      <button onClick={() => setRenommage({ id: p.id, nom: p.nom })} aria-label={`Renommer ${p.nom}`} style={btnIcone}><Icon as={Pencil} size={15}/></button>
                     </>
                   )}
-                  <button onClick={() => changer(deplacerPiece(pieces, p.id, -1))} disabled={i === 0} aria-label={`Monter ${p.nom}`} style={{ ...btnIcone, opacity: i === 0 ? 0.3 : 1 }}><Icon as={ChevronUp} size={20}/></button>
-                  <button onClick={() => changer(deplacerPiece(pieces, p.id, 1))} disabled={i === pieces.length - 1} aria-label={`Descendre ${p.nom}`} style={{ ...btnIcone, opacity: i === pieces.length - 1 ? 0.3 : 1 }}><Icon as={ChevronDown} size={20}/></button>
-                  <button onClick={() => retirer(p)} aria-label={`Retirer ${p.nom}`} style={btnIcone}><Icon as={X} size={18}/></button>
+                  <button onClick={() => changer(deplacerPiece(pieces, p.id, -1))} disabled={i === 0} aria-label={`Monter ${p.nom}`} style={{ ...btnIcone, opacity: i === 0 ? 0.3 : 1 }}><Icon as={ChevronUp} size={16}/></button>
+                  <button onClick={() => changer(deplacerPiece(pieces, p.id, 1))} disabled={i === pieces.length - 1} aria-label={`Descendre ${p.nom}`} style={{ ...btnIcone, opacity: i === pieces.length - 1 ? 0.3 : 1 }}><Icon as={ChevronDown} size={16}/></button>
+                  <button onClick={() => retirer(p)} aria-label={`Retirer ${p.nom}`} style={btnIcone}><Icon as={X} size={15}/></button>
                 </li>
               ))}
             </ol>
@@ -403,6 +417,7 @@ export default function PreparationChantier({ chantierNom, chantierId = null, lo
           </button>
         )}
       </footer>
+    </div>
     </div>
   );
 }

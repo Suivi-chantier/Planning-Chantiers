@@ -20,7 +20,7 @@ import {
   mursDeLaPiece, nbTachesParPiece, controleFinal,
 } from "./preparationChantierV1";
 
-const TOUCHE = 44;
+const TOUCHE = 34; // hauteur des boutons, alignée sur le reste de l'appli
 const decoder = (s) => String(s || "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&");
 // Adresse d'affichage d'une photo : chemin dans le bucket « photos » →
 // adresse publique (même lecture que les autres écrans) ; une adresse
@@ -59,30 +59,30 @@ export default function PreparationConsignes({ pieces, ouvrages, preparation, ch
     setAjoutMur(null);
   };
 
-  const btn = { minHeight: TOUCHE, padding: "0 14px", borderRadius: RADIUS.md, fontFamily: "inherit", fontSize: FONT.sm.size + 1, cursor: "pointer", border: `1px solid ${T.border}`, background: "transparent", color: T.text, display: "inline-flex", alignItems: "center", gap: 8 };
+  const btn = { minHeight: TOUCHE, padding: "0 14px", borderRadius: RADIUS.md, fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer", border: `1px solid ${T.border}`, background: "transparent", color: T.text, display: "inline-flex", alignItems: "center", gap: 8 };
   const btnIcone = { width: TOUCHE, height: TOUCHE, minWidth: TOUCHE, border: "none", background: "transparent", color: T.textSub, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: RADIUS.sm };
-  const zoneTexte = { flex: 1, minWidth: 0, boxSizing: "border-box", resize: "vertical", padding: "10px 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.fieldBorder || T.border}`, background: T.inputBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size + 2, lineHeight: 1.4 };
-  const champ = { minHeight: TOUCHE, boxSizing: "border-box", padding: "0 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.fieldBorder || T.border}`, background: T.inputBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size + 2 };
-  const petitTitre = { color: T.textSub, fontSize: FONT.xs.size + 1, fontWeight: 700 };
+  const zoneTexte = { flex: 1, minWidth: 0, boxSizing: "border-box", resize: "vertical", padding: "10px 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.fieldBorder || T.border}`, background: T.inputBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size + 1, lineHeight: 1.4 };
+  const champ = { minHeight: TOUCHE, boxSizing: "border-box", padding: "0 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.fieldBorder || T.border}`, background: T.inputBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size + 1 };
+  const petitTitre = { color: T.textSub, fontSize: FONT.xs.size, fontWeight: 700 };
 
   const ligneTache = (t) => (
-    <li key={t.id} style={{ fontSize: FONT.sm.size + 1, lineHeight: 1.5 }}>
+    <li key={t.id} style={{ fontSize: FONT.sm.size, lineHeight: 1.5 }}>
       <span style={{ fontWeight: 600 }}>{t.nom}</span>
       <span style={{ color: T.textSub }}> · {decoder(t.ouvrage)}</span>
     </li>
   );
 
   return (
-    <div style={{ width: "100%", maxWidth: 1180, margin: "0 auto", padding: "28px 20px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 24 }}>
+    <div style={{ width: "100%", maxWidth: 1180, margin: "0 auto", padding: "20px 24px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 24 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800 }}>Ce qu'il faut savoir en arrivant dans chaque pièce</h1>
-        <p style={{ margin: 0, color: T.textSub, fontSize: FONT.sm.size + 2, lineHeight: 1.5 }}>
+        <h1 style={{ margin: 0, fontSize: FONT.xl.size, fontWeight: 800, letterSpacing: -0.2 }}>Ce qu'il faut savoir en arrivant dans chaque pièce</h1>
+        <p style={{ margin: 0, color: T.textSub, fontSize: FONT.sm.size + 1, lineHeight: 1.5 }}>
           Facultatif. Une consigne s'affichera en haut de la pièce sur le téléphone des ouvriers. Tu peux aussi dicter.
         </p>
       </div>
 
       {pieces.length === 0 && (
-        <div style={{ color: T.textSub, fontSize: FONT.sm.size + 1, padding: "14px 16px", border: `1px dashed ${T.border}`, borderRadius: RADIUS.md }}>
+        <div style={{ color: T.textSub, fontSize: FONT.sm.size, padding: "14px 16px", border: `1px dashed ${T.border}`, borderRadius: RADIUS.md }}>
           Aucune pièce dans ce logement : ajoute d'abord les pièces (étape « Les pièces »).
         </div>
       )}
@@ -97,7 +97,7 @@ export default function PreparationConsignes({ pieces, ouvrages, preparation, ch
           return (
             <article key={p.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.xl, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{p.nom}</h2>
+                <h2 style={{ margin: 0, fontSize: FONT.lg.size, fontWeight: 800 }}>{p.nom}</h2>
                 <span style={{ color: T.textSub, fontSize: FONT.sm.size }}>{n} tâche{n > 1 ? "s" : ""}</span>
               </div>
 
@@ -116,8 +116,8 @@ export default function PreparationConsignes({ pieces, ouvrages, preparation, ch
               {c.consignes_murs.map(cm => (
                 <div key={cm.mur} style={{ display: "flex", flexDirection: "column", gap: 6, background: T.tagBg || "transparent", borderRadius: RADIUS.sm, padding: "8px 10px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <span style={{ fontWeight: 700, color: accent, fontSize: FONT.sm.size + 1 }}>{cm.mur}</span>
-                    <button onClick={() => onMajPieces(prev => retirerConsigneMur(prev, p.id, cm.mur))} aria-label={`Retirer la consigne du mur ${cm.mur}`} style={btnIcone}><Icon as={X} size={18}/></button>
+                    <span style={{ fontWeight: 700, color: accent, fontSize: FONT.sm.size }}>{cm.mur}</span>
+                    <button onClick={() => onMajPieces(prev => retirerConsigneMur(prev, p.id, cm.mur))} aria-label={`Retirer la consigne du mur ${cm.mur}`} style={btnIcone}><Icon as={X} size={15}/></button>
                   </div>
                   <span style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                     <textarea rows={2} value={cm.texte} placeholder="Consigne pour ce mur" aria-label={`Consigne pour ${cm.mur}`}
@@ -128,7 +128,7 @@ export default function PreparationConsignes({ pieces, ouvrages, preparation, ch
                 </div>
               ))}
               {c.consignes_murs.some(cm => !cm.texte.trim()) && (
-                <div style={{ color: T.textSub, fontSize: FONT.xs.size + 1 }}>Un mur sans texte n'est pas enregistré.</div>
+                <div style={{ color: T.textSub, fontSize: FONT.xs.size }}>Un mur sans texte n'est pas enregistré.</div>
               )}
 
               {ajoutMur?.pieceId === p.id ? (
@@ -167,7 +167,7 @@ export default function PreparationConsignes({ pieces, ouvrages, preparation, ch
                     </div>
                   ))}
                   {enCours > 0 && (
-                    <div style={{ width: 96, height: 96, borderRadius: RADIUS.md, border: `1px dashed ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: T.textSub, fontSize: FONT.xs.size + 1 }}>
+                    <div style={{ width: 96, height: 96, borderRadius: RADIUS.md, border: `1px dashed ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: T.textSub, fontSize: FONT.xs.size }}>
                       <Icon as={RotateCw} size={14}/> Envoi… {enCours}
                     </div>
                   )}
@@ -201,24 +201,24 @@ export default function PreparationConsignes({ pieces, ouvrages, preparation, ch
       {/* Contrôle final */}
       <section aria-label="Contrôle final" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {controle.etat === "aucune_tache" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, border: `1px dashed ${T.border}`, borderRadius: RADIUS.md, padding: "14px 16px", color: T.textSub, fontSize: FONT.sm.size + 2 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, border: `1px dashed ${T.border}`, borderRadius: RADIUS.md, padding: "14px 16px", color: T.textSub, fontSize: FONT.sm.size + 1 }}>
             Aucune tâche dans le phasage : rien à contrôler pour l'instant.
           </div>
         )}
         {controle.etat === "ok" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(80,200,120,0.08)", border: "1px solid rgba(80,200,120,0.35)", borderRadius: RADIUS.md, padding: "14px 16px", fontSize: FONT.sm.size + 2 }}>
-            <Icon as={Check} size={20} style={{ color: "#3fb771" }}/> Toutes les tâches ont une pièce ({controle.total}).
+          <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(80,200,120,0.08)", border: "1px solid rgba(80,200,120,0.35)", borderRadius: RADIUS.md, padding: "14px 16px", fontSize: FONT.sm.size + 1 }}>
+            <Icon as={Check} size={16} style={{ color: "#3fb771" }}/> Toutes les tâches ont une pièce ({controle.total}).
           </div>
         )}
         {controle.etat === "logement" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(80,200,120,0.08)", border: "1px solid rgba(80,200,120,0.35)", borderRadius: RADIUS.md, padding: "14px 16px", fontSize: FONT.sm.size + 2 }}>
-            <Icon as={Check} size={20} style={{ color: "#3fb771" }}/> Aucune tâche oubliée : chaque tâche a une pièce, sauf celles prévues pour tout le logement (liste ci-dessous).
+          <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(80,200,120,0.08)", border: "1px solid rgba(80,200,120,0.35)", borderRadius: RADIUS.md, padding: "14px 16px", fontSize: FONT.sm.size + 1 }}>
+            <Icon as={Check} size={16} style={{ color: "#3fb771" }}/> Aucune tâche oubliée : chaque tâche a une pièce, sauf celles prévues pour tout le logement (liste ci-dessous).
           </div>
         )}
         {controle.sansPiece.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, background: "#e15a5a12", border: "1px solid #e15a5a55", borderRadius: RADIUS.md, padding: "14px 16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: FONT.sm.size + 2, fontWeight: 700 }}>
-              <Icon as={AlertTriangle} size={18} style={{ color: "#e15a5a" }}/>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: FONT.sm.size + 1, fontWeight: 700 }}>
+              <Icon as={AlertTriangle} size={15} style={{ color: "#e15a5a" }}/>
               {controle.sansPiece.length} tâche{controle.sansPiece.length > 1 ? "s" : ""} sans pièce
             </div>
             <ul style={{ margin: 0, paddingLeft: 20 }}>{controle.sansPiece.map(ligneTache)}</ul>
@@ -227,7 +227,7 @@ export default function PreparationConsignes({ pieces, ouvrages, preparation, ch
         )}
         {controle.toutLeLogement.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "14px 16px" }}>
-            <div style={{ fontSize: FONT.sm.size + 2, fontWeight: 700 }}>
+            <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700 }}>
               Tout le logement : {controle.toutLeLogement.length} tâche{controle.toutLeLogement.length > 1 ? "s" : ""} sans pièce précise (choix « Tout le logement »)
             </div>
             <ul style={{ margin: 0, paddingLeft: 20 }}>{controle.toutLeLogement.map(ligneTache)}</ul>
