@@ -1,0 +1,39 @@
+name: Verify Point du soir des conducteurs (C1 + C2)
+
+on:
+  pull_request:
+    paths:
+      - 'src/Renovation/ouvriersAttendusV1.mjs'
+      - 'src/Renovation/ouvriersAttendusV1.js'
+      - 'src/Renovation/pointConducteursV1.mjs'
+      - 'src/Renovation/pointConducteursV1.js'
+      - 'supabase/functions/_partage/pushGroupeV1.mjs'
+      - 'supabase/functions/_partage/notificationsPushV1.mjs'
+      - 'supabase/functions/send-push/**'
+      - 'api/cron-dispatcher.js'
+      - 'api/_cron/cron-rappel-rapport.js'
+      - 'api/_cron/cron-point-conducteurs.js'
+      - 'api/_cron/cron-push-reportes.js'
+      - 'api/_lib/autorisationServeur.js'
+      - 'src/access.js'
+      - 'src/Renovation/journalMaj.js'
+      - '.github/workflows/cron-point-conducteurs.yml'
+      - 'scripts/verif-point-conducteurs.mjs'
+      - '.github/workflows/verify-point-conducteurs.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dépendances (supabase-js, chargé par le mail de rappel exécuté sur une base simulée)
+        run: npm ci
+      - name: Point du soir — règle « ouvriers attendus » partagée avec le rappel, contenu, préférences C1/C2, job et créneau (données fictives)
+        run: node scripts/verif-point-conducteurs.mjs
