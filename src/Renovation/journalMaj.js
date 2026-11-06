@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
+    type: "amelioration",
+    titre: "Bilan : la marge à terminaison apparaît dans les deux PDF, et la version direction est plus courte",
+    pages: [{ id: "bilan-semaine", label: "Bilan" }],
+    quoi: "La marge à terminaison (où le chantier finit si le reste se passe comme le devis) apparaît maintenant dans le tableau des chantiers des deux PDF du Bilan, juste avant la marge probable, en euros et en % du vendu. Le bandeau donne aussi son total (« à terminaison »), calculé sur exactement les mêmes chantiers que le total de la marge probable, pour pouvoir comparer les deux. Quand elle n'est pas connue pour un chantier, on affiche « — », jamais 0. Aucun calcul ne change : le chiffre est celui déjà enregistré chaque jour. La version direction s'arrête désormais après les alertes, les décisions attendues et les tendances par lot : la semaine qui vient (avec ses longues listes d'articles à commander), le prévu / réalisé, la fin prévisionnelle et les rectifications n'y figurent plus. Ils restent dans la version détaillée.",
+    comment: "Rien à faire : exportez le Bilan comme d'habitude. Les rectifications et le prévu / réalisé des bilans suivants continuent de se calculer normalement, y compris à partir d'un bilan exporté en version direction.",
+  },
+  {
+    date: "2026-11-06",
     type: "correctif",
     titre: "Bilan : la marge prévue au devis réapparaît, avec le total de la marge probable",
     pages: [{ id: "bilan-semaine", label: "Bilan" }],

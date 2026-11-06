@@ -312,3 +312,43 @@ bloqué), seules les prévisualisations Vercel ont été vérifiées.
 - « Bilan : la marge prévue au devis réapparaît, avec le total de la marge
   probable ».
 
+
+## Suite du 06/11/2026 — marge à terminaison et PDF direction allégé
+
+Demande de Loris (après le projet) : « Il faut ajouter la marge à terminaison,
+je ne la vois pas sur le PDF mensuel », puis, sur le PDF direction d'octobre :
+« les 3 dernières pages ne servent à rien, retire-les ».
+
+- **Marge à terminaison** (où le chantier finit si le reste se passe comme le
+  devis) : nouvelle colonne juste avant la marge probable, en € et en % du
+  vendu, dans le tableau des chantiers des deux versions du PDF ; « — » si
+  elle n'est pas connue, jamais 0. Le bandeau donne son total « à
+  terminaison », calculé sur exactement les mêmes chantiers que le total de
+  la marge probable (inconnu dès qu'un de ces chantiers n'a pas de marge à
+  terminaison). La ligne TOTAL du PDF détaillé le reprend. Chiffre déjà
+  enregistré dans chaque relevé : aucun calcul ne change.
+- **Version direction** : elle s'arrête après les alertes, les décisions
+  attendues et les tendances par lot. La semaine qui vient, le prévu /
+  réalisé, la fin prévisionnelle et les rectifications ne sont plus que dans
+  la version détaillée. Seul l'affichage est retiré : ce qui est archivé à
+  chaque export ne change pas, les rectifications et le prévu / réalisé des
+  bilans suivants continuent de fonctionner.
+
+Semaine 2026-W44, chiffres lus en base (relevés du 29/10/2026), PDF
+reconstitués hors application :
+
+| Chantier | Marge à terminaison | Marge probable |
+|---|---|---|
+| FOURMOND 001 | +8 518,02 € (21,1 %) | +4 134,52 € (10,2 %) |
+| FOURMOND 101 | +5 830,41 € (17,2 %) | +3 205,73 € (9,5 %) |
+| FOURMOND 102 | +4 586,03 € (15,4 %) | +953,75 € (3,2 %) |
+| FOURMOND COMMUNS | +1 501,73 € (25,4 %) | +1 501,73 € (25,4 %) |
+| KATHLEEN T2 | +9 068,48 € (41,6 %) | +8 314,10 € (38,2 %) |
+| MONTILLERS APPT 2 (T2) | +14 782,54 € (41,9 %) | +14 709,79 € (41,7 %) |
+| MONTILLERS APPT 4 (T2) | +15 777,86 € (39,8 %) | +14 757,33 € (37,3 %) |
+| Total du bandeau (7 chantiers) | +60 065 € (29 %) | +47 577 € (23 %) |
+
+PDF direction : 2 pages ; PDF détaillé : 8 pages, tableau du haut lisible
+avec les noms de chantier sur une ligne. Entrée ajoutée dans `journalMaj.js`
+(« Bilan : la marge à terminaison apparaît dans les deux PDF, et la version
+direction est plus courte »).
