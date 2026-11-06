@@ -32,6 +32,22 @@ export const JOURNAL_MAJ = [
   },
   {
     date: "2026-11-06",
+    type: "nouveaute",
+    titre: "Mon profil : activer les notifications sur votre téléphone et recevoir une notification de test",
+    pages: [],
+    quoi: "Première étape des notifications sur téléphone pour le bureau (conducteurs, comptable, direction, commerciaux). Vous pouvez dès maintenant les activer sur votre téléphone et vérifier qu'elles arrivent avec une notification de test. Les envois automatiques (point du soir des conducteurs, factures à émettre, chantiers en alerte, nouveaux chantiers…) arriveront ensuite. Les ouvriers ne reçoivent aucune notification et ne voient rien de nouveau. Les mails existants ne changent pas.",
+    comment: "Touchez votre nom en bas de la barre de gauche (sur téléphone : l'icône téléphone en haut de l'écran) pour ouvrir « Mon profil ». Dans « Notifications sur ce téléphone », touchez « Activer les notifications » et acceptez la demande du téléphone, puis « Envoyer une notification de test ». L'écran dit toujours l'état réel : activées, refusées (avec la marche à suivre dans les réglages du téléphone), non prises en charge par ce navigateur, ou, sur iPhone, qu'il faut d'abord installer l'application sur l'écran d'accueil (Partager › Sur l'écran d'accueil, iOS 16.4 minimum). Tant que la configuration du serveur n'est pas terminée, il l'affiche aussi. « Désactiver sur cet appareil » coupe les notifications de ce téléphone seulement.",
+  },
+  {
+    date: "2026-11-06",
+    type: "correctif",
+    titre: "Plus d'écran blanc muet après une mise à jour de l'application",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }],
+    quoi: "Après une mise à jour, un ordinateur pouvait garder en mémoire une ancienne version de l'application et n'afficher qu'un écran blanc, même après la réparation automatique. Désormais, si cette réparation ne suffit pas, l'application affiche un message clair avec un bouton « Effacer la mémoire et recharger », au lieu d'un écran blanc.",
+    comment: "Si le message apparaît : cliquez sur le bouton. Vos données ne sont pas touchées, elles sont sur le serveur.",
+  },
+  {
+    date: "2026-11-06",
     type: "amelioration",
     titre: "Opérations et chantiers : chaque modification n'écrase plus celle d'un collègue, et chaque chantier a son opération",
     pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Chantiers" }, { id: "admin", label: "Réglages" }],

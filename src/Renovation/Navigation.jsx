@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   Calculator, CheckCircle2, Camera, Receipt, Wallet,
   Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb, Bell, NotebookPen,
-  MessageSquare, ClipboardCheck,
+  MessageSquare, ClipboardCheck, Smartphone,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -272,6 +272,7 @@ function Sidebar({
   rolePages = null, onOuvrirDansNouvelOnglet = null,
   // Tout l'ancien contenu de la topbar :
   profil, theme, setTheme, onLogout, peutChangerBranche, onRetourPortail,
+  onOuvrirProfil = null,
   syncing = false, connected = true, lastSync = null,
 }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "1");
@@ -517,18 +518,27 @@ function Sidebar({
 
       {/* ── User info ── */}
       {profil && !collapsed && (
-        <div style={{
+        <div
+          {...(onOuvrirProfil ? {
+            role:"button", tabIndex:0, title:"Mon profil · notifications sur ce téléphone",
+            onClick:onOuvrirProfil,
+            onKeyDown:e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOuvrirProfil(); } },
+          } : {})}
+          style={{
           padding:"10px 14px",
           borderTop:`1px solid ${T.sidebarBorder}`,
-          display:"flex", flexDirection:"column", gap:1,
-          flexShrink:0,
+          display:"flex", alignItems:"center", gap:8,
+          flexShrink:0, cursor: onOuvrirProfil ? "pointer" : "default",
         }}>
-          <span style={{ fontSize: FONT.sm.size, fontWeight:700, color:"#fff", letterSpacing:.1,
-            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
-          }}>{profil?.nom || profil?.email}</span>
-          <span style={{ fontSize: FONT.xs.size, letterSpacing:.8, textTransform:"uppercase",
-            color: acc.accent, opacity:.75, fontWeight:600,
-          }}>{ROLE_LABELS[role] || role}</span>
+          <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0, flex:1 }}>
+            <span style={{ fontSize: FONT.sm.size, fontWeight:700, color:"#fff", letterSpacing:.1,
+              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+            }}>{profil?.nom || profil?.email}</span>
+            <span style={{ fontSize: FONT.xs.size, letterSpacing:.8, textTransform:"uppercase",
+              color: acc.accent, opacity:.75, fontWeight:600,
+            }}>{ROLE_LABELS[role] || role}</span>
+          </div>
+          {onOuvrirProfil && <Icon as={Smartphone} size={15} color="rgba(255,255,255,0.45)" style={{ flexShrink:0 }}/>}
         </div>
       )}
 

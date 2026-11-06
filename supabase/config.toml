@@ -74,3 +74,13 @@ verify_jwt = true
 # ── Portail client : dépôt de pièces (le client est identifié par son jeton, dans le code) ──
 [functions.portail-depot-document]
 verify_jwt = true
+
+# ── Notifications sur téléphone (projet notifications-push) : JWT exigé ──
+# L'appelant est ensuite identifié dans le code (collaborateur actif, rôle
+# bureau, jamais « ouvrier »). Les envois automatiques (tâche 2) passeront par
+# un secret serveur, sans ouvrir la fonction.
+[functions.push-abonnement]
+verify_jwt = true
+
+[functions.send-push]
+verify_jwt = true

@@ -6,7 +6,7 @@ import { markDirty, markClean } from "./pwa";
 import { chargerChantiers, sauverChantiers, sauverOperations, abonnerChantiersOperations } from "./Renovation/chantiersDonnees";
 import { filtrerChantiersActifs } from "./Renovation/chantierActif";
 import { THEMES, DEFAULT_OUVRIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent, loginEmailFromIdentifiant, normalizeBranches } from "./constants";
-import { LayoutGrid, Sun, Moon, LogOut, Lock } from "lucide-react";
+import { LayoutGrid, Sun, Moon, LogOut, Lock, Smartphone } from "lucide-react";
 import { Icon } from "./ui";
 
 // ─── COMPOSANT "ACCÈS REFUSÉ" ────────────────────────────────────────────────
@@ -49,6 +49,7 @@ function PageLoader({ T }) {
 
 import { Sidebar, BottomNav, LABELS_PAGES } from "./Renovation/Navigation";
 import BarreOnglets, { MAX_ONGLETS } from "./Renovation/BarreOnglets";
+import PanneauProfil from "./Renovation/ProfilNotifications";
 import PageDashboard          from "./Renovation/Dashboard";
 import PagePlanning           from "./Renovation/Planning";
 import PagePlanningMensuel    from "./Renovation/PlanningMensuel";
@@ -516,6 +517,8 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   // désignent la page de l'onglet actif, donc toute la navigation existante
   // (menu, liens entre pages) agit sur l'onglet courant.
   const[onglets,setOnglets]=useState([{id:1,page:"dashboard"}]);
+  // « Mon profil » (notifications sur ce téléphone) : panneau, pas une page.
+  const[profilOuvert,setProfilOuvert]=useState(false);
   const[ongletActif,setOngletActif]=useState(1);
   const prochainOnglet=React.useRef(2);
   const page=(onglets.find(o=>o.id===ongletActif)||onglets[0]).page;
@@ -883,7 +886,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       <div className="app-sidebar"><Sidebar
         page={page} setPage={setPage} T={T} role={role} rolePages={rolePages} branch="renovation" onOuvrirDansNouvelOnglet={ouvrirOnglet}
         profil={profil} theme={theme} setTheme={setTheme}
-        onLogout={onLogout}
+        onLogout={onLogout} onOuvrirProfil={role!=="ouvrier"?()=>setProfilOuvert(true):null}
         peutChangerBranche={peutChangerBranche} onRetourPortail={onRetourPortail}
         syncing={syncing} connected={connected} lastSync={lastSync}
       /></div>
@@ -918,6 +921,11 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
               </button>
             )}
             <BoutonAide page={page} T={T} branch={branch}/>
+            {role!=="ouvrier"&&(
+              <button className="btn-g topbar-profil-btn" title="Mon profil · notifications sur ce téléphone" aria-label="Mon profil · notifications sur ce téléphone" onClick={()=>setProfilOuvert(true)} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 10px"}}>
+                <Icon as={Smartphone} size={16}/>
+              </button>
+            )}
             <button className="btn-g topbar-theme-btn" title={theme==="dark"?"Passer en thème clair":"Passer en thème sombre"} onClick={()=>{setTheme(t=>t==="dark"?"light":"dark");localStorage.setItem("theme",theme==="dark"?"light":"dark");}} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 10px"}}>
               <Icon as={theme==="dark"?Sun:Moon} size={16}/>
             </button>
@@ -971,6 +979,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         </div>
       </div>
       <BottomNav page={page} setPage={setPage} T={T} role={role} rolePages={rolePages}/>
+      {profilOuvert&&role!=="ouvrier"&&<PanneauProfil profil={profil} role={role} T={T} onClose={()=>setProfilOuvert(false)}/>}
       {/* Barre todo persistante : visible sur toutes les pages, chaque
           utilisateur n'y voit que les tâches qui lui sont assignées. */}
       <BulleTodo T={T} profil={profil} branch="renovation"
