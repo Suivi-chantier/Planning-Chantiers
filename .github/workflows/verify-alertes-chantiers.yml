@@ -1,0 +1,40 @@
+name: Verify Alertes chantiers (C4, C5, D1)
+
+on:
+  pull_request:
+    paths:
+      - 'src/Renovation/alertesEcranV1.mjs'
+      - 'src/Renovation/alertesEcranV1.js'
+      - 'src/Renovation/alertesChantiersPushV1.mjs'
+      - 'src/Renovation/PageAlertes.jsx'
+      - 'src/Renovation/alertesV1.mjs'
+      - 'src/Renovation/alertesMargesV2.mjs'
+      - 'src/Renovation/pointsAttentionV1.mjs'
+      - 'src/Renovation/pointsAttentionDonneesV1.mjs'
+      - 'src/Renovation/chantierActif.mjs'
+      - 'src/Renovation/chantiersTables.mjs'
+      - 'src/Renovation/bilanSemaineProchaineV1.mjs'
+      - 'src/Renovation/journalMaj.js'
+      - 'src/rythmeSemaine.mjs'
+      - 'src/chantierFinance.mjs'
+      - 'supabase/functions/_partage/notificationsPushV1.mjs'
+      - 'api/cron-dispatcher.js'
+      - 'api/_cron/cron-alertes-chantiers.js'
+      - 'api/_cron/cron-push-reportes.js'
+      - '.github/workflows/cron-alertes-chantiers.yml'
+      - 'scripts/verif-alertes-chantiers.mjs'
+      - '.github/workflows/verify-alertes-chantiers.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Alertes chantiers — même calcul que la page Alertes, seules les aggravations notifiées, premier passage silencieux, marge inconnue sans effet, une notification par type (données fictives)
+        run: node scripts/verif-alertes-chantiers.mjs
