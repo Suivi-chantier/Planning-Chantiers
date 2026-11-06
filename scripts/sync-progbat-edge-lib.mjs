@@ -21,6 +21,11 @@ export const CIBLES = Object.freeze({
   // reglesSaisieProgbat.mjs : la liste unique des règles de saisie (Refonte
   // Opérations, lot 2), lue par construireEnTeteDevis côté serveur aussi.
   "progbat-quote": ["codeOuvrage.mjs", "chiffragePricing.mjs", "multiOuvrages.mjs", "reglesSaisieProgbat.mjs", "progbatQuotePayload.mjs", "progbatQuoteServeur.mjs"],
+  // Refonte Opérations, lot 4 : client → chantier ProGBat → acompte (écritures
+  // sur bouton, réservées) et lecture du statut des devis (tâche planifiée).
+  // cycleVieReprise.mjs : même lecture de l'étape « Devis signé » que la fiche.
+  "progbat-operations": ["reglesSaisieProgbat.mjs", "cycleVieReprise.mjs", "progbatStatutDevis.mjs", "progbatAutomatisation.mjs"],
+  "progbat-devis-statut-cron": ["progbatStatutDevis.mjs", "progbatDiagnosticLot4.mjs"],
   "progbat-library-cadences": ["codeOuvrage.mjs", "progbatCadences.mjs", "progbatCadencesServeur.mjs"],
   "progbat-yards-list": ["progbatYards.mjs"],
   // Diagnostic de pré-synchronisation (lecture seule) : il réutilise les règles

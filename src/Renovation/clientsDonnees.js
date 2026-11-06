@@ -51,7 +51,10 @@ export async function enregistrerClient(fiche, { id = null } = {}) {
   const valeurs = nettoyer(fiche);
   const manquants = controlerFiche("client", valeurs);
   if (manquants.length) return { ok: false, manquants };
-  const ligne = { ...valeurs, code_progbat: genererCodeClient(valeurs) };
+  // Fiche reliée à un client ProGBat (lot 4) : l'identifiant ProGBat reste
+  // celui de ProGBat ; compléter la fiche locale ne modifie pas ProGBat.
+  const lieProgbat = fiche?.progbat_client_id != null && String(fiche.progbat_client_id).trim() !== "";
+  const ligne = lieProgbat ? { ...valeurs } : { ...valeurs, code_progbat: genererCodeClient(valeurs) };
   let res;
   if (id) {
     res = await supabase.from("clients").update(ligne).eq("id", id).select(COLS_CLIENT).single();
