@@ -126,8 +126,8 @@ correspondance « À placer ».
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Tranche 1a — Moteur de calcul du découpage (module pur `preparationChantierV1.mjs` + façade, script `verif-preparation-chantier.mjs` branché dans un workflow) ; bouton « Préparer le chantier » dans Phasage V2, parcours plein écran, étape « Les pièces », « Enregistrer et quitter » / reprise | en ligne | Auto (contrôles verts) | Vérifications vertes sur GitHub ; le parcours s'ouvre, les pièces s'enregistrent, la reprise revient à la bonne étape | [#199](https://github.com/Suivi-chantier/Planning-Chantiers/pull/199) |
 | 2 | Tranche 1b — Étape « Où se fait chaque ouvrage » (3 modes, reste à placer, granularité par tâche, aperçu ouvriers) + entrée `journalMaj.js` | en ligne | **Arrêt avant fusion** : démonstration sur LOUISON APPT 2 (T2), rien d'enregistré sans accord | Tableau avant / après du doublage MU-001 (50 m²), totaux identiques au centième | [#200](https://github.com/Suivi-chantier/Planning-Chantiers/pull/200) (fusionnée après accord de Loris) |
-| 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | en cours | Auto | Consignes et photos relues après rechargement ; contrôle final juste | [#201](https://github.com/Suivi-chantier/Planning-Chantiers/pull/201) |
-| 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | à faire | Auto | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | — |
+| 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | en ligne | Auto | Consignes et photos relues après rechargement ; contrôle final juste | [#201](https://github.com/Suivi-chantier/Planning-Chantiers/pull/201) |
+| 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | en cours | Auto (modification de `ouvrier_mes_phases` acceptée par Loris le 06/11) | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | [#202](https://github.com/Suivi-chantier/Planning-Chantiers/pull/202) (ouverte ; migration appliquée le 06/11) |
 | 5 | Tranche 3 — Copie depuis un autre logement (moteur de correspondance + étape « Point de départ ») + vérifications + entrée `journalMaj.js` | à faire | Auto | Vérifications de copie vertes ; copie d'un logement préparé vers un logement vierge de la même opération | — |
 
 ## Journal des décisions
@@ -338,6 +338,83 @@ ouverture n'a pas pu être contrôlée directement.
 - *Phasage V2* : seul ajout, l'identifiant du chantier transmis au
   parcours (dossier des photos).
 
+**06/11/2026 — Tâche 3 en ligne.** Demande de fusion #201 fusionnée, tous les
+contrôles verts (dont `verif-pieces-phasage`, touché par la correction de
+`piecesDuPhasage`). Vérifié sur la base avant fusion : aucun phasage ne porte
+encore `meta.preparation`, la nouvelle note « Tout le logement » ne concerne
+aucune donnée existante.
+
+**06/11/2026 — Tâche 4 : arrêt obligatoire (droits d'accès).** Les écrans
+ouvrier (Compte rendu `ParcoursCompteRendu.jsx`, onglet Phases
+`OuvrierMesPhases.jsx`, `RapportMobile.jsx`) ne lisent pas la table
+`phasages` (policy `bureau_all` réservée au bureau) : ils passent par la
+fonction SECURITY DEFINER `public.ouvrier_mes_phases` (propriétaire postgres).
+Vérifié sur la base : elle renvoie les pièces sous la forme `{id, nom}` et,
+pour chaque tâche, `nom`, `nom_perso`, `piece_id`, mais ni `mur`, ni
+`quantite_part`, ni consignes, ni photos. Le bucket `photos` est déjà public
+en lecture. Rien n'est poussé pour la tâche 4.
+
+Question posée à Loris : « Pour que les ouvriers voient consignes, photos,
+mur et m², j'ajoute ces informations à la fonction serveur qui leur envoie le
+phasage (aucun prix, aucun %, mêmes contrôles d'accès). D'accord ? (oui /
+non) ». Si oui : migration `create or replace` de `ouvrier_mes_phases` à
+partir du corps en production, ajout de `mur`, `quantite_part` par tâche et
+`consigne`, `consignes_murs`, `photos` par pièce (+ `ouvrages_logement`),
+puis écran Compte rendu en mode pièces. Si non : onglets par pièce avec
+les tâches seulement, sans consignes ni photos. Réponse de Loris
+(06/11/2026) : « oui ».
+
+**06/11/2026 — Tâche 4 : migration préparée, NON appliquée.**
+`supabase/migrations/20261106120000_ouvrier_mes_phases_pieces_consignes.sql`.
+
+- *Point de départ vérifié* : le corps de `ouvrier_mes_phases` en production
+  (`pg_get_functiondef`, empreinte md5 `e3d166bd…`, 18 796 octets) est
+  identique à l'octet près au fichier du 29/10/2026. Propriétaire
+  `postgres`, `SECURITY DEFINER`, `search_path = public`, droit d'exécution
+  pour `postgres`, `authenticated` et `service_role` seulement (ni
+  `public`, ni `anon`).
+- *Ajouts seulement* : par tâche `mur` et `quantite_part` (même contrôle de
+  nombre que `quantite`) ; par pièce `consigne`, `consignes_murs` (clés
+  `mur` et `texte` seulement, entrées vides écartées) et `photos` (chemins) ;
+  à la racine `ouvrages_logement`. Aucun prix, aucun %, aucune heure en
+  plus ; mêmes contrôles d'accès. Les droits sont ré-énoncés à l'identique
+  (`create or replace` les garde de toute façon).
+- *Essai en transaction annulée* (bloc unique terminé par une erreur
+  volontaire, qui annule tout) sur KATHLEEN T2 (3 pièces, 89 tâches),
+  appelé comme un compte bureau : nouvelle réponse = ancienne réponse
+  + les seuls champs ajoutés (comparaison complète : identique) ; sans
+  connexion, réponse vide comme avant. Après l'essai, la fonction en
+  production est inchangée (même empreinte). Le nettoyage des consignes et
+  photos a été essayé à part sur des données fictives (requête en lecture
+  seule).
+- *Appli compatible avant et après la migration* : sans les nouveaux
+  champs, l'écran ouvrier est exactement celui d'avant.
+- *Onglet des tâches sans pièce* : « Tout le logement » pour les ouvrages
+  notés dans `ouvrages_logement`, « Sans pièce » pour toutes les autres (y
+  compris une pièce retirée). Aucune tâche cachée. Une pièce sans tâche à
+  faire n'est pas listée, comme avant.
+- *Où* : écran « Par pièce » du compte rendu (`ParcoursCompteRendu.jsx`,
+  parcours `cr_v2`). Onglets des pièces en haut, consignes (pièce puis murs),
+  miniatures des photos (agrandissement plein écran au toucher), « À faire
+  ici · N », puis les tâches avec le sous-titre « mur · m² » (unité de
+  l'ouvrage, m² à défaut). L'onglet « Phases » (`OuvrierMesPhases.jsx`) n'a
+  aucune vue par pièce aujourd'hui : non modifié (l'ajout n'y serait pas
+  simple). Aucune action existante modifiée (choix des tâches, création,
+  envoi du compte rendu).
+- *Non repris de la maquette* : « Voir la pièce sur le plan » (pas de plan
+  dans le projet).
+
+
+**06/11/2026 — Tâche 4 : migration appliquée.** Relue en entier par la
+session principale (diff avec le corps de production : ajouts seulement),
+empreinte de production vérifiée inchangée juste avant
+(`e3d166bd…`), puis appliquée sous le nom
+`ouvrier_mes_phases_pieces_consignes`. Contrôle après : enregistrée comme
+dernière migration, `SECURITY DEFINER`, propriétaire `postgres`,
+`search_path = public`, droits d'exécution identiques (`postgres`,
+`authenticated`, `service_role`). Fonction en lecture seule : aucune
+écriture dans une table, donc pas d'audit `invest_dossier_etapes` à faire.
+
 ## Comptes rendus
 
 **Tâche 1 — Tranche 1a (06/11/2026, demande de fusion ouverte, pas encore en ligne).**
@@ -534,3 +611,41 @@ droits d'accès. L'écran n'a pas pu être essayé dans un navigateur depuis la
 session de travail (pas de dépendances installées) : la construction est
 contrôlée par GitHub. L'envoi réel d'une photo n'a pas été essayé (aucune
 écriture dans le stockage depuis la session).
+
+**Tâche 4 — Tranche 2b (06/11/2026, demande de fusion ouverte, pas encore en ligne — migration préparée, pas encore appliquée).**
+
+Ce qui change pour les ouvriers (sur le téléphone, compte rendu → « J'ai
+fait autre chose » → « Par pièce ») :
+
+- Les pièces apparaissent dans l'ordre choisi par le conducteur. En
+  touchant une pièce, on voit en haut **la consigne de la pièce** et **les
+  consignes par mur** (encadrés jaunes), puis **les photos** de la pièce en
+  miniatures : toucher une photo l'affiche en grand.
+- Ensuite « À faire ici », avec sous chaque tâche **le mur et les m²**
+  (« Mur côté rue · 14 m² »).
+- Des onglets en haut de l'écran permettent de passer d'une pièce à
+  l'autre sans revenir en arrière.
+- Les tâches des ouvrages prévus « Tout le logement » sont rangées dans
+  « Tout le logement » ; les autres tâches sans pièce dans « Sans pièce ».
+  Aucune tâche n'est cachée.
+- Une pièce sans consigne ni photo s'affiche comme avant, sans cadre vide.
+  Choisir ses tâches, en créer une et envoyer le compte rendu ne changent
+  pas.
+
+Pour que consignes, photos, mur et m² arrivent sur le téléphone, la fonction
+serveur qui envoie le phasage aux ouvriers doit recevoir la migration
+préparée (accord de Loris du 06/11). Tant qu'elle n'est pas appliquée,
+l'écran reste celui d'avant (seul le classement « Tout le logement »
+dépend aussi de la migration).
+
+Nouvelle entrée dans le journal des mises à jour (Phasage).
+
+Vérifications : vérification automatique du téléphone complétée (86
+contrôles, données fictives) — sans les nouveaux champs rien de vide ne
+s'affiche ; ordre des pièces, « Tout le logement », « Sans pièce », aucune
+tâche cachée ; sous-titre mur · m². Vérification du découpage : 125
+contrôles, inchangée. Migration essayée en transaction annulée sur un vrai
+chantier : la réponse ne diffère de l'actuelle que par les champs ajoutés.
+Aucun changement de droits d'accès. L'écran n'a pas pu être essayé dans un
+navigateur depuis la session (pas de dépendances installées) : la
+construction est contrôlée par GitHub.
