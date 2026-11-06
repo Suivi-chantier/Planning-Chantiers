@@ -27,6 +27,9 @@
 //   Lun-Ven 05h UTC        → tableau de bord Invest par mail (?job=)
 //   Tous les jours 21h30 UTC → contrôle du journal d'avancement (?job=)
 //   Lun-Ven 06h15 UTC      → relances devis / acompte         (?job=)
+//   Lun-Ven 05h05 et 06h05 UTC → push reportés (?job=push_reportes) : l'un des
+//     deux tombe à 7h05 Paris selon la saison, l'autre ne trouve rien à faire
+//     (cron-push-reportes.yml)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");
@@ -38,6 +41,7 @@ const { runInvestEcheances }   = require("./_cron/cron-invest-echeances.js");
 const { runInvestTableauBord } = require("./_cron/cron-invest-tableau-bord.js");
 const { runJournalAvancement } = require("./_cron/cron-journal-avancement.js");
 const { runRelancesCycleVie }  = require("./_cron/cron-relances-cycle-vie.js");
+const { runPushReportes, runPushSimulation } = require("./_cron/cron-push-reportes.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -85,6 +89,19 @@ const TACHES = {
   relances_cycle_vie: {
     fenetre: null,
     run: (req, supabase, t) => runRelancesCycleVie(req, supabase, t, envoyerMail),
+  },
+  // Notifications sur téléphone (projet notifications-push) : envoie les push
+  // reportés par la plage de silence dont l'heure est venue. Par `?job=`
+  // seulement ; passe par l'Edge Function send-push (mode « reportes »).
+  push_reportes: {
+    fenetre: null,
+    run: () => runPushReportes(),
+  },
+  // Simulation sans envoi ni écriture d'un type de notification sur les vrais
+  // utilisateurs : `?job=push_simulation&type=D2`. Par `?job=` seulement.
+  push_simulation: {
+    fenetre: null,
+    run: (req) => runPushSimulation(req),
   },
 };
 

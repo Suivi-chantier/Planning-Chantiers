@@ -77,10 +77,13 @@ verify_jwt = true
 
 # ── Notifications sur téléphone (projet notifications-push) : JWT exigé ──
 # L'appelant est ensuite identifié dans le code (collaborateur actif, rôle
-# bureau, jamais « ouvrier »). Les envois automatiques (tâche 2) passeront par
-# un secret serveur, sans ouvrir la fonction.
+# bureau, jamais « ouvrier »). Les envois automatiques de send-push (tâche 2)
+# exigent en plus la clé service role, sans ouvrir la fonction.
 [functions.push-abonnement]
 verify_jwt = true
 
 [functions.send-push]
+verify_jwt = true
+
+[functions.notifications-boite]
 verify_jwt = true

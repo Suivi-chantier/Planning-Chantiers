@@ -5,6 +5,7 @@ on:
     paths:
       - 'src/notificationsPush.mjs'
       - 'src/notificationsPush.js'
+      - 'src/notificationsPushV1.js'
       - 'src/Renovation/ProfilNotifications.jsx'
       - 'src/Renovation/Navigation.jsx'
       - 'src/Renovation/EspaceOuvrier.jsx'
@@ -14,9 +15,15 @@ on:
       - 'public/push-sw.js'
       - 'vite.config.js'
       - 'supabase/functions/_partage/push*'
+      - 'supabase/functions/_partage/notificationsPushV1.mjs'
+      - 'supabase/functions/notifications-boite/**'
       - 'supabase/functions/push-abonnement/**'
       - 'supabase/functions/send-push/**'
       - 'supabase/migrations/*_push_subscriptions.sql'
+      - 'supabase/migrations/*_notifications_boite.sql'
+      - 'api/cron-dispatcher.js'
+      - 'api/_cron/cron-push-reportes.js'
+      - '.github/workflows/cron-push-reportes.yml'
       - 'supabase/config.toml'
       - 'scripts/verif-notifications-push.mjs'
       - '.github/workflows/verify-notifications-push.yml'
@@ -32,5 +39,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Notifications sur téléphone — état affiché, décisions serveur, service worker, migration, espace ouvrier
+      - name: Notifications sur téléphone — état affiché, décisions serveur, moteur des envois (données fictives), migrations, espace ouvrier
         run: node scripts/verif-notifications-push.mjs
