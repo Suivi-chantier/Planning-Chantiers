@@ -341,14 +341,16 @@ envoi réussi). Fin d'étape 1 validée.
 - **Module pur** `supabase/functions/_partage/notificationsPushV1.mjs`
   (même emplacement que `pushRegles.mjs`), façade front
   `src/notificationsPushV1.js`.
-- **État au 06/11/2026** : migration `20261106140000_notifications_boite`
-  relue et vérifiée (rien n'existait), mais **pas appliquée** : l'outil
-  Supabase a demandé une confirmation restée sans réponse. `send-push` n'est
-  donc pas redéployé (la version en ligne reste celle de la tâche 1, l'envoi
-  de test continue de marcher). `notifications-boite` est déployée (refus sans
-  jeton et avec la clé anon vérifiés). À faire : appliquer la migration, puis
-  redéployer `send-push` et `notifications-boite` avec les fichiers complets
-  du dépôt.
+- **État au 06/11/2026** : la migration `notifications_boite` a d'abord été
+  relue et vérifiée (rien n'existait), mais l'outil Supabase a demandé une
+  confirmation restée sans réponse.
+
+**06/11/2026 — Migration appliquée par la session principale**, version
+`20261106063848` (fichier renommé `20261106063848_notifications_boite.sql`
+pour correspondre). Vérifié : les deux tables existent et ne portent que la
+policy restrictive `profero_collaborateurs_seulement`. `send-push` et
+`notifications-boite` ont ensuite été redéployées avec les fichiers complets
+du dépôt.
 
 ## À faire par Loris
 
