@@ -69,6 +69,10 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/espace-client/, /^\/api\//],
         clientsClaim: true,
         skipWaiting: false, // c'est NOUS qui décidons quand activer la MAJ
+        // Notifications sur téléphone : écouteurs « push » et « notificationclick »
+        // ajoutés au service worker généré (public/push-sw.js). On reste en
+        // generateSW ; rien ne change pour le précache ni la mise à jour différée.
+        importScripts: ['push-sw.js'],
         runtimeCaching: [
           {
             // Images Supabase Storage : URLs uniques (chemins versionnés) → cache sûr,
