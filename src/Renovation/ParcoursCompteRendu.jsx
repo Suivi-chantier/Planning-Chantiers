@@ -21,10 +21,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { Icon } from "../ui";
 import {
-  Check, X, Search, Plus, ChevronRight, ChevronLeft, WifiOff, Layers, Home, ListChecks, Clock, Users, Mic, AlertTriangle,
+  Check, X, Search, Plus, ChevronRight, ChevronLeft, WifiOff, Layers, Home, ListChecks, Clock, Users, Mic,
 } from "lucide-react";
 import { LOTS_DEFAUT } from "../constants";
 import { BoutonMicro } from "./DicteeCompteRendu";
+import ConsignesPiece from "./ConsignesPiece";
 import {
   MOTIFS_CREATION, phraseCollegue, dureesDepuisFrise, minutesDeHeure,
 } from "./compteRenduV3";
@@ -42,8 +43,6 @@ const gros = (T, fond = SOMBRE, couleur = "#fff") => ({
   fontSize: 19, fontWeight: 800, background: fond, color: couleur, display: "flex", alignItems: "center",
   justifyContent: "center", gap: 10, padding: "0 16px",
 });
-// Photo d'une pièce : chemin dans le bucket public « photos » → adresse.
-const urlPhotoPiece = (chemin) => (/^https?:\/\//i.test(chemin) ? chemin : supabase.storage.from("photos").getPublicUrl(chemin)?.data?.publicUrl || "");
 const carte = (T) => ({ background: T.card, borderRadius: 18, padding: "16px 14px", margin: "12px 12px", border: `1px solid ${T.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.05)" });
 
 // ── Phasage du chantier : lecture (RPC ouvrier_mes_phases) + copie locale ──
@@ -110,7 +109,6 @@ export function PhasageMobileCR({
   const [recherche, setRecherche] = useState("");
   const [montrerTerminees, setMontrerTerminees] = useState(false);
   const [selection, setSelection] = useState([]);    // tache_id
-  const [photoAgrandie, setPhotoAgrandie] = useState(null); // chemin d'une photo de pièce
   const [creation, setCreation] = useState(() => (creerDirect ? { ouvrage: null, nom: modeLiaison?.texte || "", motif: null, photos: [] } : null)); // { ouvrage, nom, motif, photos }
 
   const chantier = chantiers.find(c => c.id === chantierId) || tousChantiers.find(c => c.id === chantierId) || null;
@@ -387,32 +385,7 @@ export function PhasageMobileCR({
                 })}
               </div>
             )}
-            {aDesConsignes(piece) && (
-              <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
-                {[...(piece.consigne ? [{ cle: "_piece", titre: "Consigne de la pièce", texte: piece.consigne }] : []),
-                  ...piece.consignes_murs.map((c, i) => ({ cle: `mur-${i}`, titre: c.mur, texte: c.texte }))].map(c => (
-                  <div key={c.cle} style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: "#fff7db", border: `1.5px solid ${T.accent}`, color: SOMBRE }}>
-                    <Icon as={AlertTriangle} size={20} style={{ color: "#b45309", flexShrink: 0, marginTop: 1 }}/>
-                    <span style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0, fontSize: 15, lineHeight: 1.4 }}>
-                      <span style={{ fontWeight: 800 }}>{c.titre}</span>
-                      <span style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{c.texte}</span>
-                    </span>
-                  </div>
-                ))}
-                {piece.photos.length > 0 && (
-                  <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
-                    {piece.photos.map(ch => (
-                      <button key={ch} onClick={() => setPhotoAgrandie(ch)} aria-label="Voir la photo en grand" style={{
-                        flexShrink: 0, width: 88, height: 66, padding: 0, borderRadius: 10, overflow: "hidden", cursor: "pointer",
-                        border: `1.5px solid ${T.border}`, background: T.surface,
-                      }}>
-                        <img src={urlPhotoPiece(ch)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            <ConsignesPiece piece={piece} T={T}/>
             <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
               À faire ici · {aFaire(piece.taches)}
             </div>
@@ -421,18 +394,6 @@ export function PhasageMobileCR({
           </>
         )}
       </div>
-
-      {photoAgrandie && (
-        <div role="dialog" aria-label="Photo de la pièce" onClick={() => setPhotoAgrandie(null)} style={{
-          position: "fixed", inset: 0, zIndex: 1200, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12,
-        }}>
-          <button onClick={() => setPhotoAgrandie(null)} aria-label="Fermer la photo" style={{
-            position: "absolute", top: 12, right: 12, width: 48, height: 48, borderRadius: 24, border: "none", cursor: "pointer",
-            background: "rgba(255,255,255,0.15)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
-          }}><Icon as={X} size={26}/></button>
-          <img src={urlPhotoPiece(photoAgrandie)} alt="Photo de la pièce" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}/>
-        </div>
-      )}
 
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, padding: "10px 12px 16px", background: T.bg, borderTop: `1px solid ${T.border}`, zIndex: 3 }}>
         <button disabled={selection.length === 0} onClick={() => onValider(selection.map(id => tachesParId.get(id)).filter(Boolean), chantier)} style={{

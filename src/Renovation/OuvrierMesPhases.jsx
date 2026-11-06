@@ -7,6 +7,12 @@
 // tâche, avec heures vendues, heures validées, heures en attente de
 // validation et avancement.
 //
+// Préparer le chantier (06/11/2026) : quand le conducteur a défini les pièces,
+// une vue « Par pièce » range les mêmes tâches par pièce (ordre choisi par le
+// conducteur), avec les consignes et photos de la pièce en haut ; chaque tâche
+// affiche ce que le conducteur a personnalisé (nom, pièce, mur, m², nom du
+// devis d'origine). Mêmes tâches, mêmes heures : rien n'est recalculé.
+//
 // Données : UNIQUEMENT la RPC ouvrier_mes_phases (sql/202610_ouvrier_mes_phases.sql),
 // qui ne renvoie aucun prix, coût, taux ni montant. Tous les totaux, les
 // avancements et les pastilles viennent du module pur mesPhasesV1 (qui
@@ -27,7 +33,9 @@ import { fmtH } from "../chantierFinance";
 import { libelleQuantite, fmtQuantite } from "./suiviQuantite";
 import {
   construireMesPhases, filtrerPhases, choisirChantierParDefaut, libellePersonnes, STATUTS, texteAjoutee,
+  phasesParPiece, detailsTache,
 } from "./mesPhasesV1";
+import ConsignesPiece from "./ConsignesPiece";
 
 // Pastilles : couleur ET icône ET texte — la couleur seule ne porte jamais
 // l'information (lecture au soleil, daltonisme).
@@ -130,7 +138,10 @@ function HeuresVendues({ consommees, vendues, T, taille = 14 }) {
 // action : facultatif, (tâche) → élément affiché sous la ligne. Sert au panneau
 // « J'ai fait autre chose » du compte rendu (bouton Ajouter) ; l'onglet Phases
 // n'en passe pas et reste inchangé.
-function LigneTache({ t, prenom, T, action = null }) {
+// vuePiece : dans la vue « Par pièce », la pièce est le titre de l'écran ; le
+// détail sous le nom donne alors l'ouvrage à la place.
+function LigneTache({ t, prenom, T, action = null, vuePiece = false }) {
+  const details = detailsTache(t, { vuePiece });
   const qui = libellePersonnes(t.ouvriers, prenom);
   const sous = [qui || "Personne n'est affecté", STATUTS[t.statut]];
   if (t.date_prevue) sous.push(`prévue ${jourCourt(t.date_prevue)}`);
@@ -141,6 +152,12 @@ function LigneTache({ t, prenom, T, action = null }) {
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: T.text, lineHeight: 1.25 }}>{t.nom}</div>
+          {details && (
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, marginTop: 2 }}>{details}</div>
+          )}
+          {t.nom_devis && t.nom_devis !== t.nom && (
+            <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>Devis : {t.nom_devis}</div>
+          )}
           {texteAjoutee(t) && (
             <div style={{ fontSize: 12.5, fontWeight: 700, color: "#7c3aed", marginTop: 2 }}>{texteAjoutee(t)}</div>
           )}
@@ -290,6 +307,8 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
   const [essai, setEssai]         = useState(0);           // « Réessayer »
   const [vue, setVue]             = useState("miennes");
   const [ouvertes, setOuvertes]   = useState(() => new Set());
+  const [rangement, setRangement] = useState("phase");     // "phase" | "piece"
+  const [pieceId, setPieceId]     = useState(null);
 
   // 1) Référentiel + chantier par défaut (planifié aujourd'hui, sinon le
   //    dernier jour planifié des 6 dernières semaines, sinon le premier en cours).
@@ -344,6 +363,9 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
       setPayload(data);
       const r = construireMesPhases(data);
       setVue(r.nbMiennes > 0 ? "miennes" : "tout");
+      // Pièces définies par le conducteur → on ouvre directement par pièce.
+      setRangement(r.pieces.length > 0 ? "piece" : "phase");
+      setPieceId(null);
       setOuvertes(new Set(r.phaseEnCoursId ? [r.phaseEnCoursId] : []));
     });
     return () => { annule = true; };
@@ -351,6 +373,12 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
 
   const resultat = useMemo(() => construireMesPhases(payload), [payload]);
   const visibles = filtrerPhases(resultat, vue);
+  const aDesPieces = (resultat.pieces || []).length > 0;
+  const parPiece = aDesPieces && rangement === "piece";
+  const groupesPiece = useMemo(() => phasesParPiece(resultat, vue), [resultat, vue]);
+  const pieceSel = groupesPiece.find(g => g.id === pieceId) || groupesPiece[0] || null;
+  const nbMesTaches = useMemo(() => phasesParPiece(resultat, "miennes").reduce((n, g) => n + g.taches.length, 0), [resultat]);
+  const nbToutesTaches = useMemo(() => phasesParPiece(resultat, "tout").reduce((n, g) => n + g.taches.length, 0), [resultat]);
   const basculer = (id) => setOuvertes(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   // Sélecteur dans le bandeau sombre (maquette « Mes phases »).
@@ -421,9 +449,27 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
   } else {
     corps = (
       <>
+        {/* Bascule Par pièce / Par phase (seulement si le conducteur a défini les pièces) */}
+        {aDesPieces && (
+          <div style={{ display: "flex", gap: 4, padding: 4, borderRadius: 14, background: "#e4e8f2" }}>
+            {[["piece", "Par pièce"], ["phase", "Par phase"]].map(([id, label]) => (
+              <button key={id} onClick={() => setRangement(id)} aria-pressed={rangement === id} style={{
+                flex: 1, minHeight: 44, borderRadius: 11, border: "none", cursor: "pointer", fontFamily: "inherit",
+                fontSize: 15, fontWeight: 800,
+                background: rangement === id ? T.surface : "transparent",
+                color: rangement === id ? T.text : T.textSub,
+                boxShadow: rangement === id ? CARD_SHADOW : "none",
+              }}>{label}</button>
+            ))}
+          </div>
+        )}
+
         {/* Bascule Mes phases / Tout le chantier */}
         <div style={{ display: "flex", gap: 4, padding: 4, borderRadius: 14, background: "#e4e8f2" }}>
-          {[["miennes", `Mes phases (${resultat.nbMiennes})`], ["tout", `Tout le chantier (${resultat.nbTout})`]].map(([id, label]) => (
+          {(parPiece
+            ? [["miennes", `Mes tâches (${nbMesTaches})`], ["tout", `Tout le chantier (${nbToutesTaches})`]]
+            : [["miennes", `Mes phases (${resultat.nbMiennes})`], ["tout", `Tout le chantier (${resultat.nbTout})`]]
+          ).map(([id, label]) => (
             <button key={id} onClick={() => setVue(id)} aria-pressed={vue === id} style={{
               flex: 1, minHeight: 44, borderRadius: 11, border: "none", cursor: "pointer", fontFamily: "inherit",
               fontSize: 15, fontWeight: 800,
@@ -450,13 +496,48 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
           </div>
         </MobileCard>
 
-        {resultat.etat === "sans_groupes" && (
+        {!parPiece && resultat.etat === "sans_groupes" && (
           <MobileCard T={T} accent="#94a3b8" style={{ padding: "11px 14px", fontSize: 13.5, color: T.textSub, lineHeight: 1.45 }}>
             Les tâches de ce chantier ne sont pas encore rangées en phases par le bureau : tout est regroupé dans « À organiser ».
           </MobileCard>
         )}
 
-        {visibles.length === 0 ? (
+        {parPiece ? (
+          !pieceSel ? (
+            carteMessage(Layers,
+              vue === "miennes" ? "Aucune tâche pour toi ici" : "Aucune tâche",
+              vue === "miennes" ? "Tu n'es affecté à aucune tâche de ce chantier pour le moment." : "Aucune tâche n'est prévue sur ce chantier.",
+              vue === "miennes" && nbToutesTaches > 0 ? (
+                <button onClick={() => setVue("tout")} style={{
+                  minHeight: 44, padding: "0 18px", borderRadius: 12, border: "none", cursor: "pointer",
+                  background: accent, color: SOMBRE, fontFamily: "inherit", fontSize: 14.5, fontWeight: 800,
+                }}>Voir tout le chantier</button>
+              ) : null)
+          ) : (
+            <>
+              {/* Onglets des pièces, dans l'ordre choisi par le conducteur */}
+              <div role="tablist" aria-label="Pièces" style={{ display: "flex", gap: 8, overflowX: "auto", padding: "0 0 2px" }}>
+                {groupesPiece.map(g => {
+                  const actif = g.id === pieceSel.id;
+                  return (
+                    <button key={g.id} role="tab" aria-selected={actif} onClick={() => setPieceId(g.id)} style={{
+                      flexShrink: 0, minHeight: 44, padding: "0 14px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: 15,
+                      fontWeight: actif ? 800 : 600, border: `1.5px solid ${actif ? accent : T.border}`, background: actif ? accent : T.surface,
+                      color: actif ? SOMBRE : T.text, whiteSpace: "nowrap",
+                    }}>{g.nom} · {g.taches.length}</button>
+                  );
+                })}
+              </div>
+              <ConsignesPiece key={pieceSel.id} piece={pieceSel} T={T} accent={accent}/>
+              <div style={{ background: T.surface, borderRadius: 16, overflow: "hidden", boxShadow: CARD_SHADOW, border: `1px solid ${T.border}` }}>
+                <div style={{ padding: "12px 14px", fontSize: 13, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: T.textMuted }}>
+                  {pieceSel.nom} · {pieceSel.taches.filter(t => t.statut !== "terminee").length} à faire / {pieceSel.taches.length}
+                </div>
+                {pieceSel.taches.map(t => <LigneTache key={t.id} t={t} prenom={resultat.prenom || prenom} T={T} vuePiece/>)}
+              </div>
+            </>
+          )
+        ) : visibles.length === 0 ? (
           carteMessage(Layers,
             vue === "miennes" ? "Aucune phase pour toi ici" : "Aucune phase",
             vue === "miennes" ? "Tu n'es affecté à aucune tâche de ce chantier pour le moment." : "Aucune phase n'est définie pour ce chantier.",
