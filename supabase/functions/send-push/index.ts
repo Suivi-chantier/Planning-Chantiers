@@ -19,6 +19,11 @@
 //   type désactivé → rien n'est envoyé ni écrit.
 //   `simulation: true` → aucun envoi, aucune écriture : renvoie qui aurait
 //   reçu quoi (calculé même interrupteur coupé, avec `bloque_par`).
+//   Champ facultatif `groupe: { type, titre, texte, lien, ensemble: { titre,
+//   texte, lien } }` (tâche 4, point du soir C1 + C2) : les deux types sont
+//   planifiés et écrits en boîte chacun sous son type, mais une personne qui
+//   reçoit les deux n'a qu'UN push (contenu `ensemble`). Voir
+//   _partage/pushGroupeV1.mjs.
 //
 // POST { mode: "reportes" } — même secret serveur. Envoie les push reportés
 //   dont l'heure est venue (job ?job=push_reportes du dispatcher), après avoir
@@ -53,6 +58,7 @@ import {
   planifierTest, preferenceActive, statutApresEnvoi, validerContenu,
 } from "../_partage/notificationsPushV1.mjs"
 import { lireUtilisateurs } from "../_partage/utilisateursPush.ts"
+import { envoisParPersonne, simulationParPersonne, validerGroupe } from "../_partage/pushGroupeV1.mjs"
 
 type Abonnement = { id: string; endpoint: string; p256dh: string; auth: string; appareil: string | null }
 type Resultat = { id: string; appareil: string | null; ok: boolean; statut: number | null; suite: string }
@@ -156,10 +162,30 @@ async function lirePreferences(admin: SupabaseClient, ids: string[]) {
 // lireUtilisateurs : _partage/utilisateursPush.ts (même lecture que
 // notifications-pilotage, pour les appareils par rôle).
 
+/** Envoie UN push (contenu `notif`) aux appareils d'une personne, puis note le résultat sur toutes ses lignes `ids`. */
+async function pousserEnvoiGroupe(
+  admin: SupabaseClient,
+  ids: string[],
+  notif: { type: string; titre: string; texte: string; lien: string },
+  appareils: Abonnement[],
+): Promise<string> {
+  const resultats = await envoyerAuxAppareils(admin, appareils, chargeUtile(notif))
+  const statut = statutApresEnvoi(resultats)
+  await admin.from("notifications").update({
+    push_statut: statut,
+    push_envoye_le: statut === "envoye" ? new Date().toISOString() : null,
+  }).in("id", ids)
+  return statut
+}
+
 // ── Mode « serveur » : un type du catalogue, destinataires par rôle ─────────
 async function modeServeur(admin: SupabaseClient, corps: unknown) {
   const contenu = validerContenu(corps)
   if (!contenu.ok) return json({ error: contenu.erreur }, contenu.statut)
+  // Envoi groupé (ex. point du soir C1 + C2) : traité à part, voir _partage/pushGroupeV1.mjs.
+  const g = validerGroupe(corps, contenu)
+  if (!g.ok) return json({ error: g.erreur }, g.statut)
+  if (g.groupe) return await modeServeurGroupe(admin, contenu as unknown as Contenu, g.groupe as Groupe)
   const maintenant = Date.now()
   const reglages = await lireReglages(admin)
   const utilisateurs = await lireUtilisateurs(admin)
@@ -215,6 +241,85 @@ async function modeServeur(admin: SupabaseClient, corps: unknown) {
   return json({
     ok: true, simulation: false, resume,
     ecrites_en_boite: ecrites, doublons_evites: plan.lignes.length - ecrites + resume.doublons, envoyes, echecs,
+  })
+}
+
+// ── Mode « serveur » groupé : deux types, un seul push par personne ─────────
+// Chaque type est planifié et écrit en boîte séparément (rôles, interrupteur
+// du type, préférence de chacun, silence : moteur inchangé) ; seul le push
+// est réuni par personne (pushGroupeV1.envoisParPersonne).
+type Contenu = { type: string; titre: string; texte: string; lien: string; cle_regroupement: string | null; simulation: boolean }
+type Groupe = { type: string; titre: string; texte: string; lien: string; ensemble: { titre: string; texte: string; lien: string } }
+
+async function modeServeurGroupe(admin: SupabaseClient, contenu: Contenu, groupe: Groupe) {
+  const maintenant = Date.now()
+  const reglages = await lireReglages(admin)
+  const utilisateurs = await lireUtilisateurs(admin)
+  const ids = utilisateurs.map((u) => u.auth_id).filter(Boolean) as string[]
+  const [appareils, preferences] = await Promise.all([lireAppareils(admin, ids), lirePreferences(admin, ids)])
+  const cles = lireClesVapid()
+  const cle = contenu.cle_regroupement as string
+  const nbAppareils: Record<string, number> = {}
+  for (const [id, l] of Object.entries(appareils)) nbAppareils[id] = l.length
+
+  const parties = [
+    { type: contenu.type, titre: contenu.titre, texte: contenu.texte, lien: contenu.lien },
+    { type: groupe.type, titre: groupe.titre, texte: groupe.texte, lien: groupe.lien },
+  ]
+  const plans = []
+  for (const p of parties) {
+    const { data: deja, error: errDeja } = await admin.from("notifications").select("user_id")
+      .eq("type", p.type).eq("cle_regroupement", cle)
+    if (errDeja) throw new Error("Lecture de la boîte de réception impossible.")
+    const plan = planifierEnvoi({
+      reglages, type: p.type, cle, utilisateurs, preferences, appareils: nbAppareils,
+      dejaNotifies: (deja ?? []).map((d) => d.user_id), maintenantMs: maintenant,
+      vapidConfiguree: cles.ok, simulation: contenu.simulation,
+    })
+    if (!plan.ok) return json({ error: plan.erreur }, 400)
+    plans.push({ partie: p, plan })
+  }
+  const resumes = plans.map(({ plan }) => ({
+    ...plan.resume, prochain_creneau: iso(plan.resume.prochain_creneau), avertissements: reglages.avertissements,
+  }))
+
+  if (contenu.simulation) {
+    return json({
+      ok: true, simulation: true, groupe: true, resume: resumes[0], resume_groupe: resumes[1],
+      par_personne: simulationParPersonne({
+        lignesPrincipal: plans[0].plan.lignes, lignesGroupe: plans[1].plan.lignes,
+        typePrincipal: contenu.type, typeGroupe: groupe.type,
+      }),
+    })
+  }
+
+  // Écriture en boîte AVANT l'envoi, chaque type sous son propre type et son
+  // propre texte. Index unique (user_id, type, cle_regroupement) : aucun doublon.
+  const crees: Array<{ id: string; user_id: string; type: string; titre: string; texte: string; lien: string; push_statut: string }> = []
+  for (const { partie, plan } of plans) {
+    if (!plan.lignes.length) continue
+    const { data, error } = await admin.from("notifications").upsert(
+      plan.lignes.map((l) => ({
+        user_id: l.user_id, type: partie.type, titre: partie.titre, texte: partie.texte, lien: partie.lien,
+        cle_regroupement: cle, push_statut: l.push_statut, push_prevu_le: iso(l.push_prevu_le),
+      })),
+      { onConflict: "user_id,type,cle_regroupement", ignoreDuplicates: true },
+    ).select("id, user_id, type, titre, texte, lien, push_statut")
+    if (error) throw new Error("Écriture dans la boîte de réception impossible.")
+    crees.push(...(data ?? []))
+  }
+
+  let envoyes = 0, echecs = 0
+  if (cles.ok && crees.length) {
+    webpush.setVapidDetails(cles.sujet, cles.publique, cles.privee)
+    for (const e of envoisParPersonne({ lignes: crees, typePrincipal: contenu.type, ensemble: groupe.ensemble })) {
+      const statut = await pousserEnvoiGroupe(admin, e.ids, e.notif, appareils[e.user_id] ?? [])
+      if (statut === "envoye") envoyes++; else echecs++
+    }
+  }
+  return json({
+    ok: true, simulation: false, groupe: true, resume: resumes[0], resume_groupe: resumes[1],
+    ecrites_en_boite: crees.length, envoyes, echecs,
   })
 }
 
