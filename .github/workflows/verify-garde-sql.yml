@@ -1,0 +1,23 @@
+name: Verify Garde SQL
+
+on:
+  pull_request:
+    paths:
+      - '.claude/hooks/garde-sql.mjs'
+      - '.claude/settings.json'
+      - 'scripts/verif-garde-sql.mjs'
+      - '.github/workflows/verify-garde-sql.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Garde SQL de Claude Code — lectures, écritures, suppressions, deux noms du connecteur (requêtes fictives)
+        run: node scripts/verif-garde-sql.mjs
