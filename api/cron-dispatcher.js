@@ -30,6 +30,9 @@
 //   Lun-Ven 05h05 et 06h05 UTC → push reportés (?job=push_reportes) : l'un des
 //     deux tombe à 7h05 Paris selon la saison, l'autre ne trouve rien à faire
 //     (cron-push-reportes.yml)
+//   Lun-Ven 06h05 et 07h05 UTC → matériaux à commander (?job=push_materiaux) :
+//     celui qui tombe avant 8h Paris ne fait rien, l'autre envoie vers 8h05
+//     (cron-push-materiaux.yml)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");
@@ -42,6 +45,7 @@ const { runInvestTableauBord } = require("./_cron/cron-invest-tableau-bord.js");
 const { runJournalAvancement } = require("./_cron/cron-journal-avancement.js");
 const { runRelancesCycleVie }  = require("./_cron/cron-relances-cycle-vie.js");
 const { runPushReportes, runPushSimulation } = require("./_cron/cron-push-reportes.js");
+const { runPushMateriaux }     = require("./_cron/cron-push-materiaux.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -102,6 +106,13 @@ const TACHES = {
   push_simulation: {
     fenetre: null,
     run: (req) => runPushSimulation(req),
+  },
+  // Notification C3 « Matériaux à commander » (date butoir atteinte), même
+  // calcul que le récap du vendredi. Une notification regroupée par jour ;
+  // liste vide = aucun envoi. `&simulation=1` : sans envoi. Par `?job=` seulement.
+  push_materiaux: {
+    fenetre: null,
+    run: (req, supabase, t) => runPushMateriaux(req, supabase, t),
   },
 };
 
