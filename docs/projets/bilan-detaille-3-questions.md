@@ -109,7 +109,7 @@ Règle par défaut de `CLAUDE.md`.
 | 2 | Haut du PDF détaillé : nouveau tableau de synthèse (ligne TOTAL, fourchette, fiabilité, tendance) + détail des marges complété (budget restant, €/h avec repère devis, une phrase par marge) ; chargement des relevés sur 6 semaines dans `BilanPeriode.jsx` + entrée `journalMaj.js` | en ligne | Auto | Contrôles verts ; version direction inchangée | [#208](https://github.com/Suivi-chantier/Planning-Chantiers/pull/208) (fusionnée) |
 | 3 | Fiches et annexe : cascade seulement si baisse > seuil ou pastille rouge, sinon « Marge probable stable (±X €) » ; méthode retirée, case « Joindre la méthode de calcul » décochée par défaut + entrée `journalMaj.js` | en ligne | Auto | Contrôles verts ; méthode absente par défaut, présente si cochée | [#209](https://github.com/Suivi-chantier/Planning-Chantiers/pull/209) (fusionnée) |
 | 4 | PDF d'exemple : ancien et nouveau PDF détaillé de la dernière semaine réelle, construits depuis la base | en ligne (PDF remis à Loris) | Livrable à Loris | Deux PDF sur les vrais chantiers, chiffres de marge identiques entre ancien et nouveau | — (aucun changement de code) |
-| 5 | Finitions vues sur le PDF réel : cellule TOTAL de la marge probable qui écrase les colonnes, explication de fiabilité trop longue (6–7 lignes par chantier), pluriel « 0 chantier(s) » ; selon les réponses de Loris : lecture de la marge devis (`mo_prev`) et sens de l'écart dans « Marge probable stable » | en attente de Loris | Auto après réponse | Nouveau PDF W44 : une ligne par chantier sans texte tassé ; total de marge probable affiché si Loris accepte la correction | — |
+| 5 | Finitions vues sur le PDF réel : cellule TOTAL de la marge probable qui écrase les colonnes, explication de fiabilité trop longue (6–7 lignes par chantier), pluriel « 0 chantier(s) » ; selon les réponses de Loris : lecture de la marge devis (`mo_prev`) et sens de l'écart dans « Marge probable stable » | en cours | Auto | Nouveau PDF W44 : une ligne par chantier sans texte tassé ; total de marge probable affiché si Loris accepte la correction | — |
 
 ## Journal des décisions
 
@@ -172,6 +172,11 @@ Règle par défaut de `CLAUDE.md`.
    calcul ne change.
 2. « Marge probable stable (±217 €) » cache le sens : j'écris plutôt « stable
    (−217 €) » / « stable (+98 €) » ?
+
+Réponse de Loris (06/11/2026) : « 1 oui, 2 oui ». La marge devis est lue
+(colonne `mo_prev`), y compris pour la version direction ; la ligne « stable »
+affiche l'écart signé, ce qui remplace le « ±X € » de l'étape 6 sur décision de
+Loris. Tâche 5 lancée.
 
 ## Comptes rendus
 
