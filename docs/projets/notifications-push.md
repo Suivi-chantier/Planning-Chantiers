@@ -219,7 +219,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en ligne | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) (fusionnée le 06/11) |
 | 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | en ligne | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | [n°220](https://github.com/Suivi-chantier/Planning-Chantiers/pull/220) (fusionnée le 06/11) |
-| 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | en cours (parallèle) | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | — |
+| 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | bloquée (limite de déploiements Vercel, reprise le 07/11) | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | [n°226](https://github.com/Suivi-chantier/Planning-Chantiers/pull/226) (contrôles GitHub verts, Vercel rouge) |
 | 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
 | 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | en ligne (ne partira pas avec les données actuelles, question à Loris) | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | [n°223](https://github.com/Suivi-chantier/Planning-Chantiers/pull/223) (fusionnée le 06/11) |
 | 6 | Étape 4b — Alertes C4, C5 et marge négative D1 : table d'état notifié, job qui recalcule avec `alertesV1` et ne notifie que les aggravations, premier passage silencieux | à faire | Auto ; tableau de simulation recopié dans le compte rendu | Simulation sur les vrais chantiers : qui aurait reçu quoi ; premier passage = 0 envoi | — |
@@ -389,6 +389,25 @@ Réponse de Loris (06/11/2026) : « On modifiera cette notif ». Décision : on
 ajoute la tâche 10 (C3 branchée sur la logique de « Commandes à passer »),
 menée après les tâches 6 et 8, avant la simulation finale. Le mail du
 vendredi n'est pas touché (règle 8).
+
+**06/11/2026 — Limite de déploiements Vercel atteinte.** Vers 07h30 UTC,
+Vercel refuse tout nouveau déploiement (« Deployment rate limited — retry in
+24 hours », offre Hobby). Chaque envoi de branche crée un déploiement : les
+lots de la refonte Opérations, les tâches en parallèle et les mises à jour
+du fichier projet ont épuisé le quota du jour. Conséquences : la demande de
+fusion n°226 (tâche 3) a ses 15 contrôles GitHub verts mais le contrôle
+Vercel rouge → **pas de fusion au rouge** (règle CLAUDE.md), reprise
+programmée le 07/11 à 08h00 UTC. Il n'est pas certain que la mise en ligne
+de la tâche 5 (n°223) soit passée avant la limite : à vérifier à la reprise.
+Les Edge Functions de la tâche 3 (`send-push` v4, `notifications-boite` v3,
+`notifications-pilotage` v1) sont déjà déployées côté Supabase ; elles
+restent compatibles avec l'application en ligne (l'envoi de test continue de
+fonctionner). Pour la suite : regrouper les commits et pousser le moins
+souvent possible.
+
+**06/11/2026 — Format des liens des notifications** : `/?page=<id>&chantier=<id>`
+(retenu en tâche 3) ; l'ancien `/#planning-commandes` de la tâche 5 est
+compris par l'écran.
 
 ## À faire par Loris
 
