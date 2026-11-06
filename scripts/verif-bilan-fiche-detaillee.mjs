@@ -228,12 +228,17 @@ const verifierCascade = (r, nom) => {
   ok(avecMethode.includes("<h2>Méthode de calcul</h2>") && avecMethode.includes("Du devis au probable") && avecMethode.startsWith(det.slice(0, det.lastIndexOf("</div>"))),
     "PDF détaillé (données fictives) : méthode jointe en annexe, le reste identique");
 
-  // Version direction : même HTML qu'avant la tâche 3 (empreinte relevée sur ce jeu fictif avant la modification).
+  // Version direction : empreinte de son HTML sur ce jeu fictif. Relevée avant
+  // la tâche 3 (HTML inchangé par les tâches 3 à 5), puis mise à jour le
+  // 06/11/2026 pour un changement VOULU de la version direction (demande de
+  // Loris) : colonne « Marge à terminaison » et total « à terminaison » dans
+  // le bandeau. Toute autre modification de la version direction doit faire
+  // échouer ce contrôle.
   const dir = documentBilanV3(d, { detaillee: false });
   ok(dir === documentBilanV3({ ...d, fiches: undefined }, { detaillee: false }) && dir === documentBilanV3({ ...d, methode: F.methodeBilanV3() }, { detaillee: false }),
     "PDF direction (données fictives) : ni fiches ni méthode");
-  eq(createHash("sha256").update(dir).digest("hex"), "787982abf4104a18e13543624388f33ba6467d1c95c3a7ec7296307c173ac79f",
-    "PDF direction (données fictives) : HTML identique à celui d'avant la tâche 3");
+  eq(createHash("sha256").update(dir).digest("hex"), "26edbd854186a556697d0a4746804940cd46d30185e32829662c2cc98561557e",
+    "PDF direction (données fictives) : HTML identique à celui attendu (marge à terminaison ajoutée le 06/11/2026)");
 }
 
 console.log(`verif-bilan-fiche-detaillee : ${nb} contrôles OK (données fictives)`);
