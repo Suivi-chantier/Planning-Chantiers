@@ -12,7 +12,13 @@
 //     chiffre que l'encadré ;
 //   - matériaux par lot (enveloppe, commandé, imputé, en avance, reste,
 //     dépassement), commandes sans lot, et refus d'un détail qui contredit
-//     les totaux du relevé.
+//     les totaux du relevé ;
+//   - cascade conditionnelle (projet « Bilan détaillé », étape 6) : cascade
+//     seulement si la marge probable baisse de plus du seuil ou si la pastille
+//     est rouge ; sinon « Marge probable stable (±X €) » ou « en hausse » ;
+//     évolution inconnue → cascade (jamais un « stable » inventé) ;
+//   - méthode de calcul (étape 7) : absente par défaut, présente sur demande ;
+//     version direction inchangée (même HTML qu'avant la tâche 3).
 //
 //   node scripts/verif-bilan-fiche-detaillee.mjs
 import assert from "node:assert/strict";
@@ -20,9 +26,12 @@ import { cascadeMargeDevisReleve, materiauxParLot, METHODE_CALCUL } from "../src
 import { ligneReleve } from "../src/Renovation/releveJournalier.mjs";
 import * as F from "../src/Renovation/bilanFicheV3.mjs";
 import { documentBilanV3 } from "../src/Renovation/bilanPdfV3.mjs";
+import * as B from "../src/Renovation/bilanPeriodeV3.mjs";
+import { createHash } from "node:crypto";
 
 let nb = 0;
 const ok = (c, msg) => { assert.ok(c, msg); nb++; };
+const eq = (a, b, msg) => { assert.deepEqual(a, b, msg); nb++; };
 const proche = (a, b, msg, tol = 0.01) => { assert.ok(a != null && b != null && Math.abs(a - b) < tol, `${msg} : ${a} ≠ ${b}`); nb++; };
 
 const LOTS = [{ id: "cloisons", label: "Cloisons" }, { id: "peinture", label: "Peinture" }, { id: "sol", label: "Sol" },
@@ -158,6 +167,70 @@ const verifierCascade = (r, nom) => {
   const c = d.lots.find(x => x.lotId === "cloisons");
   ok(c.commandes === 1500 && Math.abs(c.enAvance - 500) < 0.01, "au 22/10 : tâche à 50 %, commande du 24/10 exclue → 500 € en avance");
   ok(F.materiauxParLotALaDateV3({ ouvrages, journalComplet: undefined, commandeLignes: [], dateFin: "2026-10-22" }) === undefined, "journal non chargé : pas de détail");
+}
+
+// ── 4. Cascade seulement pour les chantiers qui décrochent ; méthode en option ──
+// Exemple issu des tests, données fictives : cinq chantiers inventés (BAISSE,
+// NEGATIVE, STABLE, HAUSSE, INCONNU), seuil d'alerte 500 €.
+{
+  const N = " ";
+  const A = F.affichageCascadeV3;
+  // Règle, fonction pure (seuil en paramètre).
+  ok(A({ evolutionMargeProbable: -800, couleurPastille: "vert", seuilBaisse: 500 }).afficherCascade, "baisse de 800 € > seuil 500 € : cascade");
+  ok(A({ evolutionMargeProbable: 0, couleurPastille: "rouge", seuilBaisse: 500 }).afficherCascade, "pastille rouge sans baisse : cascade");
+  const stable = A({ evolutionMargeProbable: -200, couleurPastille: "vert", seuilBaisse: 500 });
+  ok(!stable.afficherCascade && stable.texte === `Marge probable stable (±200${N}€)`, "baisse de 200 € ≤ seuil : « Marge probable stable (±200 €) »");
+  ok(A({ evolutionMargeProbable: -500, couleurPastille: "orange", seuilBaisse: 500 }).texte === `Marge probable stable (±500${N}€)`, "baisse égale au seuil : stable (même règle que la pastille)");
+  ok(A({ evolutionMargeProbable: 350.4, couleurPastille: "vert", seuilBaisse: 500 }).texte === `Marge probable stable (±350${N}€)`, "petite hausse : stable, arrondie à l'euro");
+  const hausse = A({ evolutionMargeProbable: 1800, couleurPastille: "vert", seuilBaisse: 500 });
+  ok(!hausse.afficherCascade && hausse.texte === `Marge probable en hausse (+1${N}800${N}€)`, "hausse de plus du seuil : « en hausse », jamais « stable »");
+  const inconnue = A({ evolutionMargeProbable: null, couleurPastille: "vert", seuilBaisse: 500 });
+  ok(inconnue.afficherCascade && inconnue.texte === null, "évolution inconnue : cascade, aucun « stable » inventé");
+  ok(A({ evolutionMargeProbable: -800, couleurPastille: "vert", seuilBaisse: 1000 }).texte === `Marge probable stable (±800${N}€)`, "le seuil vient du paramètre (1 000 €)");
+
+  // De bout en bout : synthèse du Bilan → fiches → PDF détaillé.
+  const P44 = B.periodeSemaineV3("2026-W44");
+  const BOR = B.bornesComparaisonV3(P44, ["2026-10-22", "2026-10-29"]);
+  const rel = (id, date, mp, o = {}) => ({ chantier_id: id, chantier_nom: id.toUpperCase(), date_releve: date, avancement: 50,
+    vendu_ht: 10000, heures_vendues: 100, heures_reelles: 40, production_cumulee: 5000, marge_avancement: 1000,
+    marge_terminaison: 2000, marge_probable: mp, budget_restant: 6000, mat_prev: 1000, mo_prev: 3000, chantier_repris: false, ...o });
+  const releves = B.indexerRelevesV3([
+    rel("baisse", "2026-10-22", 1500), rel("baisse", "2026-10-29", 700),       // −800 € : pastille rouge
+    rel("negative", "2026-10-22", -1000), rel("negative", "2026-10-29", -1000), // aucune baisse, mais négative : rouge
+    rel("stable", "2026-10-22", 1500), rel("stable", "2026-10-29", 1300),       // −200 €
+    rel("hausse", "2026-10-22", 1500), rel("hausse", "2026-10-29", 2300),       // +800 €
+    rel("inconnu", "2026-10-29", 1500),                                         // pas de relevé de départ
+  ]);
+  const chantiers = ["baisse", "negative", "stable", "hausse", "inconnu"].map(id => ({ id, nom: id.toUpperCase() }));
+  const syn = B.syntheseChantiersV3({ releves, chantiers, bornes: BOR, periode: P44, seuilBaisse: 500 });
+  eq(syn.map(s => [s.evolutionMargeProbable, s.pastille.couleur]), [[-800, "rouge"], [0, "rouge"], [-200, "vert"], [800, "vert"], [null, "vert"]],
+    "jeu fictif : évolutions et pastilles attendues");
+  // Relevé de fin produit par le vrai calcul, pour que la cascade soit un vrai tableau.
+  const releveFin = releve([ouvrage("a", "cloisons", { av: 40, mat: 2000 })], { pointages: [pointage("t-a", 60)], commandes: [commande(1500, "cloisons")] });
+  const fiches = syn.map(s => F.ficheChantierV3({ synthese: s, releveFin, ouvrages: [], journal: [], pointages: [], periode: P44, bornes: BOR, seuilBaisse: 500 }));
+  const d = { periode: P44, bornes: BOR, bandeau: B.bandeauV3({ synthese: syn }), synthese: syn, alertes: [], fiches };
+  const det = documentBilanV3(d, { detaillee: true });
+  const fiche = nom => { const i = det.indexOf(`<h2>${nom}</h2>`); const j = det.indexOf(`<div class="fiche">`, i); return det.slice(i, j < 0 ? undefined : j); };
+  const cascade = html => html.includes("<th>Du devis au probable</th>");
+  ok(cascade(fiche("BAISSE")), "PDF (données fictives) : cascade pour la marge probable en baisse de 800 €");
+  ok(cascade(fiche("NEGATIVE")), "PDF (données fictives) : cascade pour la pastille rouge sans baisse");
+  ok(!cascade(fiche("STABLE")) && fiche("STABLE").includes(`Marge probable stable (±200${N}€)`), "PDF (données fictives) : « Marge probable stable (±200 €) » sans cascade");
+  ok(!cascade(fiche("HAUSSE")) && fiche("HAUSSE").includes(`Marge probable en hausse (+800${N}€)`) && !fiche("HAUSSE").includes("stable"), "PDF (données fictives) : « en hausse (+800 €) » sans cascade");
+  ok(cascade(fiche("INCONNU")) && !fiche("INCONNU").includes("Marge probable stable"), "PDF (données fictives) : évolution inconnue → cascade");
+  ok(["BAISSE", "STABLE", "HAUSSE"].every(nom => fiche(nom).includes("Constat à date")), "PDF (données fictives) : le constat à date reste sur toutes les fiches");
+
+  // Méthode de calcul : absente par défaut, présente quand elle est jointe.
+  ok(!det.includes("Méthode de calcul"), "PDF détaillé (données fictives) : pas de méthode de calcul par défaut");
+  const avecMethode = documentBilanV3({ ...d, methode: F.methodeBilanV3() }, { detaillee: true });
+  ok(avecMethode.includes("<h2>Méthode de calcul</h2>") && avecMethode.includes("Du devis au probable") && avecMethode.startsWith(det.slice(0, det.lastIndexOf("</div>"))),
+    "PDF détaillé (données fictives) : méthode jointe en annexe, le reste identique");
+
+  // Version direction : même HTML qu'avant la tâche 3 (empreinte relevée sur ce jeu fictif avant la modification).
+  const dir = documentBilanV3(d, { detaillee: false });
+  ok(dir === documentBilanV3({ ...d, fiches: undefined }, { detaillee: false }) && dir === documentBilanV3({ ...d, methode: F.methodeBilanV3() }, { detaillee: false }),
+    "PDF direction (données fictives) : ni fiches ni méthode");
+  eq(createHash("sha256").update(dir).digest("hex"), "787982abf4104a18e13543624388f33ba6467d1c95c3a7ec7296307c173ac79f",
+    "PDF direction (données fictives) : HTML identique à celui d'avant la tâche 3");
 }
 
 console.log(`verif-bilan-fiche-detaillee : ${nb} contrôles OK (données fictives)`);

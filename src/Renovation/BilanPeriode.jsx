@@ -476,6 +476,8 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
 
   // ── Version détaillée : préparation par le conducteur (par période) ──
   const [detaillee, setDetaillee] = useState(false);
+  // Méthode de calcul : plus jointe par défaut (projet « Bilan détaillé », étape 7).
+  const [joindreMethode, setJoindreMethode] = useState(false);
   const [prep, setPrep] = useState({ cle: null, syntheses: {}, photos: {}, commentaires: {}, ia: {} });
   const prepPeriode = prep.cle === periode?.cle ? prep : { cle: periode?.cle, syntheses: {}, photos: {}, commentaires: {}, ia: {} };
   const majPrep = (champ, id, valeur) => setPrep(pr => {
@@ -532,11 +534,13 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
           seuilSansLotPct: reglages.seuilsMarges?.alerteSansLotPct ?? 10, baremeFG: reglages.baremeFG,
           journalComplet: det.journalPar ? (det.journalPar[s.chantierId] || []) : undefined,
           commandeLignes: det.commandesPar ? (det.commandesPar[s.chantierId] || []) : undefined,
-          achatsTermines: det.achatsPar?.[s.chantierId] || [], lotsConfig: det.lotsConfig || [] });
+          achatsTermines: det.achatsPar?.[s.chantierId] || [], lotsConfig: det.lotsConfig || [],
+          seuilBaisse: reglages.seuilsMarges?.alerteBaisseMargeProbableEuros ?? 500 });
         return { ...fiche, horsDevis: texteHorsDevisV2(horsDevis.parChantier[s.chantierId]) };
       }),
       gestesCommerciaux: texteGestesPeriodeV2(horsDevis.gestes) || undefined,
-      methode: methodeBilanV3(),
+      // Annexe seulement si la case est cochée : le même HTML part au PDF et à l'archive.
+      ...(joindreMethode ? { methode: methodeBilanV3() } : {}),
     } : {}),
   });
   const exporter = async () => {
@@ -828,6 +832,11 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
               <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>
                 <input type="checkbox" checked={detaillee} onChange={e => setDetaillee(e.target.checked)}/> Version détaillée
               </label>
+              {detaillee && (
+                <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>
+                  <input type="checkbox" checked={joindreMethode} onChange={e => setJoindreMethode(e.target.checked)}/> Joindre la méthode de calcul
+                </label>
+              )}
               <button style={btn(true)} disabled={export_.enCours} onClick={exporter}>{export_.enCours ? "Génération…" : "Télécharger le PDF"}</button>
             </div>
           </div>

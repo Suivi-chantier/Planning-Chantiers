@@ -8,8 +8,10 @@
 //     semaine qui vient, rectifications.
 //   - DÉTAILLÉE : la version direction, dont le tableau des chantiers est
 //     remplacé par la synthèse « où va chaque chantier » (06/11/2026), + le
-//     détail des marges + une fiche par chantier + l'annexe « Méthode de
-//     calcul ».
+//     détail des marges + une fiche par chantier (cascade « du devis au
+//     probable » seulement pour les chantiers qui décrochent) + l'annexe
+//     « Méthode de calcul », seulement si le conducteur l'a demandée
+//     (d.methode, case « Joindre la méthode de calcul », 06/11/2026).
 //
 // RÈGLE : les commentaires bruts des ouvriers (et toute appréciation d'un
 // ouvrier sur un autre) n'apparaissent JAMAIS dans la version direction. La
@@ -315,7 +317,18 @@ export function htmlBilanDirectionV3(d) {
 
 // « Du devis au probable » (choix de Loris du 26/10/2026) : chaque marge en €
 // et en % du vendu, les postes qui les relient (ils s'additionnent exactement).
+// Projet « Bilan détaillé », étape 6 : la cascade n'est montrée que pour les
+// chantiers qui décrochent ; la décision et le texte de remplacement viennent
+// de affichageCascadeV3 (bilanFicheV3.mjs), le constat à date reste affiché.
+// Sans décision (ancien appelant), la cascade est montrée comme avant.
+function constatHtml(mg) {
+  const constat = mg.constat || {}, per = mg.periode || {};
+  return `<p class="note">Constat à date : marge à l'avancement ${e(fmtEurSigne(constat.margeAvancement))} · matériaux en avance sur chantier ${e(fmtEur(constat.materiauxEnAvance))}
+      — Sur la période : production ${e(fmtEur(per.production))} · marge de la période ${e(fmtEurSigne(per.margePeriode))}</p>`;
+}
 function cascadeHtml(mg) {
+  const aff = mg?.affichage;
+  if (aff && aff.afficherCascade === false) return `<p><strong>${e(aff.texte)}</strong></p>${constatHtml(mg)}`;
   const c = mg?.cascade;
   if (!c) return "";
   if (!c.disponible) return `<p class="note"><strong>Du devis au probable :</strong> ${e(c.raison)}.</p>`;
@@ -326,7 +339,6 @@ function cascadeHtml(mg) {
   const haut = c.devisComparable
     ? `${total("Marge devis", c.devis, c.devisPct)}${listeSure(c.versTerminaison).map(poste).join("")}`
     : `<tr><td colspan="3" class="gris">Marge devis non comparable : ${e(c.raisonDevis)}.</td></tr>`;
-  const constat = mg.constat || {}, per = mg.periode || {};
   return `<table style="width:auto;min-width:62%">
     <thead><tr><th>Du devis au probable</th><th class="n">€</th><th class="n">% du vendu</th></tr></thead>
     <tbody>${haut}
@@ -334,8 +346,7 @@ function cascadeHtml(mg) {
       ${listeSure(c.versProbable).map(poste).join("")}
       ${total("= Marge probable (au rythme constaté)", c.probable, c.probablePct)}
     </tbody></table>
-    <p class="note">Constat à date : marge à l'avancement ${e(fmtEurSigne(constat.margeAvancement))} · matériaux en avance sur chantier ${e(fmtEur(constat.materiauxEnAvance))}
-      — Sur la période : production ${e(fmtEur(per.production))} · marge de la période ${e(fmtEurSigne(per.margePeriode))}</p>`;
+    ${constatHtml(mg)}`;
 }
 
 function lotsFicheHtml(f) {
@@ -391,7 +402,7 @@ function ficheHtml(f) {
   </div>`;
 }
 
-/** Version détaillée : direction + fiches chantier + annexe méthode. */
+/** Version détaillée : direction + fiches chantier + annexe méthode (si d.methode est fourni). */
 export function htmlBilanDetailleV3(d) {
   const fiches = listeSure(d.fiches).map(ficheHtml).join("");
   const methode = listeSure(d.methode);
