@@ -4422,6 +4422,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       {/* ── Parcours « Préparer le chantier » (plein écran) ── */}
       {preparationOuverte && (
         <PreparationChantier chantierNom={chantier?.nom || ""} chantierId={chantierId} meta={phasage?.plan_travaux?.meta || {}}
+          logementsOperation={chantier?.operation_id ? chantiers.filter(c => c.operation_id === chantier.operation_id && c.id !== chantierId) : []}
           ouvrages={ouvrages} auteur={profil?.nom || profil?.email || null}
           heuresPointees={pointagesParTache} conflit={!!conflitInfo} etatSauvegarde={autoSaveStatus}
           onSaveMeta={saveMeta} onOuvragesChange={updateOuvrages}

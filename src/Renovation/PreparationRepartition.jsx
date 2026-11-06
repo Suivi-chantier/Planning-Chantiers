@@ -14,6 +14,7 @@ import {
   placerDansUnePiece, placerToutLeLogement, decouperOuvrage, compterIdsNecessaires,
 } from "./preparationChantierV1";
 import { nomAffiche } from "./phasageMobileV1";
+import { propositionPourOuvrage } from "./preparationCopieV1";
 
 const TOUCHE = 44;
 const rid = () => Math.random().toString(36).slice(2, 10);
@@ -21,6 +22,22 @@ const fmt = (n) => (n == null ? "—" : (Math.round(Number(n) * 100) / 100).toLo
 const libelleOuvrage = (o) => String(o?.libelle || o?.code_ouvrage || "Ouvrage sans nom").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&");
 const uniteOuvrage = (o) => String(o?.unite || "").replace(/^m2$/i, "m²");
 const quantiteOuvrage = (o) => { const q = parseFloat(o?.quantite); return Number.isFinite(q) && q > 0 ? q : null; };
+
+// Choix proposé à l'ouverture d'un ouvrage. Une proposition reprise d'un
+// autre logement (étape « Point de départ ») pré-remplit l'écran : rien
+// n'est appliqué tant que le conducteur n'a pas validé l'ouvrage.
+function choixInitial(o, pieces, heuresPointees, preparation) {
+  const dejaPlace = (preparation?.ouvrages_places || []).map(String).includes(String(o?.id));
+  const p = o && !dejaPlace && !ouvrageDejaDecoupe(o) ? propositionPourOuvrage(preparation, o.id, pieces) : null;
+  if (p && !(p.mode === "plusieurs" && !quantiteOuvrage(o))) {
+    return {
+      mode: p.mode, pieceId: p.mode === "piece" ? String(p.pieceId) : "",
+      lignes: p.mode === "plusieurs" ? p.lignes.map(l => ({ key: rid(), piece_id: String(l.piece_id), mur: l.mur || "", quantite: l.quantite })) : [],
+      granularites: { ...(p.granularites || {}) }, propose: true,
+    };
+  }
+  return { ...modeInitial(o, pieces, heuresPointees), lignes: [], granularites: {}, propose: false };
+}
 
 // Mode proposé à l'ouverture d'un ouvrage.
 function modeInitial(o, pieces, heuresPointees) {
@@ -36,7 +53,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
   const premier = () => ouvrageSuivant(ouvrages, null, opts) || ouvrages[0] || null;
   const [courantId, setCourantId] = useState(() => premier()?.id ?? null);
   const courant = ouvrages.find(o => String(o.id) === String(courantId)) || null;
-  const [choix, setChoix] = useState(() => ({ ...modeInitial(courant, pieces, heuresPointees), lignes: [], granularites: {} }));
+  const [choix, setChoix] = useState(() => choixInitial(courant, pieces, heuresPointees, preparation));
   const [erreur, setErreur] = useState("");
   const [envoi, setEnvoi] = useState(false);
   const { mode, pieceId, lignes, granularites } = choix;
@@ -44,7 +61,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
 
   const ouvrir = (o) => {
     setCourantId(o?.id ?? null);
-    setChoix({ ...modeInitial(o, pieces, heuresPointees), lignes: [], granularites: {} });
+    setChoix(choixInitial(o, pieces, heuresPointees, preparation));
     setErreur("");
   };
 
@@ -84,7 +101,11 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
       if (!r?.ok) return;
       const apres = modifie ? ouvrages.map(o => (String(o.id) === String(courant.id) ? modifie : o)) : ouvrages;
       const suivant = ouvrageSuivant(apres, courant.id, { preparation: r.preparation, heuresPointees });
-      if (suivant) ouvrir(suivant);
+      if (suivant) {
+        setCourantId(suivant.id);
+        setChoix(choixInitial(suivant, pieces, heuresPointees, r.preparation));
+        setErreur("");
+      }
     } finally {
       setEnvoi(false);
     }
@@ -148,6 +169,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
                     <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{libelleOuvrage(o)}</span>
                     <span style={{ fontSize: FONT.xs.size + 1, color: T.textSub }}>
                       {q ? `${fmt(q)} ${uniteOuvrage(o)}` : "Quantité non renseignée"} · {nb} tâche{nb > 1 ? "s" : ""}{ouvrageDejaDecoupe(o) ? " · déjà découpé" : ""}
+                      {e !== "place" && e !== "deja_commence" && propositionPourOuvrage(preparation, o.id, pieces) ? " · proposition à vérifier" : ""}
                     </span>
                   </span>
                   <span style={badge(e)}>{ETATS_OUVRAGE[e]}</span>
@@ -198,6 +220,13 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
             {etat === "place" && (
               <div style={{ color: T.textSub, fontSize: FONT.sm.size, lineHeight: 1.5 }}>
                 Cet ouvrage est déjà marqué « Placé ». Valider à nouveau remplace sa répartition par celle ci-dessous.
+              </div>
+            )}
+            {choix.propose && (
+              <div style={{ ...carte, padding: "12px 16px", fontSize: FONT.sm.size + 1, lineHeight: 1.5, borderColor: accent }}>
+                <strong>Proposition reprise{preparation?.copie?.nom ? ` de ${preparation.copie.nom}` : " d'un autre logement"}</strong>
+                {mode === "plusieurs" ? " — m² recalculés en proportion de la quantité de ce logement." : "."}
+                {" "}Vérifie les lignes ci-dessous, modifie-les si besoin, puis valide : rien n'est appliqué avant « Valider cet ouvrage ».
               </div>
             )}
             {libres.length === 0 && (
