@@ -127,7 +127,7 @@ correspondance « À placer ».
 | 1 | Tranche 1a — Moteur de calcul du découpage (module pur `preparationChantierV1.mjs` + façade, script `verif-preparation-chantier.mjs` branché dans un workflow) ; bouton « Préparer le chantier » dans Phasage V2, parcours plein écran, étape « Les pièces », « Enregistrer et quitter » / reprise | en ligne | Auto (contrôles verts) | Vérifications vertes sur GitHub ; le parcours s'ouvre, les pièces s'enregistrent, la reprise revient à la bonne étape | [#199](https://github.com/Suivi-chantier/Planning-Chantiers/pull/199) |
 | 2 | Tranche 1b — Étape « Où se fait chaque ouvrage » (3 modes, reste à placer, granularité par tâche, aperçu ouvriers) + entrée `journalMaj.js` | en ligne | **Arrêt avant fusion** : démonstration sur LOUISON APPT 2 (T2), rien d'enregistré sans accord | Tableau avant / après du doublage MU-001 (50 m²), totaux identiques au centième | [#200](https://github.com/Suivi-chantier/Planning-Chantiers/pull/200) (fusionnée après accord de Loris) |
 | 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | en ligne | Auto | Consignes et photos relues après rechargement ; contrôle final juste | [#201](https://github.com/Suivi-chantier/Planning-Chantiers/pull/201) |
-| 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | en cours | Auto | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | — |
+| 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | en attente de Loris | Auto | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | — |
 | 5 | Tranche 3 — Copie depuis un autre logement (moteur de correspondance + étape « Point de départ ») + vérifications + entrée `journalMaj.js` | à faire | Auto | Vérifications de copie vertes ; copie d'un logement préparé vers un logement vierge de la même opération | — |
 
 ## Journal des décisions
@@ -343,6 +343,26 @@ contrôles verts (dont `verif-pieces-phasage`, touché par la correction de
 `piecesDuPhasage`). Vérifié sur la base avant fusion : aucun phasage ne porte
 encore `meta.preparation`, la nouvelle note « Tout le logement » ne concerne
 aucune donnée existante.
+
+**06/11/2026 — Tâche 4 : arrêt obligatoire (droits d'accès).** Les écrans
+ouvrier (Compte rendu `ParcoursCompteRendu.jsx`, onglet Phases
+`OuvrierMesPhases.jsx`, `RapportMobile.jsx`) ne lisent pas la table
+`phasages` (policy `bureau_all` réservée au bureau) : ils passent par la
+fonction SECURITY DEFINER `public.ouvrier_mes_phases` (propriétaire postgres).
+Vérifié sur la base : elle renvoie les pièces sous la forme `{id, nom}` et,
+pour chaque tâche, `nom`, `nom_perso`, `piece_id`, mais ni `mur`, ni
+`quantite_part`, ni consignes, ni photos. Le bucket `photos` est déjà public
+en lecture. Rien n'est poussé pour la tâche 4.
+
+Question posée à Loris : « Pour que les ouvriers voient consignes, photos,
+mur et m², j'ajoute ces informations à la fonction serveur qui leur envoie le
+phasage (aucun prix, aucun %, mêmes contrôles d'accès). D'accord ? (oui /
+non) ». Si oui : migration `create or replace` de `ouvrier_mes_phases` à
+partir du corps en production, ajout de `mur`, `quantite_part` par tâche et
+`consigne`, `consignes_murs`, `photos` par pièce (+ `ouvrages_logement`),
+puis écran Compte rendu en mode pièces. Si non : onglets par pièce avec
+les tâches seulement, sans consignes ni photos. Réponse : en attente.
+
 
 ## Comptes rendus
 
