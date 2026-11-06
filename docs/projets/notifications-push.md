@@ -218,7 +218,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en ligne | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) (fusionnée le 06/11) |
-| 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | à faire | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | — |
+| 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | en cours | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | [n°220](https://github.com/Suivi-chantier/Planning-Chantiers/pull/220) |
 | 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | à faire | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | — |
 | 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
 | 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | à faire | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | — |
@@ -341,6 +341,14 @@ envoi réussi). Fin d'étape 1 validée.
 - **Module pur** `supabase/functions/_partage/notificationsPushV1.mjs`
   (même emplacement que `pushRegles.mjs`), façade front
   `src/notificationsPushV1.js`.
+- **État au 06/11/2026** : migration `20261106140000_notifications_boite`
+  relue et vérifiée (rien n'existait), mais **pas appliquée** : l'outil
+  Supabase a demandé une confirmation restée sans réponse. `send-push` n'est
+  donc pas redéployé (la version en ligne reste celle de la tâche 1, l'envoi
+  de test continue de marcher). `notifications-boite` est déployée (refus sans
+  jeton et avec la clé anon vérifiés). À faire : appliquer la migration, puis
+  redéployer `send-push` et `notifications-boite` avec les fichiers complets
+  du dépôt.
 
 ## À faire par Loris
 
