@@ -191,8 +191,8 @@ avant la fusion de sa demande de fusion. Toutes additives et rejouables.
   production du 06/11 + ajouts seulement (`mur` et `quantite_part` par tâche ;
   `consigne`, `consignes_murs` [{mur, texte}] et `photos` par pièce ;
   `ouvrages_logement`). Jamais de % ni de montant, mêmes contrôles d'accès,
-  mêmes droits (ré-énoncés). Accord de Loris du 06/11/2026. **NON appliquée**
-  à la création du fichier : à appliquer avant la fusion de la tâche 4.
+  mêmes droits (ré-énoncés). Accord de Loris du 06/11/2026. **Appliquée** le 06/11/2026
+  (migration `ouvrier_mes_phases_pieces_consignes`), droits vérifiés identiques.
 
 ## Règles
 
