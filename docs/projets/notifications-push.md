@@ -217,7 +217,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en cours | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) |
+| 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en ligne (test téléphone en attente des secrets) | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) (fusionnée le 06/11) |
 | 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | à faire | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | — |
 | 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | à faire | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | — |
 | 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
@@ -317,3 +317,40 @@ tâche.
    l'application doit être installée sur l'écran d'accueil (iOS 16.4 minimum).
 
 ## Comptes rendus
+
+### Tâche 1 — Plomberie et notification de test (06/11/2026) — en ligne
+
+**Ce qui a changé.** Les collaborateurs du bureau ont un panneau « Mon
+profil ». On l'ouvre en touchant son nom en bas de la barre latérale, ou
+l'icône téléphone en haut sur mobile. Il contient « Activer les
+notifications », « Envoyer une notification de test » et l'état réel de
+l'appareil. Les ouvriers ne voient rien de tout cela.
+
+**Vérifié.**
+- La demande de fusion n°217 a ses 13 contrôles GitHub verts. Elle a été
+  fusionnée.
+- Le déploiement est terminé : sur le site en production, la page d'accueil
+  et `push-sw.js` répondent 200.
+- La migration `20261106052100_push_subscriptions` est purement additive et
+  enregistrée en base. La table ne porte que la policy
+  `profero_collaborateurs_seulement` et n'est pas accessible directement
+  depuis le navigateur.
+- Les fonctions `push-abonnement` et `send-push` sont déployées :
+  - un appel sans connexion est refusé (401) ;
+  - le serveur dit clairement « clés non configurées » (503) ;
+  - l'auto-contrôle de chiffrement est bon.
+
+**Non vérifié.** Aucun envoi réel. Les 3 secrets VAPID ne sont pas saisis,
+car Supabase a suspendu leur enregistrement automatique. N'ont donc pas été
+testés : la réception sur téléphone, l'ouverture de l'application au
+toucher, la suppression d'un appareil périmé. Voir « À faire par Loris ».
+
+**Points connus.**
+- Si l'application est déjà ouverte, toucher une notification la met au
+  premier plan sans changer d'écran. La navigation vers l'écran précis
+  viendra avec les vraies notifications.
+- Sur ordinateur, quand la barre latérale est repliée, il faut la déplier
+  pour atteindre « Mon profil ».
+- La migration `ouvrier_mes_phases_pieces_consignes` du dépôt est
+  enregistrée en base sous un autre numéro (20261106021209). Elle est bien
+  appliquée, rien à faire.
