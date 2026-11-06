@@ -736,6 +736,14 @@ export const SEUILS_MARGES_DEFAUT = Object.freeze({
   // PDF du Bilan, version direction (26/10/2026) : un dépassement d'enveloppe
   // matériaux n'y figure qu'à partir de ce montant (en dessous : version détaillée)
   bilanDirectionEnveloppeMinEuros: 500,
+  // Fiabilité de la marge probable (Bilan détaillé, 06/11/2026) : avancement
+  // du chantier (%) et part des heures restantes couvertes par un coefficient
+  // constaté ou neutralisé (%). Sous le seuil « faible » → faible ; au-delà du
+  // seuil « bon(ne) » → bonne ; entre les deux → moyenne.
+  fiabiliteAvancementFaiblePct: 25,
+  fiabiliteAvancementBonPct: 60,
+  fiabiliteCouvertureFaiblePct: 30,
+  fiabiliteCouvertureBonnePct: 70,
 });
 
 // ── MARGE PRÉVUE AU DEVIS (26/10/2026) ──────────────────────────────────────
