@@ -39,13 +39,47 @@
           return /MIME type|Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Unexpected token '<'/i.test(texte);
         }
 
+        // Deuxième échec dans la minute (vécu le 2026-11-06 sous Brave / Windows :
+        // la récupération automatique a tourné deux fois sans débloquer le poste,
+        // seul « Effacer les données du site » a réparé). On ne laisse plus un
+        // écran blanc muet : un message visible explique et propose le bouton
+        // qui vide la mémoire de l'application et recharge, sans anti-boucle
+        // puisque c'est l'utilisateur qui clique.
+        var MESSAGE_ID = "filet-pwa-message";
+        function afficherMessage() {
+          function poser() {
+            if (document.getElementById(MESSAGE_ID)) return;
+            var d = document.createElement("div");
+            d.id = MESSAGE_ID;
+            d.setAttribute("style", "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#1a1f2e;font-family:Arial,Helvetica,sans-serif;padding:24px;");
+            d.innerHTML =
+              '<div style="max-width:440px;background:#fff;border-radius:14px;padding:24px 26px;color:#1a1f2e;line-height:1.5;">' +
+              '<div style="font-size:12px;font-weight:700;letter-spacing:1.5px;color:#b8860b;text-transform:uppercase;">Mise à jour de l\'application</div>' +
+              '<div style="font-size:18px;font-weight:700;margin:6px 0 10px;">L\'application n\'a pas pu se mettre à jour toute seule</div>' +
+              '<div style="font-size:14px;color:#5a6478;">Votre appareil a gardé en mémoire une ancienne version. Le bouton ci-dessous efface cette mémoire et recharge l\'application. Vos données ne sont pas touchées : elles sont sur le serveur.</div>' +
+              '<button type="button" id="filet-pwa-bouton" style="margin-top:18px;width:100%;min-height:44px;border:none;border-radius:10px;background:#FFC200;color:#1a1f2e;font-size:15px;font-weight:700;cursor:pointer;">Effacer la mémoire et recharger</button>' +
+              '<div style="font-size:12px;color:#5a6478;margin-top:12px;">Si l\'écran revient : Ctrl + Maj + R, ou dans le navigateur « Effacer les données du site ».</div>' +
+              '</div>';
+            document.body.appendChild(d);
+            document.getElementById("filet-pwa-bouton").onclick = function () { nettoyerEtRecharger(); };
+          }
+          if (document.body) poser(); else document.addEventListener("DOMContentLoaded", poser);
+        }
+
         function reparer(origine) {
           var dernier = 0;
           try { dernier = parseInt(sessionStorage.getItem(CLE), 10) || 0; } catch (_) {}
-          if (Date.now() - dernier < FENETRE) return;
+          if (Date.now() - dernier < FENETRE) {
+            console.warn("[filet PWA] nouvel échec après récupération : " + origine);
+            afficherMessage();
+            return;
+          }
           try { sessionStorage.setItem(CLE, String(Date.now())); } catch (_) {}
           console.warn("[filet PWA] récupération déclenchée par : " + origine);
+          nettoyerEtRecharger();
+        }
 
+        function nettoyerEtRecharger() {
           var nettoyages = [];
           if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
             nettoyages.push(
