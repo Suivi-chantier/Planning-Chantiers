@@ -128,7 +128,7 @@ correspondance « À placer ».
 | 2 | Tranche 1b — Étape « Où se fait chaque ouvrage » (3 modes, reste à placer, granularité par tâche, aperçu ouvriers) + entrée `journalMaj.js` | en ligne | **Arrêt avant fusion** : démonstration sur LOUISON APPT 2 (T2), rien d'enregistré sans accord | Tableau avant / après du doublage MU-001 (50 m²), totaux identiques au centième | [#200](https://github.com/Suivi-chantier/Planning-Chantiers/pull/200) (fusionnée après accord de Loris) |
 | 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | en ligne | Auto | Consignes et photos relues après rechargement ; contrôle final juste | [#201](https://github.com/Suivi-chantier/Planning-Chantiers/pull/201) |
 | 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | en ligne | Auto (modification de `ouvrier_mes_phases` acceptée par Loris le 06/11) | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | [#202](https://github.com/Suivi-chantier/Planning-Chantiers/pull/202) (fusionnée ; migration appliquée le 06/11) |
-| 5 | Tranche 3 — Copie depuis un autre logement (moteur de correspondance + étape « Point de départ ») + vérifications + entrée `journalMaj.js` | en cours | Auto | Vérifications de copie vertes ; copie d'un logement préparé vers un logement vierge de la même opération | [#203](https://github.com/Suivi-chantier/Planning-Chantiers/pull/203) (ouverte) |
+| 5 | Tranche 3 — Copie depuis un autre logement (moteur de correspondance + étape « Point de départ ») + vérifications + entrée `journalMaj.js` | en ligne | Auto | Vérifications de copie vertes ; copie d'un logement préparé vers un logement vierge de la même opération | [#203](https://github.com/Suivi-chantier/Planning-Chantiers/pull/203) (fusionnée) |
 
 ## Journal des décisions
 
@@ -496,6 +496,12 @@ fusion ouverte. Le travail a été repris tel quel sur la branche
 `claude/happy-archimedes-eqqhj2` (branche attribuée à la nouvelle session) et
 la demande de fusion #203 ouverte.
 
+**06/11/2026 — Tâche 5 en ligne, projet terminé.** Demande de fusion #203
+fusionnée, les 7 vérifications et la version de test Vercel vertes sur la
+dernière version. Comme pour les tâches précédentes, le site de production
+n'est pas joignable depuis la session : son ouverture n'a pas pu être
+contrôlée directement. Aucune migration dans la tâche 5.
+
 ## Comptes rendus
 
 **Tâche 1 — Tranche 1a (06/11/2026, demande de fusion ouverte, pas encore en ligne).**
@@ -731,7 +737,7 @@ Aucun changement de droits d'accès. L'écran n'a pas pu être essayé dans un
 navigateur depuis la session (pas de dépendances installées) : la
 construction est contrôlée par GitHub.
 
-**Tâche 5 — Tranche 3 (06/11/2026, demande de fusion ouverte, pas encore en ligne).**
+**Tâche 5 — Tranche 3 (06/11/2026, en ligne).**
 
 Ce qui change pour le conducteur de travaux :
 
@@ -801,3 +807,58 @@ passe, passe de finition par pièce. Après validation (simulée) : 6 tâches
 → 21 tâches ; totaux de l'ouvrage identiques avant / après : 22,35 h
 estimées, 22,96 h vendues, 107 % de ratios (écart 0 ; les 107 % et l'écart
 estimé / vendu existent déjà sur les vraies données, comme pour APPT 2).
+
+## Synthèse de fin de projet (06/11/2026)
+
+**Projet terminé.** Les 5 tâches sont en ligne (#199 à #203).
+
+Ce qui change pour les **conducteurs de travaux** :
+
+- Dans Phasage, le bouton « Préparer le chantier » ouvre un parcours guidé,
+  une fois par logement : point de départ (copier un logement déjà préparé
+  de la même opération, ou partir de zéro), les pièces, où se fait chaque
+  ouvrage (une pièce, tout le logement, ou plusieurs pièces / murs en m²),
+  consignes et photos par pièce et par mur, puis contrôle final.
+- On peut s'arrêter à tout moment (« Enregistrer et quitter ») et reprendre
+  à la même étape.
+
+Ce qui change pour les **ouvriers** :
+
+- Sur le téléphone (compte rendu → « Par pièce »), les pièces dans l'ordre
+  de visite, avec en haut la consigne de la pièce, les consignes par mur et
+  les photos, puis les tâches de la pièce avec le mur et les m²
+  (« Mur côté rue · 14 m² »). Toujours ni prix ni pourcentages.
+
+Ce qui change pour la **direction** : rien dans les chiffres. Le découpage
+par pièce et par mur conserve exactement les heures estimées, les heures
+vendues et les % de chaque ouvrage, donc les marges et l'avancement.
+
+Principaux chiffres avant / après (vrais ouvrages, pièces et murs
+hypothétiques, rien d'enregistré) :
+
+| Contrôle | Avant | Après |
+|---|---:|---:|
+| LOUISON APPT 2 — doublage MU-001 : heures estimées / vendues | 31,93 h / 32,8 h | 31,93 h / 32,8 h |
+| LOUISON APPT 2 — prix HT du chantier (calcul financier complet, 140 valeurs) | 29 430,58 € | 29 430,58 € |
+| LOUISON APPT 4 — doublage MU-001 copié depuis APPT 2 : heures estimées / vendues | 22,35 h / 22,96 h | 22,35 h / 22,96 h |
+| LOUISON APPT 4 — ouvrages retrouvés automatiquement dans APPT 2 | — | 15 sur 18 |
+
+Points en suspens :
+
+- Aucun logement n'est encore préparé pour de vrai : le premier usage réel
+  sera celui d'un conducteur de travaux.
+- L'onglet « Phases » des ouvriers n'a pas de vue par pièce (seul le compte
+  rendu en a une).
+- Le doublage MU-001 de Louison totalise 107 % de ratios (constat sur les
+  vraies données, hors projet ; se corrige avec le bouton « % » de Phasage).
+- L'ouverture du site de production n'a pas pu être contrôlée depuis la
+  session de travail.
+
+Entrées ajoutées dans `src/Renovation/journalMaj.js` (06/11/2026) :
+
+1. « Phasage : « Préparer le chantier », pour dire aux ouvriers dans quelle
+   pièce et sur quel mur travailler »
+2. « Préparer le chantier : consignes et photos par pièce, visibles pièce
+   par pièce sur le téléphone des ouvriers »
+3. « Préparer le chantier : reprendre la préparation d'un autre logement de
+   la même opération »
