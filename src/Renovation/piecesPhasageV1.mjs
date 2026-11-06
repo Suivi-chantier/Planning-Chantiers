@@ -4,7 +4,7 @@
 // horloge, aucun effet de bord — les identifiants neufs arrivent en paramètre.
 //
 // Stockage (aucune migration) :
-//   phasage.plan_travaux.meta.pieces = [{ id, nom }]   (l'ordre du tableau est
+//   phasage.plan_travaux.meta.pieces = [{ id, nom, … }] (l'ordre du tableau est
 //                                                       l'ordre d'affichage)
 //   tâche.piece_id                                     (facultatif)
 // Une tâche sans pièce reste valable partout : la pièce sert à lire et filtrer
@@ -18,12 +18,15 @@ const num = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".")); re
 
 export const SANS_PIECE = "__sans_piece__";
 
-// Liste propre : ids et noms non vides, sans doublon d'id.
+// Liste propre : ids et noms non vides, sans doublon d'id. Les autres champs
+// d'une pièce (consigne, consignes_murs, photos — « Préparer le chantier »)
+// sont CONSERVÉS : cette liste est réécrite telle quelle dans meta.pieces par
+// le panneau « Pièces » et par le parcours, elle ne doit rien effacer.
 export function piecesDuPhasage(meta) {
   const vus = new Set();
   return liste(meta?.pieces)
     .filter(p => p && net(p.id) && net(p.nom) && !vus.has(net(p.id)) && vus.add(net(p.id)))
-    .map(p => ({ id: net(p.id), nom: net(p.nom) }));
+    .map(p => ({ ...p, id: net(p.id), nom: net(p.nom) }));
 }
 
 export function ajouterPiece(pieces, nom, id) {

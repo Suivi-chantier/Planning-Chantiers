@@ -7,7 +7,10 @@ import {
   apercuDecoupage, etatOuvrage, compteurPlaces, marquerOuvragePlace, retirerOuvragePlace,
   majPreparation, etapeReprise, preparationDuPhasage, piecesRetirees, remplacerOuvrage,
   PIECES_RAPIDES, ouvrageDejaDecoupe, repartitionActuelle, mettreLeResteDans, apercuPlacement, ouvrageSuivant,
+  consignesDePiece, poserConsigne, poserConsigneMur, retirerConsigneMur, ajouterPhoto, retirerPhoto,
+  piecesPourEnregistrement, mursDeLaPiece, nbTachesParPiece, controleFinal, marquerPreparationTerminee,
 } from "../src/Renovation/preparationChantierV1.mjs";
+import { piecesDuPhasage, ajouterPiece, renommerPiece, deplacerPiece, supprimerPiece } from "../src/Renovation/piecesPhasageV1.mjs";
 
 let nbOk = 0;
 const eq = (a, b, m) => { assert.deepEqual(a, b, m); nbOk++; };
@@ -186,5 +189,99 @@ const suite = [{ id: "a", taches: [{ id: "a1" }] }, { id: "b", taches: [{ id: "b
 eq(ouvrageSuivant(suite, "a", { preparation: { ouvrages_places: ["a", "c"] } })?.id, "d", "suivant : on saute les commencés et les placés");
 eq(ouvrageSuivant(suite, "d", { preparation: { ouvrages_places: ["d"] } })?.id, "a", "suivant : on repart du début");
 eq(ouvrageSuivant(suite, "d", { preparation: { ouvrages_places: ["a", "c", "d"] } }), null, "suivant : tout est placé");
+
+// ── Tranche 2a : étape « Consignes & plans » ──
+// Pièces fictives avec consignes et photos (chemins fictifs du bucket « photos »).
+let pc = geler([{ id: "sej", nom: "Séjour / cuisine" }, { id: "ch", nom: "Chambre" }, { id: "sde", nom: "Salle d'eau" }]);
+pc = poserConsigne(pc, "sde", "  Plaques hydro sur tous les murs ");
+pc = poserConsigneMur(pc, "sej", "Mur côté rue", "Gaine électrique existante à conserver");
+pc = poserConsigneMur(pc, "sej", "mur côté RUE ", "Gaine à conserver");
+pc = poserConsigneMur(pc, "sej", "Mur côté palier", "   ");
+pc = ajouterPhoto(pc, "sej", "preparation/chantier-fictif/sej/1_a.jpg");
+pc = ajouterPhoto(pc, "sej", "preparation/chantier-fictif/sej/1_a.jpg");
+pc = ajouterPhoto(pc, "sej", "preparation/chantier-fictif/sej/2_b.jpg");
+pc = ajouterPhoto(pc, "ch", "preparation/chantier-fictif/ch/3_c.jpg");
+eq(consignesDePiece(pc[0]).consignes_murs, [{ mur: "Mur côté rue", texte: "Gaine à conserver" }, { mur: "Mur côté palier", texte: "   " }], "consigne de mur : même mur (casse, espaces) modifié, pas dupliqué");
+eq(consignesDePiece(pc[0]).photos, ["preparation/chantier-fictif/sej/1_a.jpg", "preparation/chantier-fictif/sej/2_b.jpg"], "photo : ajoutée une seule fois");
+eq(pc[2].consigne, "  Plaques hydro sur tous les murs ", "consigne gardée telle quelle pendant la saisie");
+eq(consignesDePiece({ id: "x", nom: "X" }), { consigne: "", consignes_murs: [], photos: [] }, "pièce sans consigne : lecture vide");
+const aEcrire = piecesPourEnregistrement(pc);
+eq(aEcrire, [
+  { id: "sej", nom: "Séjour / cuisine", consignes_murs: [{ mur: "Mur côté rue", texte: "Gaine à conserver" }], photos: ["preparation/chantier-fictif/sej/1_a.jpg", "preparation/chantier-fictif/sej/2_b.jpg"] },
+  { id: "ch", nom: "Chambre", photos: ["preparation/chantier-fictif/ch/3_c.jpg"] },
+  { id: "sde", nom: "Salle d'eau", consigne: "Plaques hydro sur tous les murs" },
+], "enregistrement : textes nettoyés, mur sans texte retiré, pièce sans consigne réduite à { id, nom }");
+eq(piecesPourEnregistrement([{ id: "a", nom: "A", autre: 7, consigne: "", photos: [] }]), [{ id: "a", nom: "A", autre: 7 }], "enregistrement : champs inconnus conservés, champs vides supprimés");
+eq(retirerConsigneMur(aEcrire, "sej", "MUR CÔTÉ RUE")[0].consignes_murs, [], "consigne de mur retirée");
+eq(retirerPhoto(aEcrire, "sej", "preparation/chantier-fictif/sej/1_a.jpg")[0].photos, ["preparation/chantier-fictif/sej/2_b.jpg"], "photo retirée de la pièce");
+eq(ajouterPhoto(aEcrire, "inconnue", "x.jpg"), aEcrire, "photo sur une pièce inconnue : rien ne change");
+eq(poserConsigneMur(aEcrire, "sej", "  ", "texte"), aEcrire, "consigne de mur sans nom de mur : refusée");
+geler(aEcrire);
+
+// Consignes et photos conservées par tous les chemins qui réécrivent meta.pieces.
+const metaRelu = { pieces: aEcrire, autre_champ: 1 };
+const relues = piecesDuPhasage(metaRelu);
+eq(relues, aEcrire, "relecture du phasage (piecesDuPhasage) : consignes et photos conservées");
+eq(renommerPiece(relues, "sej", "Séjour")[0], { ...aEcrire[0], nom: "Séjour" }, "renommer : consignes et photos conservées");
+eq(deplacerPiece(relues, "sde", -1).map(p => p.id), ["sej", "sde", "ch"], "déplacer : ordre changé");
+eq(deplacerPiece(relues, "sde", -1)[1], aEcrire[2], "déplacer : consigne conservée");
+const avecNouvelle = ajouterPiece(relues, "WC", "wc");
+eq(avecNouvelle.slice(0, 3), aEcrire, "ajouter une pièce : les autres gardent consignes et photos");
+eq(supprimerPiece(relues, "ch"), [aEcrire[0], aEcrire[2]], "retirer une pièce : les autres gardent consignes et photos");
+// Panneau « Pièces » de Phasage V2 (PiecesPhasage.jsx) : mêmes opérations écrites en ligne.
+const panneauRenomme = relues.map(x => (x.id === "ch" ? { ...x, nom: "Chambre 1" } : x));
+eq(panneauRenomme[1].photos, aEcrire[1].photos, "panneau Pièces (renommer) : photos conservées");
+eq([...relues, { id: "n", nom: "Cellier" }].slice(0, 3), aEcrire, "panneau Pièces (ajouter) : consignes conservées");
+// Aller-retour comme saveMeta de Phasage V2 (meta relue puis fusionnée avec le patch), puis rechargement.
+const saveMeta = (meta, patch) => ({ ...meta, ...patch });
+const apresParcours = saveMeta(metaRelu, { pieces: piecesPourEnregistrement(renommerPiece(relues, "ch", "Chambre parents")), preparation: majPreparation({}, { etape: "consignes", maj_le: "2026-11-06T10:00:00Z", par: "Conducteur fictif" }) });
+const apresPanneau = saveMeta(apresParcours, { pieces: ajouterPiece(piecesDuPhasage(apresParcours), "Placard", "pl") });
+eq(piecesDuPhasage(apresPanneau).slice(0, 3).map(p => [p.consigne ?? null, p.consignes_murs?.length ?? 0, p.photos?.length ?? 0]),
+  [[null, 1, 2], [null, 0, 1], ["Plaques hydro sur tous les murs", 0, 0]], "rechargement après parcours puis panneau Pièces : consignes et photos toujours là");
+eq(apresPanneau.autre_champ, 1, "les autres champs de meta sont conservés");
+eq(etapeReprise(apresPanneau, ["pieces", "repartition", "consignes"]), "consignes", "reprise à l'étape « Consignes & plans »");
+eq(marquerPreparationTerminee({ etape: "consignes", ouvrages_places: ["o1"] }), { etape: "consignes", ouvrages_places: ["o1"], terminee: true }, "terminer la préparation : le reste conservé");
+
+// Murs proposés et nombre de tâches par pièce.
+const ouvsC = geler([
+  { id: "oa", libelle: "Doublage", taches: [
+    { id: "a1", nom: "Ossature", piece_id: "sej", mur: "Mur côté rue" },
+    { id: "a2", nom: "Ossature", piece_id: "sej", mur: "mur côté rue" },
+    { id: "a3", nom: "Ossature", piece_id: "sej", mur: "Mur côté palier" },
+    { id: "a4", nom: "Bandes", piece_id: "ch" },
+  ] },
+]);
+eq(mursDeLaPiece(ouvsC, { id: "sej", consignes_murs: [{ mur: "Mur fenêtre", texte: "x" }] }), ["Mur côté rue", "Mur côté palier", "Mur fenêtre"], "murs proposés : ceux des tâches, puis ceux des consignes, sans doublon");
+eq(mursDeLaPiece(ouvsC, { id: "sde" }), [], "pièce sans tâche ni mur : aucun mur proposé");
+eq(nbTachesParPiece(ouvsC, pieces), { sej: 3, ch: 1, sde: 0 }, "nombre de tâches par pièce");
+
+// Contrôle final.
+const ouvsF = geler([
+  { id: "o1", libelle: "Doublage", taches: [{ id: "f1", nom: "Ossature", piece_id: "sej" }, { id: "f2", nom: "Bandes", nom_perso: "Bandes doublage", piece_id: "ch" }] },
+  { id: "o2", libelle: "Nettoyage fin de chantier", taches: [{ id: "f3", nom: "Nettoyage" }, { id: "f4", nom: "Évacuation" }] },
+  { id: "o3", libelle: "Plomberie", taches: [{ id: "f5", nom: "Alimentation" }, { id: "f6", nom: "Évacuation EU", piece_id: "piece-retiree" }] },
+  { id: "o4", libelle: "Peinture", taches: [{ id: "f7", nom: "Peinture", piece_id: "sej" }, { id: "f8", nom: "Impression", avancement: 30 }] },
+]);
+const prepF = marquerOuvragePlace(marquerOuvragePlace(marquerOuvragePlace({}, "o1", "plusieurs"), "o2", "logement"), "o4", "piece");
+eq(prepF.ouvrages_logement, ["o2"], "choix « Tout le logement » noté dans la préparation");
+eq(marquerOuvragePlace(prepF, "o2", "piece").ouvrages_logement, [], "ouvrage revalidé dans une pièce : plus « tout le logement »");
+eq(marquerOuvragePlace({ ouvrages_places: ["a"] }, "b"), { ouvrages_places: ["a", "b"] }, "sans mode : ancien comportement inchangé");
+eq(retirerOuvragePlace(prepF, "o2").ouvrages_logement, [], "ouvrage retiré des placés : retiré aussi de « tout le logement »");
+const cf = controleFinal(ouvsF, pieces, prepF);
+eq(cf.etat, "a_completer", "contrôle final : des tâches sans pièce");
+eq(cf.sansPiece.map(t => [t.nom, t.ouvrage]), [["Alimentation", "Plomberie"], ["Évacuation EU", "Plomberie"], ["Impression", "Peinture"]],
+  "contrôle final : tâche sans pièce, tâche d'une pièce retirée, tâche commencée restée sans pièce dans un ouvrage réparti");
+eq(cf.toutLeLogement.map(t => [t.nom, t.ouvrage]), [["Nettoyage", "Nettoyage fin de chantier"], ["Évacuation", "Nettoyage fin de chantier"]],
+  "contrôle final : ouvrage « Tout le logement » listé à part, pas caché");
+eq(cf.total, 8, "contrôle final : toutes les tâches comptées");
+eq(controleFinal(ouvsF, pieces, {}).toutLeLogement, [], "ouvrage non placé : ses tâches sans pièce sont des oublis, pas « tout le logement »");
+eq(controleFinal(ouvsF, pieces, {}).sansPiece.length, 5, "ouvrage non placé : tâches sans pièce toutes signalées");
+eq(controleFinal([ouvsF[0], ouvsF[1]], pieces, prepF).etat, "logement", "contrôle final : aucun oubli, mais des tâches pour tout le logement");
+eq(controleFinal([ouvsF[0]], pieces, prepF), { etat: "ok", total: 2, sansPiece: [], toutLeLogement: [] }, "contrôle final : toutes les tâches ont une pièce");
+eq(controleFinal([], pieces, prepF).etat, "aucune_tache", "phasage sans tâche : rien à contrôler, jamais « tout va bien »");
+eq(controleFinal([ouvsF[0]], [], prepF).sansPiece.length, 2, "aucune pièce définie : toutes les tâches sont sans pièce");
+eq(controleFinal([ouvsF[1]], pieces, { ouvrages_places: ["o2"] }).sansPiece.length, 2, "ouvrage placé sans choix noté : jamais deviné « tout le logement »");
+eq(controleFinal([{ id: "o5", libelle: "Électricité", taches: [{ id: "g1", nom: "Tableau", piece_id: "sej" }, { id: "g2", nom: "Mise en service" }] }], pieces, { ouvrages_places: ["o5"], ouvrages_logement: ["o5"] }),
+  { etat: "logement", total: 2, sansPiece: [], toutLeLogement: [{ id: "g2", nom: "Mise en service", ouvrage: "Électricité", ouvrage_id: "o5" }] }, "tout le logement avec une tâche déjà rattachée : seule la tâche sans pièce est listée");
 
 console.log(`verif-preparer-le-chantier : ${nbOk} contrôles OK (données fictives)`);

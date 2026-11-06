@@ -1,6 +1,7 @@
 // Préparer le chantier — parcours guidé plein écran, lancé depuis Phasage V2.
-// Tranche 1 : étapes « Les pièces » et « Où se fait chaque ouvrage »
-// (PreparationRepartition.jsx). Les autres étapes arrivent ensuite.
+// Étapes « Les pièces », « Où se fait chaque ouvrage »
+// (PreparationRepartition.jsx) et « Consignes & plans »
+// (PreparationConsignes.jsx). « Point de départ » arrive ensuite.
 // Calculs : preparationChantierV1.mjs (module pur) et piecesPhasageV1.mjs.
 // AUCUNE écriture Supabase ici : on reçoit les fonctions d'écriture de
 // Phasage V2 (saveMeta, updateOuvrages), qui passent par sa file d'attente
@@ -13,11 +14,12 @@ import { ChevronUp, ChevronDown, Pencil, X, Check, AlertTriangle } from "lucide-
 import { THEMES, FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { ajouterPiece, renommerPiece, deplacerPiece, supprimerPiece, detacherPiece, piecesDuPhasage } from "./piecesPhasageV1";
-import { ETAPES, PIECES_RAPIDES, etapeReprise, majPreparation, piecesRetirees, preparationDuPhasage, marquerOuvragePlace, remplacerOuvrage } from "./preparationChantierV1";
+import { ETAPES, PIECES_RAPIDES, etapeReprise, majPreparation, piecesRetirees, preparationDuPhasage, marquerOuvragePlace, remplacerOuvrage, piecesPourEnregistrement, marquerPreparationTerminee } from "./preparationChantierV1";
 import PreparationRepartition from "./PreparationRepartition";
+import PreparationConsignes from "./PreparationConsignes";
 
 // Étapes déjà utilisables dans cette version du parcours.
-const ETAPES_DISPONIBLES = ["pieces", "repartition"];
+const ETAPES_DISPONIBLES = ["pieces", "repartition", "consignes"];
 const rid = () => Math.random().toString(36).slice(2, 10);
 const memeNom = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
 const TOUCHE = 44; // taille minimale d'un bouton (tablette au chantier)
@@ -27,7 +29,7 @@ const MSG_CONFLIT = "Enregistrement en pause : le phasage a été modifié aille
   + "Pour protéger ces modifications, plus rien n'est enregistré depuis ce parcours. Le parcours reste ouvert. "
   + "Pour reprendre : « Quitter sans enregistrer », puis « Recharger la version récente » dans Phasage V2, et rouvrez « Préparer le chantier ».";
 
-export default function PreparationChantier({ chantierNom, meta, ouvrages = [], auteur = null, heuresPointees = null, conflit = false, etatSauvegarde = "saved", onSaveMeta, onOuvragesChange, onFermer, T: theme }) {
+export default function PreparationChantier({ chantierNom, chantierId = null, meta, ouvrages = [], auteur = null, heuresPointees = null, conflit = false, etatSauvegarde = "saved", onSaveMeta, onOuvragesChange, onFermer, T: theme }) {
   const T = theme || THEMES.dark;
   const accent = T.accent;
   // Texte sur fond d'accent : foncé sur le jaune (sombre), blanc sur le bleu (clair).
@@ -46,6 +48,9 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
   onFermerRef.current = onFermer;
 
   const changer = (next) => { setPieces(next); setModifie(true); };
+  // Variante fonctionnelle (consignes, photos envoyées en arrière-plan) :
+  // part toujours de la dernière liste, pour ne perdre aucune saisie.
+  const majPieces = (f) => { setPieces(prev => f(prev)); setModifie(true); };
   const ajouter = (nom) => changer(ajouterPiece(pieces, nom, rid()));
   const nbTachesDe = (id) => ouvrages.reduce((s, o) => s + (o.taches || []).filter(t => t.piece_id === id).length, 0);
   const retirer = (p) => {
@@ -80,7 +85,8 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
       if (ouvs.some(o => (o.taches || []).some(t => t.piece_id === id))) { ouvs = detacherPiece(ouvs, id); detache = true; }
     });
     const nouvelle = majPreparation(base, { etape: e, maj_le: new Date().toISOString(), par: auteur });
-    const r = await onSaveMeta({ pieces, preparation: nouvelle });
+    // Liste complète des pièces (id, nom, consignes, photos) : jamais un patch partiel.
+    const r = await onSaveMeta({ pieces: piecesPourEnregistrement(pieces), preparation: nouvelle });
     if (r === false) return null;
     if (detache) onOuvragesChange(ouvs);
     setPrep(nouvelle);
@@ -88,13 +94,15 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
     return nouvelle;
   };
 
-  const enregistrerEtQuitter = async () => {
+  // terminer : « Terminer la préparation » (étape Consignes & plans) marque
+  // en plus la préparation comme faite.
+  const enregistrerEtQuitter = async ({ terminer = false } = {}) => {
     if (enregistrement) return;
     if (bloqueParConflit()) return;
     setMessage("");
     setEnregistrement(true);
     try {
-      const ok = await ecrire({ etape });
+      const ok = await ecrire({ etape, base: terminer ? marquerPreparationTerminee(prep) : prep });
       if (!ok) { setMessage("L'enregistrement n'a pas abouti. Le parcours reste ouvert : réessayez."); setEnregistrement(false); return; }
       setAttenteFermeture(Date.now());   // fermeture quand Phasage V2 confirme (effet ci-dessous)
     } catch (err) {
@@ -120,7 +128,7 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
   }, [attenteFermeture, etatSauvegarde, conflit]);
 
   const fermerSansEnregistrer = () => {
-    if (modifie && !window.confirm("Quitter sans enregistrer ? Les pièces ajoutées ou modifiées seront perdues.")) return;
+    if (modifie && !window.confirm("Quitter sans enregistrer ? Les pièces, consignes et photos ajoutées ou modifiées depuis le dernier enregistrement seront perdues.")) return;
     onFermer();
   };
 
@@ -142,15 +150,33 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
     }
   };
 
+  // « Où se fait chaque ouvrage » → « Consignes & plans » : l'étape est
+  // notée (reprise) ; les ouvrages validés sont déjà enregistrés.
+  const continuerVersConsignes = async () => {
+    if (enregistrement || bloqueParConflit()) return;
+    setMessage("");
+    setEnregistrement(true);
+    try {
+      const ok = await ecrire({ etape: "consignes" });
+      if (!ok) { setMessage("L'enregistrement n'a pas abouti. Réessayez."); return; }
+      setEtape("consignes");
+    } catch (err) {
+      console.warn("Préparer le chantier — consignes :", err);
+      setMessage("L'enregistrement n'a pas abouti. Réessayez.");
+    } finally {
+      setEnregistrement(false);
+    }
+  };
+
   // Validation d'un ouvrage (étape répartition) : tâches par updateOuvrages,
   // puis ouvrage marqué « placé » dans meta.preparation.
-  const validerOuvrage = async (ouvrageId, ouvrageModifie) => {
+  const validerOuvrage = async (ouvrageId, ouvrageModifie, mode) => {
     if (bloqueParConflit()) return { ok: false };
     setMessage("");
     try {
       let ouvs = ouvrages;
       if (ouvrageModifie) { ouvs = remplacerOuvrage(ouvrages, ouvrageModifie); onOuvragesChange(ouvs); }
-      const nouvelle = await ecrire({ etape: "repartition", base: marquerOuvragePlace(prep, ouvrageId), ouvragesBase: ouvs });
+      const nouvelle = await ecrire({ etape: "repartition", base: marquerOuvragePlace(prep, ouvrageId, mode), ouvragesBase: ouvs });
       if (!nouvelle) { setMessage("L'ouvrage n'a pas pu être marqué « placé ». Réessayez."); return { ok: false }; }
       return { ok: true, preparation: nouvelle };
     } catch (err) {
@@ -182,7 +208,7 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={fermerSansEnregistrer} style={btn()}>Quitter sans enregistrer</button>
-          <button onClick={enregistrerEtQuitter} disabled={enregistrement} style={{ ...btn(true), opacity: enregistrement ? 0.6 : 1 }}>
+          <button onClick={() => enregistrerEtQuitter()} disabled={enregistrement} style={{ ...btn(true), opacity: enregistrement ? 0.6 : 1 }}>
             {enregistrement ? "Enregistrement…" : "Enregistrer et quitter"}
           </button>
         </div>
@@ -216,6 +242,10 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
       )}
 
       <main style={{ flex: 1, overflowY: "auto" }}>
+        {etape === "consignes" && (
+          <PreparationConsignes pieces={pieces} ouvrages={ouvrages} preparation={prep} chantierId={chantierId}
+            onMajPieces={majPieces} T={T} accent={accent} surAccent={surAccent}/>
+        )}
         {etape === "repartition" && (
           <PreparationRepartition ouvrages={ouvrages} pieces={pieces} preparation={prep} heuresPointees={heuresPointees}
             onValider={validerOuvrage} onRetourPieces={() => setEtape("pieces")} T={T} accent={accent} surAccent={surAccent}/>
@@ -298,9 +328,9 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
 
       {/* Pied : navigation entre les étapes */}
       <footer style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, padding: "12px 20px", borderTop: `1px solid ${T.border}`, background: T.surface }}>
-        {etape === "repartition"
-          ? <button onClick={() => setEtape("pieces")} style={btn()}>Retour aux pièces</button>
-          : <span/>}
+        {etape === "repartition" && <button onClick={() => setEtape("pieces")} style={btn()}>Retour aux pièces</button>}
+        {etape === "consignes" && <button onClick={() => setEtape("repartition")} style={btn()}>Retour : où se fait chaque ouvrage</button>}
+        {etape === "pieces" && <span/>}
         {etape === "pieces" && (
           <button onClick={continuerVersRepartition} disabled={enregistrement || pieces.length === 0}
             title={pieces.length === 0 ? "Ajoute au moins une pièce" : undefined}
@@ -309,7 +339,14 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
           </button>
         )}
         {etape === "repartition" && (
-          <span style={{ color: T.textSub, fontSize: FONT.sm.size, alignSelf: "center" }}>Étape suivante, « Consignes & plans » : bientôt disponible.</span>
+          <button onClick={continuerVersConsignes} disabled={enregistrement} style={{ ...btn(true), opacity: enregistrement ? 0.5 : 1 }}>
+            Continuer : consignes & plans
+          </button>
+        )}
+        {etape === "consignes" && (
+          <button onClick={() => enregistrerEtQuitter({ terminer: true })} disabled={enregistrement} style={{ ...btn(true), opacity: enregistrement ? 0.5 : 1 }}>
+            {enregistrement ? "Enregistrement…" : "Terminer la préparation"}
+          </button>
         )}
       </footer>
     </div>

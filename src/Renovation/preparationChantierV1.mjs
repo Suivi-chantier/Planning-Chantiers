@@ -62,16 +62,24 @@ export function majPreparation(preparation, { etape, maj_le, par } = {}) {
   return { ...p, etape: net(etape) || ETAPE_PAR_DEFAUT, maj_le: maj_le ?? null, par: par ?? null };
 }
 
-export function marquerOuvragePlace(preparation, ouvrageId) {
+// mode (facultatif, tranche 2a) : "logement" note l'ouvrage dans
+// ouvrages_logement (choix « Tout le logement », lu par le contrôle final) ;
+// un autre mode l'en retire. Sans mode, ouvrages_logement n'est pas touché.
+export function marquerOuvragePlace(preparation, ouvrageId, mode) {
   const p = preparationDuPhasage({ preparation });
   const id = String(ouvrageId);
-  if (p.ouvrages_places.includes(id)) return p;
-  return { ...p, ouvrages_places: [...p.ouvrages_places, id] };
+  const out = p.ouvrages_places.includes(id) ? p : { ...p, ouvrages_places: [...p.ouvrages_places, id] };
+  if (mode == null) return out;
+  const logement = ouvragesLogement(p).filter(x => x !== id);
+  return { ...out, ouvrages_logement: mode === "logement" ? [...logement, id] : logement };
 }
 export function retirerOuvragePlace(preparation, ouvrageId) {
   const p = preparationDuPhasage({ preparation });
-  return { ...p, ouvrages_places: p.ouvrages_places.filter(x => x !== String(ouvrageId)) };
+  const out = { ...p, ouvrages_places: p.ouvrages_places.filter(x => x !== String(ouvrageId)) };
+  if (Array.isArray(p.ouvrages_logement)) out.ouvrages_logement = ouvragesLogement(p).filter(x => x !== String(ouvrageId));
+  return out;
 }
+const ouvragesLogement = (p) => [...new Set(liste(p?.ouvrages_logement).map(String))];
 
 // ── Tâche commencée ─────────────────────────────────────────────────────────
 // heuresPointeesParTache (facultatif) : { tache_id: heures } ou Map, ou
@@ -383,4 +391,141 @@ export function remplacerOuvrage(ouvrages, ouvrage) {
 export function piecesRetirees(avant, apres) {
   const gardees = new Set(liste(apres).map(p => String(p.id)));
   return liste(avant).filter(p => !gardees.has(String(p.id))).map(p => String(p.id));
+}
+
+// ── Tranche 2a : étape « Consignes & plans » ────────────────────────────────
+// Stockage dans chaque pièce de meta.pieces (les autres champs — id, nom… —
+// sont toujours conservés) :
+//   consigne        texte facultatif ;
+//   consignes_murs  [{ mur, texte }] ;
+//   photos          chemins dans le bucket Storage « photos ».
+// Les fonctions ci-dessous rendent une NOUVELLE liste de pièces ; la liste
+// d'entrée n'est jamais modifiée. Pendant la saisie, le texte est gardé tel
+// quel (espaces compris) ; piecesPourEnregistrement le nettoie à l'écriture.
+const memeMur = (a, b) => net(a).toLowerCase() === net(b).toLowerCase();
+const majPiece = (pieces, pieceId, f) => liste(pieces).map(p => (String(p?.id) === String(pieceId) ? f(p) : p));
+
+// Lecture propre des consignes d'une pièce.
+export function consignesDePiece(piece) {
+  const murs = [];
+  liste(piece?.consignes_murs).forEach(c => {
+    const mur = net(c?.mur);
+    if (!mur || murs.some(m => memeMur(m.mur, mur))) return;
+    murs.push({ mur, texte: String(c?.texte ?? "") });
+  });
+  const photos = [...new Set(liste(piece?.photos).map(x => net(x)).filter(Boolean))];
+  return { consigne: String(piece?.consigne ?? ""), consignes_murs: murs, photos };
+}
+
+export function poserConsigne(pieces, pieceId, texte) {
+  return majPiece(pieces, pieceId, p => ({ ...p, consigne: String(texte ?? "") }));
+}
+
+// Ajoute ou modifie la consigne d'un mur (mur reconnu sans tenir compte de
+// la casse ni des espaces).
+export function poserConsigneMur(pieces, pieceId, mur, texte) {
+  const m = net(mur);
+  if (!m) return liste(pieces);
+  return majPiece(pieces, pieceId, p => {
+    const murs = liste(p.consignes_murs);
+    const i = murs.findIndex(c => memeMur(c?.mur, m));
+    const next = i < 0
+      ? [...murs, { mur: m, texte: String(texte ?? "") }]
+      : murs.map((c, j) => (j === i ? { ...c, texte: String(texte ?? "") } : c));
+    return { ...p, consignes_murs: next };
+  });
+}
+export function retirerConsigneMur(pieces, pieceId, mur) {
+  return majPiece(pieces, pieceId, p => ({ ...p, consignes_murs: liste(p.consignes_murs).filter(c => !memeMur(c?.mur, mur)) }));
+}
+
+export function ajouterPhoto(pieces, pieceId, chemin) {
+  const c = net(chemin);
+  if (!c) return liste(pieces);
+  return majPiece(pieces, pieceId, p => (liste(p.photos).includes(c) ? p : { ...p, photos: [...liste(p.photos), c] }));
+}
+export function retirerPhoto(pieces, pieceId, chemin) {
+  return majPiece(pieces, pieceId, p => ({ ...p, photos: liste(p.photos).filter(x => x !== chemin) }));
+}
+
+// Liste à écrire dans meta.pieces : textes nettoyés, consignes de mur vides
+// retirées, champs vides supprimés (une pièce sans consigne reste { id, nom }),
+// tous les autres champs conservés.
+export function piecesPourEnregistrement(pieces) {
+  return liste(pieces).map(p => {
+    const { consigne, consignes_murs, photos } = consignesDePiece(p);
+    const out = { ...p };
+    delete out.consigne; delete out.consignes_murs; delete out.photos;
+    const c = consigne.trim();
+    if (c) out.consigne = c;
+    const murs = consignes_murs.map(x => ({ mur: x.mur, texte: x.texte.trim() })).filter(x => x.texte);
+    if (murs.length) out.consignes_murs = murs;
+    if (photos.length) out.photos = photos;
+    return out;
+  });
+}
+
+// Murs proposés pour une pièce : ceux des tâches rattachées à la pièce
+// (tache.mur), puis ceux qui ont déjà une consigne, sans doublon, dans
+// l'ordre d'apparition.
+export function mursDeLaPiece(ouvrages, piece) {
+  const murs = [];
+  const ajouter = (m) => { const x = net(m); if (x && !murs.some(y => memeMur(y, x))) murs.push(x); };
+  liste(ouvrages).forEach(o => liste(o?.taches).forEach(t => { if (String(t?.piece_id ?? "") === String(piece?.id)) ajouter(t.mur); }));
+  liste(piece?.consignes_murs).forEach(c => ajouter(c?.mur));
+  return murs;
+}
+
+// Nombre de tâches rattachées à chaque pièce : { piece_id: n }.
+export function nbTachesParPiece(ouvrages, pieces) {
+  const n = Object.fromEntries(liste(pieces).map(p => [String(p.id), 0]));
+  liste(ouvrages).forEach(o => liste(o?.taches).forEach(t => {
+    const k = String(t?.piece_id ?? "");
+    if (k in n) n[k] += 1;
+  }));
+  return n;
+}
+
+// Contrôle final « Toutes les tâches ont une pièce ».
+// Une tâche a une pièce si son piece_id vise une pièce de la liste (une
+// pièce retirée ne compte pas). Les tâches sans pièce sont rangées en deux
+// listes, toutes deux affichées :
+//   toutLeLogement : ouvrage placé avec le choix « Tout le logement »
+//                    (preparation.ouvrages_logement) — c'est un choix du
+//                    conducteur, pas une erreur ;
+//   sansPiece      : toutes les autres (y compris une tâche déjà commencée
+//                    restée sans pièce dans un ouvrage réparti, ou une tâche
+//                    dont la pièce a été retirée). Un ouvrage placé sans que
+//                    le choix soit noté n'est jamais deviné « tout le
+//                    logement » : ses tâches restent signalées.
+// etat : "aucune_tache" (phasage vide : rien à contrôler, jamais présenté
+// comme « tout va bien »), "ok" (toutes ont une pièce), "logement" (pas
+// d'oubli, mais des tâches pour tout le logement), "a_completer".
+export function controleFinal(ouvrages, pieces, preparation) {
+  const connues = new Set(liste(pieces).map(p => String(p.id)));
+  const prep = preparationDuPhasage({ preparation });
+  const places = new Set(prep.ouvrages_places);
+  const logements = new Set(ouvragesLogement(prep));
+  const aUnePiece = (t) => connues.has(String(t?.piece_id ?? ""));
+  const sansPiece = [];
+  const toutLeLogement = [];
+  let total = 0;
+  liste(ouvrages).forEach(o => {
+    const taches = liste(o?.taches);
+    total += taches.length;
+    const logement = places.has(String(o?.id)) && logements.has(String(o?.id));
+    taches.forEach(t => {
+      if (aUnePiece(t)) return;
+      const ligne = { id: t.id, nom: nomAffiche(t), ouvrage: net(o?.libelle || o?.code_ouvrage) || "Ouvrage sans nom", ouvrage_id: o?.id ?? null };
+      (logement ? toutLeLogement : sansPiece).push(ligne);
+    });
+  });
+  const etat = total === 0 ? "aucune_tache" : sansPiece.length ? "a_completer" : toutLeLogement.length ? "logement" : "ok";
+  return { etat, total, sansPiece, toutLeLogement };
+}
+
+// « Terminer la préparation » : marque la préparation faite (utile à la
+// copie depuis un autre logement), le reste conservé.
+export function marquerPreparationTerminee(preparation) {
+  return { ...preparationDuPhasage({ preparation }), terminee: true };
 }

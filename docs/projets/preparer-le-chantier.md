@@ -278,6 +278,66 @@ les contrôles verts ; la version de test Vercel s'est construite sans
 erreur. Le site de production n'est pas joignable depuis la session : son
 ouverture n'a pas pu être contrôlée directement.
 
+**06/11/2026 — Tâche 3 : choix techniques.**
+
+- *Consignes effacées par les enregistrements existants (corrigé).*
+  `piecesDuPhasage` (lecture des pièces, `piecesPhasageV1.mjs`) ne gardait
+  que `{ id, nom }`. Or le panneau « Pièces » de Phasage V2 et le parcours
+  réécrivent cette liste telle quelle dans `meta.pieces` : renommer,
+  déplacer ou ajouter une pièce aurait effacé consignes et photos.
+  Correction minimale : la lecture garde les autres champs de chaque pièce
+  (id et nom toujours nettoyés). Vérifié dans le script : renommer,
+  déplacer, ajouter, retirer, panneau « Pièces », aller-retour comme
+  `saveMeta` puis rechargement.
+- *Photos.* Même méthode que les comptes rendus des ouvriers et les
+  contrôles : `uploadRapportPhoto` de `RapportMobile.jsx` (compression
+  1 600 px / JPEG 0,7, envoi dans le bucket existant `photos`, nom
+  `<horodatage>_<aléatoire>.jpg`). Seul ajout : la fonction renvoie aussi
+  le chemin (`path`) en plus de l'adresse ; les appels existants ne
+  changent pas. Dossier : `preparation/<id du chantier>/<id de la pièce>/`.
+  On enregistre le **chemin** dans `meta.pieces[i].photos` (modèle de
+  données du projet) ; l'affichage passe par `getPublicUrl`, comme
+  ailleurs. Retirer une photo l'enlève de la pièce sans supprimer le
+  fichier du stockage (comme partout dans l'appli). Aucun nouveau bucket,
+  aucune policy.
+- *Dictée branchée.* `BoutonMicro` de `DicteeCompteRendu.jsx` est
+  réutilisable tel quel (champ texte + micro du navigateur) : un micro à
+  côté de chaque consigne (pièce et mur). Il se masque quand le navigateur
+  n'a pas de reconnaissance vocale ; le micro du clavier reste possible.
+- *Consignes par mur.* Murs proposés : ceux des tâches de la pièce
+  (`tache.mur`), puis ceux qui ont déjà une consigne ; saisie libre
+  possible. Un mur sans texte n'est pas enregistré (message à l'écran).
+- *Enregistrement.* Toujours la liste complète des pièces, en un seul
+  `saveMeta` avec la préparation ; textes nettoyés à l'écriture
+  (`piecesPourEnregistrement`), une pièce sans consigne reste
+  `{ id, nom }`, les champs inconnus sont conservés.
+- *« Tout le logement » noté explicitement.* Pour que le contrôle final
+  distingue un choix « Tout le logement » d'un oubli, la préparation note
+  désormais ces ouvrages dans `meta.preparation.ouvrages_logement` (à la
+  validation dans l'étape 2 ; retiré si l'ouvrage est revalidé autrement).
+  On ne le devine jamais : deviner aurait classé « tout le logement » un
+  ouvrage dont la pièce a été retirée. Conséquence : un ouvrage validé
+  « Tout le logement » avant cette version apparaît dans « tâches sans
+  pièce » tant qu'il n'est pas revalidé à l'étape 2 (sens prudent :
+  signalé plutôt que caché).
+- *Contrôle final* (`controleFinal`, module pur) : « Toutes les tâches ont
+  une pièce » ; sinon la liste des tâches sans pièce (nom affiché,
+  ouvrage), y compris celles d'une pièce retirée et les tâches déjà
+  commencées restées sans pièce ; les tâches « Tout le logement » sont
+  listées à part, sans être présentées comme une erreur ; phasage sans
+  tâche : « rien à contrôler », jamais « tout va bien ».
+- *« Terminer la préparation »* (bouton de la maquette) : enregistre comme
+  « Enregistrer et quitter » et ajoute `terminee: true` à
+  `meta.preparation`, pour repérer à la tranche 3 les logements dont la
+  préparation est faite. Format de `meta.preparation` désormais :
+  `{ etape, maj_le, par, ouvrages_places, ouvrages_logement?, terminee? }`.
+- *Non repris de la maquette* : le bouton « Situer sur le plan » (pas dans
+  la description des étapes du projet).
+- *Pas d'entrée `journalMaj.js`* : elle viendra avec la vue ouvrier
+  (tâche 4), qui rend les consignes visibles aux équipes.
+- *Phasage V2* : seul ajout, l'identifiant du chantier transmis au
+  parcours (dossier des photos).
+
 ## Comptes rendus
 
 **Tâche 1 — Tranche 1a (06/11/2026, demande de fusion ouverte, pas encore en ligne).**
@@ -436,3 +496,41 @@ Phasage d'origine non modifié en mémoire : oui.
 ###### À savoir sur cet ouvrage (constaté sur les vraies données, sans lien avec le découpage)
 
 Les tâches de MU-001 totalisent 107 % de ratios, 31,93 h estimées et 32,8 h vendues, pour 30 h prévues sur l'ouvrage (la « Passe de finition doublage » a 1,93 h estimées pour 2,8 h vendues). Le découpage conserve ces totaux tels quels ; il ne corrige pas cet écart, qui se règle par le bouton « % » de Phasage V2.
+
+**Tâche 3 — Tranche 2a (06/11/2026, demande de fusion ouverte, pas encore en ligne).**
+
+Ce qui change pour le conducteur de travaux :
+
+- Dans « Préparer le chantier », après « Où se fait chaque ouvrage », le
+  bouton **« Continuer : consignes & plans »** ouvre l'étape 4.
+- Une carte par pièce, dans l'ordre de la liste des pièces, avec le nombre
+  de tâches de la pièce :
+  - une **consigne pour la pièce** (ex. « protéger le parquet existant »),
+    avec un bouton micro pour la dicter quand la tablette le permet ;
+  - **« + Consigne sur un mur »** : on touche un des murs déjà utilisés par
+    les tâches de la pièce, ou on en tape un autre, puis on écrit (ou
+    dicte) la consigne ;
+  - **« Photo »** : prendre ou choisir une ou plusieurs photos ; elles sont
+    allégées avant l'envoi, comme celles des comptes rendus. Une croix
+    retire une photo de la pièce (après confirmation).
+- En bas, le **contrôle final** : « Toutes les tâches ont une pièce », ou
+  la liste des tâches qui n'en ont pas (avec leur ouvrage). Les tâches des
+  ouvrages mis « Tout le logement » sont listées à part, sans être
+  comptées comme un oubli.
+- **« Enregistrer et quitter »** fonctionne à cette étape et on y revient
+  à la réouverture ; **« Terminer la préparation »** enregistre et note que
+  la préparation du logement est faite.
+- Correction au passage : renommer, déplacer ou ajouter une pièce (dans le
+  parcours ou avec le bouton « Pièces » de Phasage V2) n'efface plus les
+  consignes et photos des pièces.
+- Les ouvriers ne voient pas encore les consignes : ce sera la tâche 4.
+
+Vérifications : vérification automatique complétée (125 contrôles,
+données fictives) — consignes et photos conservées en renommant,
+déplaçant, ajoutant ou retirant une pièce et après rechargement ; contrôle
+final (tâches sans pièce, pièce retirée, tâche commencée, « Tout le
+logement »). Aucune migration, aucun nouveau stockage, aucun changement de
+droits d'accès. L'écran n'a pas pu être essayé dans un navigateur depuis la
+session de travail (pas de dépendances installées) : la construction est
+contrôlée par GitHub. L'envoi réel d'une photo n'a pas été essayé (aucune
+écriture dans le stockage depuis la session).

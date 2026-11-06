@@ -80,7 +80,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
     setEnvoi(true);
     try {
       const modifie = res.ouvrage !== courant ? res.ouvrage : null;
-      const r = await onValider(courant.id, modifie);
+      const r = await onValider(courant.id, modifie, mode);
       if (!r?.ok) return;
       const apres = modifie ? ouvrages.map(o => (String(o.id) === String(courant.id) ? modifie : o)) : ouvrages;
       const suivant = ouvrageSuivant(apres, courant.id, { preparation: r.preparation, heuresPointees });

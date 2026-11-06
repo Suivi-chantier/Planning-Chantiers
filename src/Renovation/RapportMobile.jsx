@@ -159,7 +159,8 @@ export async function compressImage(file, maxDim = 1600, quality = 0.7) {
 }
 
 // ─── HELPER UPLOAD PHOTO ──────────────────────────────────────────────────────
-// Renvoie { url } en cas de succès, { error } en cas d'échec (au lieu de
+// Renvoie { url, path } en cas de succès (path = chemin dans le bucket, utilisé
+// par « Préparer le chantier »), { error } en cas d'échec (au lieu de
 // retourner null silencieusement) — pour que l'UI puisse afficher l'erreur.
 export async function uploadRapportPhoto(file, pathPrefix) {
   try {
@@ -171,7 +172,7 @@ export async function uploadRapportPhoto(file, pathPrefix) {
     if (error) { console.error("upload photo:", error); return { error: error.message || "Erreur upload" }; }
     const { data } = supabase.storage.from("photos").getPublicUrl(path);
     if (!data?.publicUrl) return { error: "URL publique introuvable" };
-    return { url: data.publicUrl };
+    return { url: data.publicUrl, path };
   } catch (e) {
     console.error("upload photo (catch):", e);
     return { error: e.message || "Erreur réseau" };
