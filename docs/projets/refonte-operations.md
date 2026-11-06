@@ -345,7 +345,7 @@ lecture seule pendant le développement, relances désactivées par défaut).
 | 2 | Lot 2 — statuts À l'étude / Perdu, statut d'opération calculé, parcours de chiffrage, règles de saisie uniques | en ligne | Auto | verif vert ; bouton devis grisé avec la liste du manquant | [#218](https://github.com/Suivi-chantier/Planning-Chantiers/pull/218) (fusionnée) |
 | 3 | Lot 3 — cycle de vie 5 phases, reprise des étapes, relances (désactivées), synthèse opération | en ligne | Auto | verif vert ; relances off par défaut | [#221](https://github.com/Suivi-chantier/Planning-Chantiers/pull/221) (fusionnée) |
 | 4 | Lot 4 — automatisation ProGBat (client, chantier, acompte, statut devis, liens) | en cours | Auto (aucune écriture ProGBat de test) | Vérifications en lecture notées ; verif vert | — |
-| 5 | Lot 5 — navigation Opérations porte d'entrée, liste Chantiers retirée | à faire | Auto | verif vert ; accès documentés | — |
+| 5 | Lot 5 — navigation Opérations porte d'entrée, liste Chantiers retirée | en cours | Auto | verif vert ; accès documentés | — |
 | 6 | Lot 6 — rôle chargé d'affaires | à faire | Auto | verif vert ; accès documentés | — |
 
 ## Journal des décisions
@@ -400,6 +400,10 @@ lecture seule pendant le développement, relances désactivées par défaut).
   81 291 valeurs restent comparées. Sur demande de Loris (« avancer sans
   attendre les vérifs »), le lot 4 commence par les vérifications ProGBat en
   lecture pendant que les contrôles tournent.
+- 06/11/2026 — Accord de Loris (« oui ») pour mener le lot 5 en parallèle du
+  lot 4, sur une deuxième branche `claude/zealous-lovelace-oraraf-lot5`. Raison :
+  le lot 5 (navigation, accès) touche peu les fichiers du lot 4 (ProGBat). Le
+  lot 6 reste après le lot 5, dont il dépend.
 
 ## Comptes rendus
 
