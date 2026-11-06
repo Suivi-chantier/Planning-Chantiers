@@ -53,7 +53,14 @@ function inclus(ref, nouv, chemin) {
 // ── 1. NON-RÉGRESSION ───────────────────────────────────────────────────────
 const NOUV = calculerTout(FX);
 const { _source, ...refCalculs } = REF;
+// Refonte Opérations, lot 3 : le cycle de vie du chantier a été remplacé
+// (5 phases au lieu de 6, étapes renommées ou retirées sur décision de Loris).
+// La liste des étapes de l'export n'est donc plus comparable à la référence du
+// 06/10/2026 ; elle n'est pas un calcul financier et est vérifiée par
+// scripts/verif-refonte-lot3.mjs. Tous les autres champs restent comparés.
+for (const c of refCalculs.chantiers) if (c.export) delete c.export.cycleVie;
 const nbValeurs = inclus(refCalculs, NOUV, "reference");
+ok(NOUV.chantiers.every(c => !c.export || Array.isArray(c.export.cycleVie?.etapes)), "export : le cycle de vie reste présent pour chaque chantier");
 ok(nbValeurs > 20000, `référence riche (${nbValeurs} valeurs comparées)`);
 ok(FX.phasages.every(ph => ph.ouvrages.every(o => o.taches.every(t => !("hors_devis" in t)))), "instantané : aucune tâche marquée hors devis");
 console.log(`  non-régression : ${nbValeurs} valeurs identiques à la référence (8 chantiers réels anonymisés)`);
