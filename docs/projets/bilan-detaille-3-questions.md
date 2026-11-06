@@ -352,3 +352,40 @@ PDF direction : 2 pages ; PDF détaillé : 8 pages, tableau du haut lisible
 avec les noms de chantier sur une ligne. Entrée ajoutée dans `journalMaj.js`
 (« Bilan : la marge à terminaison apparaît dans les deux PDF, et la version
 direction est plus courte »).
+
+## Suite du 06/11/2026 — design des PDF
+
+Demande de Loris : « Il faut aussi revoir le design du PDF [du Bilan], il y a
+un skill dédié au design des PDF de Profero ».
+
+- **Ce qui change** : seulement la présentation des deux PDF (direction et
+  détaillé), à la charte des documents Profero (celle du compte rendu
+  client) : en-tête bleu nuit avec le logo, « BILAN » ou « BILAN DÉTAILLÉ » en
+  jaune, la période en grand (« SEMAINE 44 », « OCTOBRE 2026 »), les dates
+  comparées, des pastilles (dates, nombre de chantiers, date de génération)
+  et à droite un encadré jaune « généré cette semaine / sur la période ».
+  Dessous, les chiffres clés en cartes (tous les chiffres et sous-lignes de
+  l'ancien bandeau), titres en majuscules soulignés de jaune, tableaux à
+  en-tête bleu nuit, ligne TOTAL sur fond jaune pâle, pied « Profero —
+  Rénovation & réhabilitation · Document interne ». Pastilles rouge / orange
+  / vert / gris inchangées.
+- **Fiches chantier** : chacune commence par une carte (nom, du devis au
+  probable, présences) jamais coupée ; une fiche qui tient sur une page passe
+  entière à la page suivante.
+- **Une seule source** : couleurs, halos et polices sont dans
+  `src/Renovation/charteDocProfero.mjs`, lu par le PDF du Bilan et par les
+  autres documents (rendu de ces derniers identique, vérifié).
+- **Polices** : Barlow ajoutée au lien Google Fonts de l'application (le PDF
+  est une capture de la page, seules les polices chargées sont rendues).
+
+Vérification sur la semaine 2026-W44, chiffres lus en base, PDF reconstitués
+hors application avec le même moteur que l'application (html2pdf) : tous les
+chiffres et tous les textes à partir des chiffres clés sont identiques
+avant / après (132 montants et pourcentages en version direction, 626 en
+version détaillée) ; le seul ajout est la production répétée dans l'encadré
+jaune (13 665 €). Exemple de chiffres inchangés : production 13 665 €, marge
+de la période +2 446 €, marge à terminaison +60 065 €, marge probable
++47 577 €. PDF direction : 2 pages (inchangé) ; PDF détaillé : 10 pages
+(8 avant), une fiche chantier par page au lieu de fiches coupées. Entrée
+ajoutée dans `journalMaj.js` (« Bilan : les PDF prennent le design des
+documents Profero »).

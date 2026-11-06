@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "amelioration",
+    titre: "Bilan : les PDF prennent le design des documents Profero",
+    pages: [{ id: "bilan-semaine", label: "Bilan" }],
+    quoi: "Les deux PDF du Bilan (direction et détaillé) ont maintenant la même présentation que les autres documents Profero, comme le compte rendu client : un en-tête bleu nuit avec le logo, « Bilan » ou « Bilan détaillé » en jaune, la période en grand (« Semaine 44 », « Octobre 2026 »), les dates comparées, le nombre de chantiers et la date de génération, et à droite, dans un encadré jaune, ce qui a été généré sur la période. Les chiffres clés (production, marge de la période, marge probable, heures) sont présentés en cartes juste dessous, les titres en majuscules soulignés de jaune, les tableaux avec un en-tête bleu nuit et la ligne TOTAL sur fond jaune pâle. Chaque fiche chantier commence par une carte (nom, du devis au probable, présences) et passe entière à la page suivante plutôt que d'être coupée quand elle tient sur une page. En bas : « Profero — Rénovation & réhabilitation · Document interne ». Aucun chiffre, aucune colonne et aucun texte ne change : seule la présentation est nouvelle. Les pastilles de couleur des chantiers restent les mêmes.",
+    comment: "Rien à faire : exportez le Bilan comme d'habitude. La version détaillée peut compter une ou deux pages de plus, une fiche chantier n'étant plus coupée en deux quand elle tient sur une page.",
+  },
+  {
+    date: "2026-11-06",
+    type: "amelioration",
     titre: "Bilan : la marge à terminaison apparaît dans les deux PDF, et la version direction est plus courte",
     pages: [{ id: "bilan-semaine", label: "Bilan" }],
     quoi: "La marge à terminaison (où le chantier finit si le reste se passe comme le devis) apparaît maintenant dans le tableau des chantiers des deux PDF du Bilan, juste avant la marge probable, en euros et en % du vendu. Le bandeau donne aussi son total (« à terminaison »), calculé sur exactement les mêmes chantiers que le total de la marge probable, pour pouvoir comparer les deux. Quand elle n'est pas connue pour un chantier, on affiche « — », jamais 0. Aucun calcul ne change : le chiffre est celui déjà enregistré chaque jour. La version direction s'arrête désormais après les alertes, les décisions attendues et les tendances par lot : la semaine qui vient (avec ses longues listes d'articles à commander), le prévu / réalisé, la fin prévisionnelle et les rectifications n'y figurent plus. Ils restent dans la version détaillée.",

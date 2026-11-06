@@ -603,7 +603,8 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   // Version direction : tableau « Devis → probable », sans les colonnes de la version détaillée.
   ok(dir.includes("Vendu HT") && dir.includes("Écart / devis") && dir.includes("Sur la période"), "PDF direction (données fictives) : tableau « Devis → probable » inchangé");
   ok(!dir.includes("Fourchette") && !dir.includes("Fiabilité") && !dir.includes("Tendance 6 semaines") && !dir.includes("TOTAL")
-    && !dir.includes("Généré") && !dir.includes("Détail des marges") && !dir.includes("Budget restant"), "PDF direction (données fictives) : aucune nouvelle colonne");
+    // « Généré » : seulement dans le héros (bloc jaune, date de génération), jamais dans les tableaux.
+    && !dir.slice(dir.indexOf("<table")).includes("Généré") && !dir.includes("Détail des marges") && !dir.includes("Budget restant"), "PDF direction (données fictives) : aucune nouvelle colonne");
 }
 
 // ── Tâche 5 du projet « Bilan détaillé » (06/11/2026) ──────────────────────
