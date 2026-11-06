@@ -14,11 +14,11 @@
 // une table, il viendra avec les notifications.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useMemo } from "react";
-import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { getWeekId, getCurrentWeek } from "../constants";
-import { preparerSemainesRelevesJournaliersV2, COLONNES_RELEVES_ALERTES_V2, dimancheSemaineISOV2 } from "./pointsAttentionDonneesV1.js";
+import { preparerSemainesRelevesJournaliersV2, dimancheSemaineISOV2 } from "./pointsAttentionDonneesV1.js";
+import { chargerRelevesRetenusV2 } from "./chargerRelevesAlertes";
 import { alertesMargesV2 } from "./alertesMargesV2.js";
 import { useReglagesMarges } from "./reglagesMarges";
 import { estChantierActif } from "./chantierActif";
@@ -122,19 +122,11 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
       // son dernier relevé) au dimanche de la semaine courante, par tranches.
       const fin = dimancheSemaineISOV2(semaines[0]);
       const debut = (() => { const d = new Date(`${dimancheSemaineISOV2(semaines[semaines.length - 1])}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 27); return d.toISOString().slice(0, 10); })();
-      const data = [];
-      for (let de = 0; ; de += 1000) {
-        const { data: page, error } = await supabase
-          .from("chantier_releves_journaliers")
-          .select(COLONNES_RELEVES_ALERTES_V2)
-          .gte("date_releve", debut).lte("date_releve", fin)
-          .order("date_releve", { ascending: true }).order("chantier_id", { ascending: true })
-          .range(de, de + 999);
-        if (annule) return;
-        if (error) { setErreur(error.message); setLignes([]); return; }
-        data.push(...(page || []));
-        if (!page || page.length < 1000) break;
-      }
+      // Seuls les relevés retenus de chantier_releves_journaliers (dernier par
+      // chantier et par semaine) sont téléchargés en entier (06/11/2026).
+      const { data, error } = await chargerRelevesRetenusV2({ debut, fin, weekIds: semaines });
+      if (annule) return;
+      if (error) { setErreur(error.message); setLignes([]); return; }
       setLignes(data);
     })();
     return () => { annule = true; };

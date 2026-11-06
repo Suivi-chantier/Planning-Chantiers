@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
+    type: "amelioration",
+    titre: "Bilan de semaine et Alertes s'ouvrent plus vite",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }, { id: "alertes", label: "Alertes" }],
+    quoi: "À chaque ouverture, le Bilan de semaine téléchargeait environ 13 Mo de données, dont 8 Mo de relevés journaliers dont il n'utilisait qu'une petite partie (environ 300 relevés sur 2 500). Il ne télécharge plus que ce qui sert : les points d'attention, la progression et les finances s'affichent plus vite, surtout sur téléphone ou en 4G. Aucun chiffre ne change.",
+    comment: "Rien à faire : la page s'ouvre comme avant. Les relevés réellement utilisés (le dernier de chaque chantier pour chaque semaine) sont lus en entier, les autres ne sont plus téléchargés ; les longues listes (journal d'avancement, pointages, lignes de commande) sont lues par paquets en parallèle au lieu de l'une après l'autre, et les phasages ne sont plus lus deux fois.",
+  },
+  {
+    date: "2026-11-06",
     type: "nouveaute",
     titre: "Opérations devient la porte d'entrée : onglets À l'étude, En cours, Terminées, Perdues, et la fiche chantier s'ouvre depuis son opération",
     pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Fiche chantier" }],

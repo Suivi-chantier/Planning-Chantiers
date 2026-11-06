@@ -16,7 +16,7 @@ import {
 } from "../src/Renovation/pointsAttentionV1.mjs";
 import { suiviPointsAttentionV1 } from "../src/Renovation/suiviPointsAttentionV1.mjs";
 import { alertesV1, NIVEAU_CRITIQUE, NIVEAU_A_SURVEILLER } from "../src/Renovation/alertesV1.mjs";
-import { preparerSemainesRelevesJournaliersV2, dimancheSemaineISOV2 } from "../src/Renovation/pointsAttentionDonneesV1.mjs";
+import { preparerSemainesRelevesJournaliersV2, dimancheSemaineISOV2, idsRelevesRetenusV2 } from "../src/Renovation/pointsAttentionDonneesV1.mjs";
 
 let nb = 0;
 const ok = (c, msg) => { assert.ok(c, msg); nb++; };
@@ -134,6 +134,25 @@ ok(alertes(releve("2026-10-18", { marge_probable: null, production_cumulee: null
   ok(vide.length === 0, "aucun relevé avant la semaine : chantier absent, pas inventé");
   const s = suiviPointsAttentionV1({ snapshotsN: w43, snapshotsN1: w42, snapshotsN2: w41, detecter: alertesMargesV2 });
   ok(s.actifs.length === 1 && s.actifs[0].motifs.includes(MOTIF_MARGE_PROBABLE_EN_BAISSE) && s.source === "releves_journaliers", "suivi branché sur les alertes des marges");
+}
+
+// 11 bis. Lecture allégée (06/11/2026) : ne télécharger en entier que les
+// relevés retenus donne EXACTEMENT les mêmes semaines que la lecture complète.
+{
+  const jours = ["2026-09-28", "2026-10-01", "2026-10-05", "2026-10-09", "2026-10-14", "2026-10-16", "2026-10-20", "2026-10-22"];
+  const complet = [];
+  ["C1", "C2", "C3"].forEach((ch, k) => jours.forEach((d, i) => {
+    if ((i + k) % 3 === 2) return; // chantiers avec des jours sans relevé
+    complet.push({ ...releve(d, { marge_probable: 3000 - 100 * i - k }), id: `${ch}-${d}`, chantier_id: ch });
+  }));
+  const weekIds = ["2026-W43", "2026-W42", "2026-W41", "2026-W40", "2026-W39"];
+  const ids = idsRelevesRetenusV2({ lignes: complet.map(({ id, chantier_id, date_releve }) => ({ id, chantier_id, date_releve })), weekIds });
+  const retenus = complet.filter(l => ids.includes(l.id));
+  ok(retenus.length < complet.length, "lecture allégée : moins de lignes téléchargées");
+  ok(JSON.stringify(preparerSemainesRelevesJournaliersV2({ lignes: retenus, weekIds }))
+    === JSON.stringify(preparerSemainesRelevesJournaliersV2({ lignes: complet, weekIds })), "lecture allégée : semaines identiques");
+  ok(/chargerRelevesRetenusV2\(/.test(lire("src/Renovation/BilanSemaine.jsx")) && /chargerRelevesRetenusV2\(/.test(lire("src/Renovation/PageAlertes.jsx")),
+    "Bilan et Alertes : lecture allégée des relevés");
 }
 
 // 12. Les écrans passent par les relevés journaliers et les nouvelles règles.
