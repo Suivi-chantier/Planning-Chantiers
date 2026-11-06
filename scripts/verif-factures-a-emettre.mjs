@@ -339,7 +339,7 @@ test("18. interrupteur coupé (rien écrit en boîte) → RIEN inscrit ; pas_ava
 });
 
 test("20. migration notifications_etat : création seule, policy restrictive seulement, aucune fonction", () => {
-  const sql = lire("supabase/migrations/20261106130000_notifications_etat.sql")
+  const sql = lire("supabase/migrations/20261106084227_notifications_etat.sql")
     .split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
   assert.match(sql, /create table if not exists public\.notifications_etat/);
   assert.match(sql, /primary key \(type, cle_objet\)/);
