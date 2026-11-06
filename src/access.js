@@ -21,7 +21,10 @@ import { supabase } from "./supabase";
 
 export const PAGES_RENOVATION = [
   { id: "dashboard",          label: "Tableau de bord"             },
-  { id: "chantiers",          label: "Chantiers"                   },
+  // Lot 5 (Refonte Opérations) : la liste Chantiers n'est plus dans le menu ;
+  // l'identifiant « chantiers » reste le droit d'ouvrir la FICHE chantier
+  // (depuis une opération ou un lien « ouvrir le chantier »).
+  { id: "chantiers",          label: "Fiche chantier (via Opérations)" },
   { id: "planning",           label: "Planning semaine"            },
   { id: "bilan-semaine",      label: "Bilan de semaine"            },
   { id: "alertes",            label: "Alertes"                     },
@@ -154,6 +157,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
   commercial: [
     "dashboard",
     "chantiers",
+    "operations",
     "planning",
     "notes-ouvriers",
     "plans",

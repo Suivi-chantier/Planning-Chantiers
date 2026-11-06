@@ -258,6 +258,89 @@ l'administrateur les active** (Réglages → Relances ; livrées ÉTEINTES) :
   Paris), au plus 30 relances par passage.
 - Aucun e-mail réel n'a été envoyé pendant le développement.
 
+### Lot 5 — Opérations devient la porte d'entrée
+
+**Bureau (conducteurs, comptable, commerciaux, direction).**
+- **Menu** : « Opérations » remonte juste sous le tableau de bord ;
+  « Chantiers » (la liste) **disparaît du menu**, sur ordinateur comme sur
+  téléphone. Quelqu'un qui avait réordonné son menu garde son ordre ;
+  Opérations y apparaît (en fin de liste s'il ne l'avait pas encore).
+- **Page Opérations** : onglets **À l'étude · En cours · Terminées · Perdues ·
+  Sans chantier**, chacun avec son nombre. Le statut de l'opération est celui
+  du lot 2, calculé à partir de ses chantiers, jamais saisi. Une opération est
+  dans un seul onglet. « Sans chantier » (opération vide, ou dont tous les
+  chantiers sont archivés) a son propre onglet, **toujours affiché**, même à 0 :
+  une opération vide n'est ni « à l'étude » ni « terminée ». Un onglet vide
+  l'écrit (« Aucune opération perdue. »). L'onglet choisi est retenu sur
+  l'appareil ; par défaut « En cours » (ou le premier onglet non vide).
+- **Fiche d'une opération** : en-tête, client et chargé d'affaires (lot 2),
+  puis **« Chantiers et cycle de vie »** : la synthèse (« 2/5 devis
+  signés »…) et **la liste de ses chantiers**, chacun avec sa couleur, son
+  statut et sa **mini-frise** (envoyé, signé, autorisation, préparé,
+  réceptionné). **Un clic sur un chantier ouvre sa fiche.** Si les étapes ne
+  se chargent pas, la liste reste et chaque ligne dit « frise indisponible ».
+  Puis les onglets habituels : Synthèse (indicateurs), Chemin de fer,
+  Planifier.
+- **Fiche chantier** : **inchangée**, avec en plus en haut le fil d'Ariane
+  **« Opérations › nom de l'opération › chantier »**. Cliquer sur le nom de
+  l'opération y revient ; « Opérations » ramène à la liste. Le bouton
+  « Retour » devient **« Retour à l'opération »**. Opération introuvable :
+  « Opération introuvable » en rouge (jamais un vide).
+- **Liens « ouvrir le chantier » existants** : il y en a trois, tous vérifiés
+  et passés par le même chemin (`ouvrirFicheChantier` dans `App.jsx`) :
+  Opérations (clic sur un chantier), Alertes (clic sur une alerte), Notes des
+  ouvriers (nom du chantier). Ils ouvrent la fiche directement, comme avant.
+  Les liens « Chantiers » du Journal des MAJ mènent maintenant à Opérations.
+
+**Ouvriers : rien ne change.** L'espace ouvrier est un écran à part (routé
+dès la connexion pour le rôle ouvrier) ; son onglet « Opérations » / ses
+chantiers restent en accès direct, sans passer par la page bureau. Aucun
+fichier de l'espace ouvrier n'est modifié.
+
+**Qui voit quoi** — lu en base le 06/11/2026
+(`planning_config.access_pages_renovation`), avant / après. Rappel de la
+règle : la liste enregistrée en base remplace la liste par défaut pour chaque
+rôle, **sauf l'administrateur**, qui reçoit en plus automatiquement toute
+page de sa liste par défaut (fin de `loadAccessConfig`).
+
+| Rôle (comptes actifs) | Opérations avant | Opérations après | Fiche chantier (`chantiers`) | Liste Chantiers dans le menu |
+|---|---|---|---|---|
+| Administrateur (4) | oui, par attribution automatique seulement | **oui** (en base + automatique) | oui | non (était oui) |
+| Super administrateur (0) | non | **oui** | oui | non (était oui) |
+| Conducteur de travaux (0) | non | **oui** | oui | non (était oui) |
+| Comptable (1) | non | **oui** | oui | non (était oui) |
+| Commercial (2) | non | **oui** | oui | non (était oui) |
+| Ouvrier (7) | non | non | non (espace ouvrier) | — |
+
+Comptes actifs lus dans `utilisateurs` le 06/11/2026 (un compte
+« agent_edl » existe aussi : rôle sans liste Rénovation, inchangé).
+
+- Modification en base, **appliquée avant la fusion** (compatible avec
+  l'ancien code : Opérations existait déjà ; avec l'ancien code, ces rôles
+  voient simplement une entrée de menu de plus). **Rien n'est retiré** :
+  « chantiers » reste dans chaque liste, il porte désormais le droit d'ouvrir
+  la fiche. Seule la ligne `access_pages_renovation` est modifiée (une page
+  ajoutée à 5 rôles : 24→25, 22→23, 16→17, 18→19, 9→10 pages). Aucune
+  policy, fonction ou rôle touché.
+- **Sauvegarde** : `planning_config_sauvegarde_refonte`, ligne **id 4**,
+  motif « lot5 : avant ajout de operations aux rôles qui ont chantiers
+  (06/11/2026) ».
+- Script appliqué : `sql/202611_refonte_operations_lot5_acces.sql` ;
+  **retour arrière** : `sql/202611_refonte_operations_lot5_acces_rollback.sql`
+  (retire « operations » seulement des rôles qui ne l'avaient pas dans la
+  sauvegarde ; option de restauration exacte).
+- `src/access.js` (listes par défaut) : « operations » ajouté au commercial
+  (les autres l'avaient déjà) ; la page « chantiers » s'appelle « Fiche
+  chantier (via Opérations) » dans Réglages → Accès.
+- **À savoir** : la page Opérations montre les chiffres de l'opération
+  (vendu, marges) ; les commerciaux et le comptable les voyaient déjà sur la
+  fiche chantier (bloc financier), ils les voient maintenant aussi agrégés
+  par opération. Ils peuvent aussi « Marquer perdu » et renseigner client /
+  chargé d'affaires depuis la fiche de l'opération (bloc du lot 2). Pour le
+  restreindre : Réglages → Accès (ou lot 6, rôle chargé d'affaires).
+
+**E-mails** : aucun changement.
+
 ---
 
 ## Journal de décisions
@@ -294,6 +377,11 @@ l'administrateur les active** (Réglages → Relances ; livrées ÉTEINTES) :
 | 06/11/2026 | **Lot 3 — Phase déclarée à la main** : enregistrée dans la même table (pseudo-étape `_phase_declaree`), l'ancienne déclaration du phasage est reprise et traduite. | Fonctionne sans phasage, comme les étapes. | — |
 | 06/11/2026 | **Lot 3 — Ouvriers** : nouvelle policy de lecture limitée à l'étape « Plans techniques » sur la nouvelle table. La fonction `ouvrier_chantier_detail` (droits élevés) n'est pas modifiée ; l'écran ouvrier ajoute les plans de la table et retire les anciens plans d'exécution quand la table les a repris (pas de doublon). | Les ouvriers voyaient déjà les plans d'exécution ; ne pas leur retirer les nouveaux plans. Aucune fonction à droits élevés touchée. | Supprimer la policy « cycle vie ouvrier plans techniques ». |
 | 06/11/2026 | **Lot 3 — Facture d'acompte ProGBat (lot 4)** : aucun appel ProGBat. Point d'accroche : la bascule `decisionBasculeSignature()` / l'effet « bascule à la signature » de `PageChantiers.jsx` ; message honnête sur l'étape « Devis signé ». | Garde-fou « ProGBat en lecture seule » ; le lot 4 ajoute le bouton avec confirmation et anti-doublon. | — |
+| 06/11/2026 | **Lot 5 — L'identifiant de page « chantiers » est gardé** comme droit d'ouvrir la fiche chantier ; seule l'entrée de menu disparaît (liste `PAGES_HORS_MENU` de `navigationOperations.mjs`, lue par le menu latéral et la barre mobile). | Le plus prudent : aucun droit retiré, les liens existants (Alertes, Notes des ouvriers, Opérations) et les réglages d'accès en base continuent de fonctionner sans réécriture. | Retirer « chantiers » de `PAGES_HORS_MENU`. |
+| 06/11/2026 | **Lot 5 — « operations » ajouté en base** à tous les rôles qui avaient « chantiers » (admin, super_admin, conducteur, comptable, commercial), **avant la fusion**, sans rien retirer. | Compatible avec l'ancien et le nouveau code ; sans cela, ces rôles n'auraient plus eu de porte d'entrée vers leurs chantiers (la liste en base remplace la liste par défaut, sauf pour l'admin). Admin ajouté aussi pour que la ligne en base se lise seule. | `sql/202611_refonte_operations_lot5_acces_rollback.sql` (sauvegarde id 4). |
+| 06/11/2026 | **Lot 5 — La liste Chantiers reste joignable en repli**, seulement si un rôle a « chantiers » sans « operations » (cas qui n'existe plus en base) : « Retour » de la fiche y ramène alors comme avant. Sinon « Retour » ramène à l'opération, et un lien générique vers « chantiers » (Journal des MAJ) mène à Opérations. La page d'arrivée n'est jamais la liste Chantiers. | Ne jamais perdre l'accès à ses chantiers si quelqu'un modifie les accès dans Réglages → Accès. | — |
+| 06/11/2026 | **Lot 5 — Onglet « Sans chantier »** toujours affiché (même à 0), à côté des quatre onglets demandés. Onglet par défaut : En cours, sinon le premier non vide ; choix retenu sur l'appareil. | « Une impossibilité doit rester visible » : une opération vide ne doit ni disparaître ni passer pour « terminée ». | — |
+| 06/11/2026 | **Lot 5 — La liste des chantiers de la fiche Opération est le bloc « Chantiers et cycle de vie »** du lot 3 (mini-frise `resumeCycleVieChantier`), rendu cliquable, plutôt qu'un nouveau tableau. Le tableau financier des logements (onglet Synthèse) reste cliquable lui aussi. | Un seul calcul de la frise ; la liste est visible quel que soit l'onglet choisi (Synthèse, Chemin de fer, Planifier). | — |
 
 ---
 
@@ -420,6 +508,10 @@ aujourd'hui avec le délai de 7 jours : **0 relance partirait**.
   25/08/2025 signalée non réglée (voir « Données migrées »).
 - Lot 3 : la facture d'acompte se crée encore à la main dans ProGBat après la
   signature (automatisation au lot 4).
+- Lot 5 : rien d'obligatoire. Si les commerciaux ou le comptable ne doivent
+  pas voir les marges agrégées par opération, ou ne doivent pas pouvoir
+  « Marquer perdu », le dire : Réglages → Accès, ou rôle chargé d'affaires
+  (lot 6).
 
 ---
 
@@ -522,3 +614,29 @@ aujourd'hui avec le délai de 7 jours : **0 relance partirait**.
 11. Relances (après activation par Loris) : le lendemain matin, le chargé
     d'affaires d'un devis envoyé il y a plus de 7 jours reçoit un e-mail avec
     le lien ProGBat ; l'étape affiche « 1 relance envoyée, dernière le … ».
+
+### Lot 5
+
+1. **Menu** (compte administrateur, sur ordinateur puis sur téléphone) :
+   « Chantiers » n'apparaît plus ; « Opérations » est sous le tableau de bord.
+2. **Opérations** : cinq onglets avec leur nombre (À l'étude, En cours,
+   Terminées, Perdues, Sans chantier) ; la somme des nombres = le nombre
+   d'opérations en haut de page. Ouvrir « Sans chantier » : une opération
+   sans logement y figure (ou « Aucune opération sans chantier. »).
+3. **Fiche d'une opération en cours** : bloc « Chantiers et cycle de vie »
+   avec un chantier par ligne (statut + mini-frise) ; les onglets Synthèse,
+   Chemin de fer, Planifier fonctionnent comme avant.
+4. **Clic sur un chantier** : la fiche chantier habituelle s'ouvre, avec
+   « Opérations › nom de l'opération › chantier » en haut. Cliquer sur le nom
+   de l'opération → retour à la fiche de l'opération ; « Retour à
+   l'opération » → idem ; « Opérations » → la liste, sur le dernier onglet
+   choisi.
+5. **Alertes** → cliquer une alerte : la fiche du chantier s'ouvre. **Notes
+   des ouvriers** → cliquer le nom d'un chantier : idem.
+6. **Journal des MAJ** → une entrée qui cite « Chantiers » : le lien mène à
+   Opérations.
+7. **Compte commercial ou comptable** : Opérations est dans le menu, la fiche
+   d'un chantier s'ouvre depuis l'opération ; Chantiers n'est plus dans le
+   menu.
+8. **Compte ouvrier** (téléphone) : l'espace ouvrier est identique ; l'onglet
+   des chantiers s'ouvre directement.
