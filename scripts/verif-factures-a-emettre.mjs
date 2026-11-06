@@ -293,7 +293,7 @@ test("19. dispatcher et créneau GitHub (été / hiver, simulation à la main)",
   const disp = lire("api/cron-dispatcher.js");
   assert.match(disp, /require\("\.\/_cron\/cron-factures-a-emettre\.js"\)/);
   assert.match(disp, /factures_a_emettre:\s*\{\s*fenetre:\s*null/);
-  for (const job of ["recap_commandes", "rappel_rapport", "invest_echeances", "invest_tableau_bord", "journal_avancement", "relances_cycle_vie", "push_reportes", "push_simulation"]) {
+  for (const job of ["recap_commandes", "rappel_rapport", "invest_echeances", "invest_tableau_bord", "journal_avancement", "relances_cycle_vie", "push_reportes", "push_simulation", "push_materiaux"]) {
     assert.match(disp, new RegExp(`${job}:\\s*\\{`), `job ${job} conservé`);
   }
   const wf = lire(".github/workflows/cron-factures-a-emettre.yml");
