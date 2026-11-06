@@ -109,7 +109,7 @@ Règle par défaut de `CLAUDE.md`.
 | 2 | Haut du PDF détaillé : nouveau tableau de synthèse (ligne TOTAL, fourchette, fiabilité, tendance) + détail des marges complété (budget restant, €/h avec repère devis, une phrase par marge) ; chargement des relevés sur 6 semaines dans `BilanPeriode.jsx` + entrée `journalMaj.js` | en ligne | Auto | Contrôles verts ; version direction inchangée | [#208](https://github.com/Suivi-chantier/Planning-Chantiers/pull/208) (fusionnée) |
 | 3 | Fiches et annexe : cascade seulement si baisse > seuil ou pastille rouge, sinon « Marge probable stable (±X €) » ; méthode retirée, case « Joindre la méthode de calcul » décochée par défaut + entrée `journalMaj.js` | en ligne | Auto | Contrôles verts ; méthode absente par défaut, présente si cochée | [#209](https://github.com/Suivi-chantier/Planning-Chantiers/pull/209) (fusionnée) |
 | 4 | PDF d'exemple : ancien et nouveau PDF détaillé de la dernière semaine réelle, construits depuis la base | en ligne (PDF remis à Loris) | Livrable à Loris | Deux PDF sur les vrais chantiers, chiffres de marge identiques entre ancien et nouveau | — (aucun changement de code) |
-| 5 | Finitions vues sur le PDF réel : cellule TOTAL de la marge probable qui écrase les colonnes, explication de fiabilité trop longue (6–7 lignes par chantier), pluriel « 0 chantier(s) » ; selon les réponses de Loris : lecture de la marge devis (`mo_prev`) et sens de l'écart dans « Marge probable stable » | en cours | Auto | Nouveau PDF W44 : une ligne par chantier sans texte tassé ; total de marge probable affiché si Loris accepte la correction | — |
+| 5 | Finitions vues sur le PDF réel : cellule TOTAL de la marge probable qui écrase les colonnes, explication de fiabilité trop longue (6–7 lignes par chantier), pluriel « 0 chantier(s) » ; selon les réponses de Loris : lecture de la marge devis (`mo_prev`) et sens de l'écart dans « Marge probable stable » | en ligne | Auto | Nouveau PDF W44 : une ligne par chantier sans texte tassé ; total de marge probable affiché si Loris accepte la correction | [#211](https://github.com/Suivi-chantier/Planning-Chantiers/pull/211) |
 
 ## Journal des décisions
 
@@ -177,6 +177,13 @@ Réponse de Loris (06/11/2026) : « 1 oui, 2 oui ». La marge devis est lue
 (colonne `mo_prev`), y compris pour la version direction ; la ligne « stable »
 affiche l'écart signé, ce qui remplace le « ±X € » de l'étape 6 sur décision de
 Loris. Tâche 5 lancée.
+- 06/11/2026 — Tâche 5 livrée en #211. Colonnes ajoutées à la lecture des
+  relevés : `mo_prev` (marge devis) et `reste_a_faire_h` (sans elle, la
+  cascade « du devis au probable » restait incomplète même avec la marge
+  devis). Un contrôle automatique vérifie désormais que l'écran charge toutes
+  les colonnes dont la marge devis a besoin. Version direction : sur le jeu
+  d'essai, HTML identique ; sur les vraies données, la marge devis, l'écart au
+  devis et le total de marge probable apparaissent (accord de Loris).
 
 ## Comptes rendus
 
@@ -241,4 +248,67 @@ Chiffres lus en base, ancien = nouveau, écart nul partout :
 Nouveau PDF : 9 pages au lieu de 11 ; cascade dans 2 fiches (FOURMOND 001 et
 101, pastille rouge), « stable » dans 5 ; fiabilité bonne 1, moyenne 3,
 faible 3 ; tendance incomplète (« · ») pour 3 chantiers récents.
+
+### Tâche 5 — marge devis relue, écart signé, tableau lisible (06/11/2026)
+
+Le Bilan relit la marge prévue au devis, enregistrée dans chaque relevé mais
+jamais chargée par l'écran. Sur la semaine 2026-W44 (chiffres lus en base,
+PDF reconstitué hors application) :
+
+| Chantier | Marge devis | Marge probable | Écart au devis |
+|---|---|---|---|
+| FOURMOND 001 | +15 702,55 € (38,9 %) | +4 134,52 € | −11 568,03 € |
+| FOURMOND 101 | +12 923,41 € (38,1 %) | +3 205,73 € | −9 717,68 € |
+| FOURMOND 102 | +11 075,12 € (37,2 %) | +953,75 € | −10 121,37 € |
+| FOURMOND COMMUNS | +2 332,81 € (39,4 %) | +1 501,73 € | −831,08 € |
+| KATHLEEN T2 | +10 404,42 € (47,7 %) | +8 314,10 € | −2 090,32 € |
+| MONTILLERS APPT 2 (T2) | +16 056,56 € (45,5 %) | +14 709,79 € | −1 346,77 € |
+| MONTILLERS APPT 4 (T2) | +16 083,93 € (40,6 %) | +14 757,33 € | −1 326,60 € |
+
+Total de la marge probable dans le bandeau : +47 577 € (23 % du vendu), contre
++84 579 € (40,9 %) prévus au devis. Production, marge de la période et marge
+probable de chaque chantier identiques à la tâche 4 (aucun calcul modifié).
+Barème des frais généraux absent en base : taux par défaut, comme dans le
+Phasage. Ligne « stable » avec écart signé (FOURMOND 102 : « stable
+(−217 €) »). Tableau de synthèse et détail des marges tiennent sur la page 1 ;
+PDF de 8 pages (11 avant le projet). Scripts : 194, 66 et 63 contrôles OK
+(exemples issus des tests, données fictives).
+
+Reste visible : dans « Détail des marges », les noms de chantier passent
+encore sur deux lignes ; la fiabilité occupe 2 à 3 lignes par chantier.
+
+## Synthèse de fin de projet (06/11/2026)
+
+**Ce qui change pour la direction.** Le PDF détaillé du Bilan s'ouvre sur un
+tableau qui répond aux trois questions, chantier par chantier et au total :
+combien on a généré, combien on a gagné en marge dans la semaine, et où va
+chaque chantier (marge probable, fourchette entre « au rythme actuel » et « si
+le reste suit le devis », fiabilité bonne / moyenne / faible avec sa raison,
+tendance sur 6 semaines). Le détail des marges suit, avec le budget restant et
+les € produits par heure. Les fiches ne détaillent le passage « du devis au
+probable » que pour les chantiers qui décrochent ; les autres disent en une
+ligne « stable (−217 €) » ou « en hausse (+X €) ». La méthode de calcul ne sort
+plus que si on coche « Joindre la méthode de calcul ». La marge prévue au devis
+et le total de la marge probable réapparaissent, dans les deux versions du PDF.
+
+**Pour les conducteurs et les ouvriers** : rien ne change.
+
+**Chiffres avant / après** (semaine 2026-W44, base réelle) : production,
+marge de la semaine et marge probable identiques sur les 7 chantiers (voir
+tâches 4 et 5). Ce qui apparaît : marge devis totale +84 579 €, marge probable
+totale +47 577 €, soit 37 002 € d'écart au devis, dont −31 407 € sur les trois
+logements FOURMOND 001, 101 et 102.
+
+**Points en suspens** : noms de chantier sur deux lignes dans « Détail des
+marges » ; barème des frais généraux absent en base (taux par défaut) ; le
+site de production n'a pas pu être ouvert depuis la session (accès réseau
+bloqué), seules les prévisualisations Vercel ont été vérifiées.
+
+**Entrées ajoutées dans `src/Renovation/journalMaj.js`** :
+- « Bilan détaillé : le PDF s'ouvre sur un tableau qui dit combien on a
+  généré, combien on a gagné et où va chaque chantier » ;
+- « Bilan détaillé : fiches chantier plus courtes, et méthode de calcul
+  seulement si on la demande » ;
+- « Bilan : la marge prévue au devis réapparaît, avec le total de la marge
+  probable ».
 
