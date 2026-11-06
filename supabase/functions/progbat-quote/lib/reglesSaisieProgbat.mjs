@@ -212,3 +212,31 @@ export function genererCodeChantierProgbat({ codeClient = "", reference = "" } =
   if (!txt(codeClient) || !txt(reference)) return "";
   return `${normaliserCode(codeClient)} ${normaliserCode(reference, { garderPlus: true })}`.trim();
 }
+
+// ─── Astérisques du formulaire de chiffrage (colonnes de profero_projets) ───
+/** Colonne du chiffrage → (fiche, champ) de la règle. Le contact d'une société va dans client_nom. */
+const CHAMPS_PROJET = Object.freeze({
+  client_prenom: ["client", "prenom"],
+  client_adresse: ["client", "adresse"],
+  client_code_postal: ["client", "code_postal"],
+  client_ville: ["client", "ville"],
+  client_pays: ["client", "pays"],
+  client_email: ["client", "email"],
+  client_telephone: ["client", "telephone"],
+  chantier_adresse: ["chantier", "adresse"],
+  chantier_code_postal: ["chantier", "code_postal"],
+  chantier_ville: ["chantier", "ville"],
+  logement_reference: ["chantier", "reference_logement"],
+  devis_objet: ["devis", "objet"],
+  devis_validite: ["devis", "validite"],
+  tva_pct: ["devis", "tva_pct"],
+});
+
+/** Le champ du formulaire de chiffrage porte-t-il un astérisque ? */
+export function estObligatoireProjet(colonne, projet = {}) {
+  const client = clientDepuisProjet(projet);
+  if (colonne === "client_nom") return estObligatoire("client", client.type === "societe" ? "contact_nom" : "nom", client);
+  const cible = CHAMPS_PROJET[colonne];
+  if (!cible) return false;
+  return estObligatoire(cible[0], cible[1], cible[0] === "client" ? client : {});
+}
