@@ -223,7 +223,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
 | 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | en ligne (ne partira pas avec les données actuelles, question à Loris) | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | [n°223](https://github.com/Suivi-chantier/Planning-Chantiers/pull/223) (fusionnée le 06/11) |
 | 6 | Étape 4b — Alertes C4, C5 et marge négative D1 : table d'état notifié, job qui recalcule avec `alertesV1` et ne notifie que les aggravations, premier passage silencieux | à faire | Auto ; tableau de simulation recopié dans le compte rendu | Simulation sur les vrais chantiers : qui aurait reçu quoi ; premier passage = 0 envoi | — |
-| 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | en cours (parallèle) | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | — |
+| 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | prête, en attente de Vercel (reprise le 07/11) | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | [n°224](https://github.com/Suivi-chantier/Planning-Chantiers/pull/224) (contrôles GitHub verts) |
 | 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données | — |
 | 10 | C3 rebranchée sur la logique de l'écran « Commandes à passer » (saisie par ouvrage), extraite en module `.mjs` partagé avec l'écran ; mail du vendredi inchangé | à faire | Auto | Simulation sur les vraies données : la liste correspond à ce qu'affiche « Commandes à passer » | — |
 | 9 | Simulation des 7 derniers jours par personne (aucun envoi), puis activation de l'interrupteur général par Loris | à faire | **Arrêt** : Loris active ; arrêt si quelqu'un dépasse 3 push par jour en moyenne | Tableau par personne recopié dans le compte rendu | — |
@@ -408,6 +408,26 @@ souvent possible.
 **06/11/2026 — Format des liens des notifications** : `/?page=<id>&chantier=<id>`
 (retenu en tâche 3) ; l'ancien `/#planning-commandes` de la tâche 5 est
 compris par l'écran.
+
+**06/11/2026 — Tâche 7 : regroupement F1 et table d'état.** La première
+version envoyait un push par échéance (14 d'un coup à l'activation), contraire
+à la règle 5. Révisée : au plus une notification F1 par jour (« N factures à
+émettre » + liste), chaque échéance notifiée une seule fois grâce à une table
+d'état **générique** `notifications_etat` (type, objet, état), réutilisable
+par la tâche 6 pour les niveaux d'alerte. Le mail reste envoyé par la fiche,
+inchangé (règle 8) ; le job ne pose pas le drapeau `facture_mail_*`.
+Simulation issue de la base : 1 notification « 14 factures à émettre » au
+premier passage après activation, 0 au suivant. Migration
+`notifications_etat` purement additive, appliquée par la session principale
+après accord explicite de Loris (« vas-y pour la table » — la première
+tentative avait expiré faute de réponse à la confirmation Supabase) :
+version **20261106084227**, seule policy `profero_collaborateurs_seulement`,
+aucun droit pour anon / authenticated. **À la reprise : renommer le fichier de
+la PR n°224 `20261106130000_notifications_etat.sql` en
+`20261106084227_notifications_etat.sql`.**
+Signalé à Loris, non modifié (hors périmètre) : DÉPOT et BRIOLLAY « à
+émettre » avec un prix de vente à 0 € ; course possible sur le mail si deux
+personnes ouvrent la même fiche en même temps (antérieure au projet).
 
 ## À faire par Loris
 
