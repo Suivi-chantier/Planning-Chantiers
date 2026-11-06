@@ -11,6 +11,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getWeekId, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
 import { useIsMobile } from "./Navigation";
+import { filtrerChantiersActifs } from "./chantierActif";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileSection } from "../mobileUI";
 import { syncDatePrevueTache } from "./phasagePlanning";
@@ -51,7 +52,8 @@ const toIsoDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
 function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicules = [], cells, setCells, commandes, setCommandes, notesData, setNotesData, weekId, view, setView, year, week, setYear, setWeek, T, branch = "renovation" }) {
   // Un chantier marqué "Terminé" (dans la page Chantiers) disparaît du planning hebdo.
-  const chantiers = useMemo(() => chantiersAll.filter(c => c.statut !== "termine"), [chantiersAll]);
+  // Règle unique : estChantierActif() (src/Renovation/chantierActif.mjs).
+  const chantiers = useMemo(() => filtrerChantiersActifs(chantiersAll), [chantiersAll]);
   const isMobile = useIsMobile();
   const acc = getBranchAccent(branch);
   // Vue forcée à "planifie" — les vues "réel" et "bilan" ont été retirées

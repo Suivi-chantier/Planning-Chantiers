@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
-import { JOURS, getCurrentWeek, getWeekId, getTodayJour, DEFAULT_CHANTIERS, loadEquipes } from "../constants";
+import { JOURS, getCurrentWeek, getWeekId, getTodayJour, loadEquipes } from "../constants";
+import { chargerChantiers } from "./chantiersDonnees";
 import { getISOWeek, mondayOfWeek } from "../rythmeSemaine";
 import { normaliserNomRessource } from "./planningResourceModelV1";
 import { Icon } from "../ui";
@@ -37,7 +38,7 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200", estResp
 
   const [loading, setLoading]   = useState(true);
   const [rawCells, setRawCells] = useState([]);
-  const [config, setConfig]     = useState({ chantiers: DEFAULT_CHANTIERS, adresses: {} });
+  const [config, setConfig]     = useState({ chantiers: [], adresses: {} });
   // Jour sélectionné : aujourd'hui si semaine en cours, sinon lundi (semaine suivante).
   const [jour, setJour] = useState(cible.showNext ? "Lundi" : (todayJour || "Lundi"));
 
@@ -88,11 +89,13 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200", estResp
   const fmtJour = (d) => `${d.getDate()} ${MOIS[d.getMonth()]}`;
 
   useEffect(() => {
-    supabase.from("planning_config").select("key,value").in("key", ["chantiers", "chantier_adresses"])
-      .then(({ data }) => {
-        let chantiers = DEFAULT_CHANTIERS, adresses = {};
+    // Chantiers : table public.chantiers (Refonte Opérations, lot 1).
+    Promise.all([
+      chargerChantiers(),
+      supabase.from("planning_config").select("key,value").eq("key", "chantier_adresses"),
+    ]).then(([chantiers, { data }]) => {
+        let adresses = {};
         (data || []).forEach(r => {
-          if (r.key === "chantiers" && Array.isArray(r.value)) chantiers = r.value;
           if (r.key === "chantier_adresses" && r.value) adresses = r.value;
         });
         setConfig({ chantiers, adresses });

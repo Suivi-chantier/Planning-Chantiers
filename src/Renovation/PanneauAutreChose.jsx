@@ -23,6 +23,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { Icon } from "../ui";
+import { estChantierActif } from "./chantierActif";
 import { X, Search, Plus, Check, PenLine, WifiOff } from "lucide-react";
 import { CartePhase } from "./OuvrierMesPhases";
 import NouvelleTacheV2 from "./NouvelleTacheV2";
@@ -213,7 +214,7 @@ export default function PanneauAutreChose({
     );
   }
 
-  const autres = tousChantiers.filter(c => !chantiersDuJour.some(d => d.id === c.id) && c.statut !== "termine");
+  const autres = tousChantiers.filter(c => !chantiersDuJour.some(d => d.id === c.id) && estChantierActif(c));
 
   return (
     <div onClick={onFermer} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(16,24,40,0.45)", display: "flex", alignItems: "flex-end" }}>

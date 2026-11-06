@@ -1,0 +1,27 @@
+name: Verify Chantier actif (Refonte Opérations, lot 1)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'api/**'
+      - 'supabase/migrations/*refonte_operations*'
+      - 'sql/202611_refonte_operations*'
+      - 'scripts/verif-chantier-actif.mjs'
+      - '.github/workflows/verify-chantier-actif.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Règle unique estChantierActif(), écriture ligne par ligne, aucune page ne refiltre le statut, migration sans suppression
+        run: node scripts/verif-chantier-actif.mjs

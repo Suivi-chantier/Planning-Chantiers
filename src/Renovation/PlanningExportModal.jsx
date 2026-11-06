@@ -4,6 +4,7 @@ import { capaciteJour } from '../rythmeSemaine';
 import { analyserObjectifsSemaine, objectifsDepuisFaits, validerRedaction, semainesAnalyse, lundiSemaine, JOURS_EXPORT } from './objectifsSemaine';
 import { buildPlanningHebdoDoc, imprimerPlanningHebdo } from './planningHebdoDoc';
 import { calculerCapaciteRessourcePourDate } from './planningResourceCapacityV1';
+import { chargerOperations } from './chantiersDonnees';
 
 async function lireToutes(requete) {
   const lignes=[];for(let start=0;;start+=1000){const r=await requete().range(start,start+999);if(r.error)throw new Error(r.error.message);lignes.push(...r.data);if(r.data.length<1000)return lignes;}
@@ -13,15 +14,15 @@ async function chargerAnalyse({weekId,chantiers,cells,ouvriers,year,week}) {
   const [historique,phasages,config,resources,events]=await Promise.all([
     lireToutes(()=>supabase.from('planning_cells').select('week_id,chantier_id,jour,taches,ouvriers,planifie').in('week_id',semaines).order('id')),
     lireToutes(()=>supabase.from('phasages').select('id,chantier_id,ouvrages').in('chantier_id',chantiers.map(c=>c.id)).order('id')),
-    supabase.from('planning_config').select('value').eq('key','operations').maybeSingle(),
+    chargerOperations(),   // table public.operations (Refonte Opérations, lot 1)
     supabase.from('planning_resources').select('*').eq('actif',true),
     supabase.from('planning_resource_events').select('*').eq('actif',true).lte('date_debut',fin).gte('date_fin',m.toISOString().slice(0,10)),
   ]);
-  for(const r of [config,resources,events])if(r.error)throw new Error(r.error.message);
+  for(const r of [resources,events])if(r.error)throw new Error(r.error.message);
   const courantes=chantiers.flatMap(c=>JOURS_EXPORT.map(j=>({...cells[`${c.id}_${j}`],chantier_id:c.id,jour:j,week_id:weekId})));
   const indisponibles={};
   for(const o of ouvriers)for(let i=0;i<5;i++) {const resource=resources.data.find(r=>(r.nom_planning||r.nom)===o);if(resource){const dateISO=new Date(+m+i*86400000).toISOString().slice(0,10);const cap=calculerCapaciteRessourcePourDate({resource,dateISO,evenements:events.data.filter(e=>e.resource_id===resource.id),heuresDejaAllouees:0});if(cap.capacite_apres_exceptions===0)indisponibles[`${o}_${JOURS_EXPORT[i]}`]=true;}}
-  return analyserObjectifsSemaine({weekId,chantiers,ouvriers,phasages,operations:config.data?.value?.items||[],cells:[...historique.filter(c=>c.week_id!==weekId),...courantes],joursOuvres:JOURS_EXPORT.filter(j=>capaciteJour(j,year,week)>0),indisponibles});
+  return analyserObjectifsSemaine({weekId,chantiers,ouvriers,phasages,operations:config||[],cells:[...historique.filter(c=>c.week_id!==weekId),...courantes],joursOuvres:JOURS_EXPORT.filter(j=>capaciteJour(j,year,week)>0),indisponibles});
 }
 export default function PlanningExportModal({weekId,week,year,chantiers,cells,ouvriers,dates,getDisplayTaches,onClose,T}) {
   const [objectifs,setObjectifs]=useState([]),[remarques,setRemarques]=useState(''),[attentions,setAttentions]=useState([]);

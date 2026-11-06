@@ -12,6 +12,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { lireToutParTranches } from "./lectureParTranches";
 import { getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
+import { estChantierActif } from "./chantierActif";
 import { useReglagesMarges } from "./reglagesMarges";
 import { alertesMargesV2 } from "./alertesMargesV2.js";
 import { COLONNES_RELEVES_ALERTES_V2 } from "./pointsAttentionDonneesV1.js";
@@ -416,7 +417,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
   const basculer = (id, valeur) => setChoix(c => ({ cle: periode.cle, valeurs: { ...(c.cle === periode.cle ? c.valeurs : {}), [id]: valeur } }));
 
   const enCours = useMemo(() => (chantiers || [])
-    .filter(c => c && c.id && !CHANTIERS_EXCLUS.includes(c.nom) && c.statut !== "termine")
+    .filter(c => estChantierActif(c) && !CHANTIERS_EXCLUS.includes(c.nom))
     .sort((a, b) => String(a.nom).localeCompare(String(b.nom), "fr")), [chantiers]);
 
   const calcul = useMemo(() => {

@@ -213,3 +213,10 @@ Les fichiers repris du dépôt contiennent le SQL appliqué **plus les commentai
 d'explication** qui les accompagnaient — ils sont donc un peu plus longs que ce
 que la base a enregistré, sans différence d'effet. Ceux qui ont été reconstitués
 depuis la base reprennent son SQL mot pour mot.
+
+`20261106045027_refonte_operations_lot1.sql` **appliquée le 06/11/2026**
+(Refonte Opérations, lot 1 : tables `operations` et `chantiers`, reprise des
+blocs `planning_config`, synchronisation dans les deux sens), après essai dans
+une transaction annulée. Re-synchronisation idempotente :
+`select public.refonte_resynchroniser_depuis_config();`. Retour arrière :
+`sql/202611_refonte_operations_lot1_rollback.sql`.

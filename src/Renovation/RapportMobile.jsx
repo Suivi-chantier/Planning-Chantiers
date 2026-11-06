@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { envoyerEmailApi } from "../emailApi";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour, FONT, RADIUS, SPACING, SEMANTIC, PROFERO_YELLOW, LOTS_DEFAUT } from "../constants";
 import { Icon } from "../ui";
+import { estChantierActif } from "./chantierActif";
 import { profilSemaine, libelleRythme, getISOWeek, fmtHeures } from "../rythmeSemaine";
 import {
   Check, X, Clock, Camera, Plus, Minus, RotateCw, ShoppingCart, Car,
@@ -1848,7 +1849,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         // déjà présents dans les tâches du jour (sans doublons), sinon tous les
         // chantiers actifs.
         const chantiersDuJour = Array.from(new Set(taches.map(t => t.chantier_id).filter(Boolean)));
-        const tousChantiers = (planData?.chantiersData || []).filter(c => !c.archive);
+        const tousChantiers = (planData?.chantiersData || []).filter(c => estChantierActif(c, { inclureTermines: true }));
         const chantiersProposes = chantiersDuJour.length > 0
           ? tousChantiers.filter(c => chantiersDuJour.includes(c.id))
           : tousChantiers;

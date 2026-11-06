@@ -21,6 +21,7 @@ import { getWeekId, getCurrentWeek } from "../constants";
 import { preparerSemainesRelevesJournaliersV2, COLONNES_RELEVES_ALERTES_V2, dimancheSemaineISOV2 } from "./pointsAttentionDonneesV1.js";
 import { alertesMargesV2 } from "./alertesMargesV2.js";
 import { useReglagesMarges } from "./reglagesMarges";
+import { estChantierActif } from "./chantierActif";
 // Mêmes helpers de semaine ISO que le Bilan Semaine : une seule façon de
 // nommer une semaine dans l'application.
 import { lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
@@ -97,7 +98,7 @@ function CarteAlerte({ alerte, T, onOuvrirChantier }) {
   );
 }
 
-export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier = null }) {
+export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier = null, referentielChantiers = null }) {
   const acc = getBranchAccent(branch);
   const [lignes, setLignes] = useState(null); // null = pas encore lu
   const [erreur, setErreur] = useState(null);
@@ -147,7 +148,14 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
     if (lignes === null) return null;
     // preparerSemainesAttentionV1 rend UN TABLEAU par semaine demandée, dans
     // l'ordre de `weekIds` : [0] = semaine courante, [1] = précédente.
-    const [courants, precedents] = preparerSemainesRelevesJournaliersV2({ lignes, weekIds: semaines });
+    const [courantsBruts, precedentsBruts] = preparerSemainesRelevesJournaliersV2({ lignes, weekIds: semaines });
+    // Règle unique estChantierActif() : un relevé d'un chantier connu mais
+    // hors des listes (lot 2 : à l'étude, perdu) ne donne pas d'alerte. Un
+    // chantier absent du référentiel garde ses alertes (comme avant).
+    const parId = new Map((referentielChantiers || []).map(c => [String(c?.id), c]));
+    const garder = (s) => { const c = parId.get(String(s?.chantier_id)); return !c || estChantierActif(c, { inclureTermines: true }); };
+    const courants = (courantsBruts || []).filter(garder);
+    const precedents = (precedentsBruts || []).filter(garder);
     // Détection : alertes des marges (étape 2) ; classement : alertesV1.
     const pointsAttention = alertesMargesV2({
       snapshotsCourants: courants || [], snapshotsPrecedents: precedents || [], seuils: reglagesMarges.seuilsMarges,
@@ -158,7 +166,7 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
       pointsAttention,
       exclusions: CHANTIERS_EXCLUS,
     });
-  }, [lignes, semaines.join(","), reglagesMarges]);
+  }, [lignes, semaines.join(","), reglagesMarges, referentielChantiers]);
 
   const etat = resultat ? etatAlertesV1(resultat) : null;
   const parNiveau = n => (resultat?.alertes || []).filter(a => a.niveau === n);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { getCurrentWeek, getWeekId, getTodayJour, DEFAULT_CHANTIERS } from "../constants";
+import { getCurrentWeek, getWeekId, getTodayJour } from "../constants";
+import { chargerChantiers } from "./chantiersDonnees";
 import { Icon } from "../ui";
 import { MapPin, ClipboardList, CheckCircle2, CalendarX, Building2, Clock, Users, RotateCcw } from "lucide-react";
 import { MobileStat, MobileSection, MobileCard, MobileEmptyState } from "../mobileUI";
@@ -30,11 +31,14 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
-      const { data: cfg } = await supabase
-        .from("planning_config").select("key,value").in("key", ["chantiers", "chantier_adresses"]);
-      let chantiersData = DEFAULT_CHANTIERS, adresses = {};
+      // Chantiers : table public.chantiers (Refonte Opérations, lot 1) ;
+      // adresses : planning_config/chantier_adresses (inchangé).
+      const [chantiersData, { data: cfg }] = await Promise.all([
+        chargerChantiers(),
+        supabase.from("planning_config").select("key,value").eq("key", "chantier_adresses"),
+      ]);
+      let adresses = {};
       (cfg || []).forEach(r => {
-        if (r.key === "chantiers" && Array.isArray(r.value)) chantiersData = r.value;
         if (r.key === "chantier_adresses" && r.value) adresses = r.value;
       });
 

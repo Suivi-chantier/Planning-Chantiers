@@ -13,8 +13,10 @@ import { evaluerSecuriteApplicationReplanningV1 } from "./planningReplanningAppl
 import { completerGardesPhasagesApplicationV1 } from "./planningReplanningPhasageGuardsV1.js";
 import { simulerSensibiliteHorizonsReplanningDepuisSnapshotV1 } from "./planningReplanningHorizonSensitivityV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
+import { chargerChantiers } from "./chantiersDonnees";
 
-const CONFIG_KEYS = ["chantiers", "groupes_types", "equipes"];
+// "chantiers" n'est plus lu ici : table public.chantiers (chargerChantiers).
+const CONFIG_KEYS = ["groupes_types", "equipes"];
 
 function verifier(res, label) {
   if (res?.error) {
@@ -62,6 +64,9 @@ export async function chargerDonneesSimulationPlanningGlobalV1({ startDate, hori
 
   const configRows = verifier(configRes, "Configuration planning");
   const config = parserConfigMoteurV1(configRows);
+  // Chantiers : table public.chantiers (Refonte Opérations, lot 1) ; la clé
+  // planning_config "chantiers" n'en est plus qu'une copie.
+  config.chantiers = await chargerChantiers();
   const raw = {
     phasages: verifier(phasagesRes, "Phasages"),
     cellules: verifier(cellsRes, "Planning courant"),
