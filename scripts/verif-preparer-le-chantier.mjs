@@ -155,4 +155,4 @@ eq(piecesRetirees(pieces, pieces.slice(1)), ["sej"], "pièces retirées repéré
 eq(remplacerOuvrage([{ id: "o1" }, { id: "o9" }], { id: "o1", x: 1 }), [{ id: "o1", x: 1 }, { id: "o9" }], "remplacement d'un ouvrage dans la liste");
 eq(PIECES_RAPIDES.length, 9, "ajout rapide : neuf pièces proposées");
 
-console.log(`verif-preparation-chantier : ${nbOk} contrôles OK (données fictives)`);
+console.log(`verif-preparer-le-chantier : ${nbOk} contrôles OK (données fictives)`);
