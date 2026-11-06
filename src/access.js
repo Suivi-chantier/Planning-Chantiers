@@ -76,6 +76,10 @@ export const ROLES_DEFAULT_RENOVATION = [
   { id: "conducteur", label: "Conducteur de travaux", color: "#50c878" },
   { id: "commercial", label: "Commercial",            color: "#4db8ff" },
   { id: "comptable",  label: "Comptable",             color: "#c084fc" },
+  // Lot 6 (Refonte Opérations) : opérations, chantiers, clients, chiffrage,
+  // devis ; valide les étapes Étude et Contrat du cycle de vie
+  // (src/Renovation/roleChargeAffaires.mjs).
+  { id: "charge_affaires", label: "Chargé d'affaires",  color: "#14b8a6" },
   // Rôle terrain : accède uniquement à l'espace ouvrier dédié (composant
   // EspaceOuvrier, routé au niveau authState), jamais aux pages bureau.
   { id: "ouvrier",    label: "Ouvrier",               color: "#f59e0b" },
@@ -178,6 +182,16 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "operations",
     "heures-salaries",
     "etats-financiers",
+    "journal-maj",
+  ],
+
+  // Lot 6 : Opérations, fiche chantier, Chiffrage, Journal des MAJ. Aucune
+  // page financière globale ni d'administration (liste dans
+  // src/Renovation/roleChargeAffaires.mjs, contrôlée par verif-refonte-lot6).
+  charge_affaires: [
+    "operations",
+    "chantiers",
+    "info-client",
     "journal-maj",
   ],
 

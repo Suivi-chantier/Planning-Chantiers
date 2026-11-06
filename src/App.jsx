@@ -442,7 +442,7 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
   const branches    = profil?.branches || ["renovation"];
   const hasReno     = branches.includes("renovation");
   const hasInvest   = branches.includes("invest");
-  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
+  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable", charge_affaires:"Chargé d'affaires" };
 
   return (
     <div style={{ minHeight:"100vh", background:FOND_MARQUE, display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
@@ -742,7 +742,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     }
   };
 
-  const ROLE_LABELS={admin:"Administrateur",conducteur:"Conducteur de travaux",commercial:"Commercial",comptable:"Comptable"};
+  const ROLE_LABELS={admin:"Administrateur",conducteur:"Conducteur de travaux",commercial:"Commercial",comptable:"Comptable",charge_affaires:"Chargé d'affaires"};
 
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
@@ -976,7 +976,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiersExploitation} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
           {p==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiersExploitation} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
           {p==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiersExploitation} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} tauxFG={tauxFG} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
-          {p==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} profil={profil} T={T} branch={branch} onOpenChantier={canAccess(role,"chantiers") ? ouvrirFicheChantier : null} onOuvrirAdmin={()=>setPage("admin")} peutPlanifier={canAccess(role,"planning")} operationDemandee={actif?operationToOpen:null} onOperationConsumed={()=>setOperationToOpen(null)}/> : <AccesRefuse T={T} page="operations"/>)}
+          {p==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} profil={profil} T={T} branch={branch} onOpenChantier={canAccess(role,"chantiers") ? ouvrirFicheChantier : null} onOuvrirAdmin={canAccess(role,"admin") ? ()=>setPage("admin") : null} peutPlanifier={canAccess(role,"planning")} operationDemandee={actif?operationToOpen:null} onOperationConsumed={()=>setOperationToOpen(null)}/> : <AccesRefuse T={T} page="operations"/>)}
           {p==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch} initialOuvrageId={actif?biblioOuvrageToOpen:null} onOuvrageConsumed={()=>setBiblioOuvrageToOpen(null)} onRetourChiffrage={allerBiblio ? revenirAuChiffrage : null}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
           {p==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
           {p==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} profil={profil} onModifierMateriaux={canAccess(role,"bibliotheque") ? ouvrirOuvrageBiblio : null} retourBiblio={actif?retourChiffrage:null} onRetourBiblioConsomme={()=>setRetourChiffrage(null)}/> : <AccesRefuse T={T} page="info-client"/>)}

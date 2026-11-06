@@ -15,7 +15,7 @@ import { supabase } from "../supabase";
 import { estPageDuMenu } from "./navigationOperations.js";
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
-const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
+const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable", charge_affaires:"Chargé d'affaires" };
 
 // ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
 const ROLE_PAGES = {
@@ -34,6 +34,10 @@ const ROLE_PAGES = {
   ],
   comptable: [
     "dashboard","chantiers","bilan-semaine","notes-ouvriers","commandes","biblio-materiaux","phasage-v2","operations","heures-salaries","etats-financiers","journal-maj"
+  ],
+  // Lot 6 : sans cette entrée, un chargé d'affaires retomberait sur le menu admin.
+  charge_affaires: [
+    "operations","chantiers","info-client","journal-maj"
   ],
 };
 

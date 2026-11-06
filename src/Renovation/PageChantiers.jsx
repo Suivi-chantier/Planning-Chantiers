@@ -40,6 +40,8 @@ import {
   chargerRelances, chargerReglagesRelances,
 } from "./cycleVieDonnees";
 import { decisionRelance, referencesRelances } from "./relancesCycleVie";
+// Lot 6 : le chargé d'affaires ne valide que les étapes Étude et Contrat.
+import { peutValiderPhase, peutDeclarerPhase, messageLectureSeule } from "./roleChargeAffaires";
 import { lienProgbat } from "./progbatLiens";
 import { lienGoogleAgenda, adresseChantierAgenda } from "./agendaGoogle";
 import {
@@ -854,7 +856,10 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
 // le positionnement vient de computeCycleVie (src/Renovation/cycleVie.js),
 // sur le modèle de la frise CRM Invest — phase déclarée à la main PRIORITAIRE,
 // phase déduite toujours visible à côté, raisons affichées.
-function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturation, peutModifier, onDeclarer, actionsEtape, enrichirEtape, anciennesPieces = [], erreurChargement = null, T }) {
+function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturation, peutModifier: peutModifierBase, role = "commercial", onDeclarer, actionsEtape, enrichirEtape, anciennesPieces = [], erreurChargement = null, T }) {
+  // Lot 6 (roleChargeAffaires.mjs) : déclarer la phase à la main est fermé au
+  // chargé d'affaires ; les étapes ne sont modifiables que dans ses phases.
+  const peutModifier = !!peutModifierBase && peutDeclarerPhase(role);
   const [saving, setSaving] = useState(false);
   const [phaseVue, setPhaseVue] = useState(null); // phase consultée (null = suivre la phase en cours)
   const surface   = T?.surface   || "#262a32";
@@ -988,6 +993,8 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
               return enrichirEtape ? enrichirEtape(ev) : ev;
             });
             const estPhaseCourante = phaseVueId === cv.phaseId;
+            const peutModifierEtapes = !!peutModifierBase && peutValiderPhase({ role, phaseId: phaseVueId });
+            const lectureSeule = peutModifierBase ? messageLectureSeule({ role, phaseId: phaseVueId }) : null;
             return (
               <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${border}` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
@@ -1023,6 +1030,11 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
                     </>
                   )}
                 </div>
+                {lectureSeule && (
+                  <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, fontWeight: 600, marginBottom: 8 }}>
+                    {lectureSeule}
+                  </div>
+                )}
                 {etapes.length === 0 ? (
                   <div style={{ fontSize: FONT.sm.size, color: textMuted, fontStyle: "italic" }}>
                     {cvCtx?.phasageExiste ? "Aucun groupe d'exécution défini dans la vue chrono du phasage." : "Aucun phasage lié à ce chantier : les groupes d'exécution apparaîtront avec le phasage."}
@@ -1030,7 +1042,7 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {etapes.map(e => (
-                      <EtapeCycleVie key={e.id} etape={e} peutModifier={peutModifier} actions={actionsEtape} T={T}/>
+                      <EtapeCycleVie key={e.id} etape={e} peutModifier={peutModifierEtapes} actions={actionsEtape} T={T}/>
                     ))}
                   </div>
                 )}
@@ -3211,7 +3223,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         {/* ── Frise du cycle de vie (Point 2a) : sous le bandeau QCD ── */}
         <FriseCycleVie cv={cv} cvCtx={cvCtx} chronoGroupes={chronoGroupesSelected} statsGroupes={statsGroupesSelected}
           etapesFacturation={etapesFacturationTravaux(etatFact)}
-          peutModifier={!!(cvD.charge && !cvD.erreur)} onDeclarer={declarerPhaseCV}
+          peutModifier={!!(cvD.charge && !cvD.erreur)} role={profil?.role || "commercial"} onDeclarer={declarerPhaseCV}
           enrichirEtape={enrichirEtapeCV} anciennesPieces={anciennesPiecesCV}
           erreurChargement={cvD.charge ? cvD.erreur : null}
           actionsEtape={{
