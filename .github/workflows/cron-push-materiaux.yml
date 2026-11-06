@@ -1,9 +1,11 @@
-name: Matériaux à commander — notification (8h05, jours ouvrés)
+name: Commandes à passer — notification (8h05, jours ouvrés)
 
-# Projet docs/projets/notifications-push.md, tâche 5 (notification C3).
-# Calcule les matériaux prévisionnels dont la date butoir est aujourd'hui (même
-# calcul que le récap commandes du vendredi) et envoie UNE notification
-# regroupée aux rôles cochés dans Réglages › Notifications. Liste vide : rien.
+# Projet docs/projets/notifications-push.md, tâches 5 et 10 (notification C3).
+# Calcule la liste de la page « Commandes à passer » (même module que l'écran)
+# et envoie UNE notification regroupée « N commandes à passer » aux rôles
+# cochés dans Réglages › Notifications, avec seulement les commandes
+# NOUVELLEMENT à passer (déjà notifiées : notifications_etat). Rien de
+# nouveau : rien. Le récap commandes du vendredi n'est pas concerné.
 # Interrupteur général coupé : send-push n'envoie rien (voulu, Loris l'active).
 #
 # Heure d'été / heure d'hiver : un cron GitHub est en UTC. Même technique que
@@ -15,7 +17,7 @@ name: Matériaux à commander — notification (8h05, jours ouvrés)
 #
 # Bouton « Run workflow » : case « simulation » cochée par défaut → aucun envoi,
 # aucune écriture, réponse = qui aurait reçu quoi. Date facultative (simulation
-# seulement) pour simuler un autre jour.
+# seulement) : elle ne change que la clé de regroupement C3-<date>.
 #
 # Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
 

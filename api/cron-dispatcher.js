@@ -125,9 +125,9 @@ const TACHES = {
     fenetre: null,
     run: (req, supabase, t) => runFacturesAEmettre(req, supabase, t),
   },
-  // Notification C3 « Matériaux à commander » (date butoir atteinte), même
-  // calcul que le récap du vendredi. Une notification regroupée par jour ;
-  // liste vide = aucun envoi. `&simulation=1` : sans envoi. Par `?job=` seulement.
+  // Notification C3 « Commandes à passer » : même liste que la page (tâche 10),
+  // seules les commandes nouvellement à passer, une notification regroupée par
+  // jour ; rien de nouveau = aucun envoi. `&simulation=1` : sans envoi. Par `?job=` seulement.
   push_materiaux: {
     fenetre: null,
     run: (req, supabase, t) => runPushMateriaux(req, supabase, t),

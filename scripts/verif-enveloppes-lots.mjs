@@ -156,7 +156,11 @@ const ligne = (prix_total, lot_id, extra = {}) => ({ id: `l${Math.random()}`, pr
 
 // ── 10. Gardes sur le code ──────────────────────────────────────────────────
 {
-  const page = lire("src/Renovation/PagePlanningCommandes.jsx");
+  // Depuis la tâche 10 (notifications push), le modèle de la page vit dans
+  // commandesAPasserV1.mjs, importé par la page : on lit les deux.
+  const pageSeule = lire("src/Renovation/PagePlanningCommandes.jsx");
+  const page = pageSeule + lire("src/Renovation/commandesAPasserV1.mjs");
+  ok(/from "\.\/commandesAPasserV1\.js"/.test(pageSeule), "la page Commandes à passer importe commandesAPasserV1");
   ok(/resteACommanderEnveloppes\(/.test(page), "la page Commandes à passer appelle la fonction du module");
   ok(/const totalACommander = enveloppes\.reste;/.test(page), "le montant affiché est celui de l'enveloppe");
   ok(/marquerAchatsTermines/.test(page) && /annulerAchatsTermines/.test(page), "bouton « achats terminés » réversible sur la page");
