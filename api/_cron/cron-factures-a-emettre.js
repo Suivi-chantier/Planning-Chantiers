@@ -132,7 +132,7 @@ async function runFacturesAEmettre(req, supabase, t) {
   for (const p of aPousser) {
     if (appels >= PLAFOND_PAR_PASSAGE) { reportees++; continue; }
     appels++;
-    const contenu = M.contenuPushF1({ chantierNom: p.chantierNom, ligne: p.ligne });
+    const contenu = M.contenuPushF1({ chantierId: p.chantierId, chantierNom: p.chantierNom, ligne: p.ligne });
     try {
       const r = await appelerSendPush({ mode: "serveur", type: "F1", ...contenu, cle_regroupement: p.cle });
       ecrites += r?.ecrites_en_boite || 0;

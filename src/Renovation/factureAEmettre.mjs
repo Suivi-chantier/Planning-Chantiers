@@ -159,13 +159,20 @@ export function decisionPushF1({ drapeauMail = null, miseEnServiceIso = F1_MISE_
   return { pousser: false, raison: "deja_notifiee_avant_mise_en_service" };
 }
 
-/** Contenu du push F1 (titre court, texte d'une ligne, lien interne). */
-export function contenuPushF1({ chantierNom, ligne }) {
+/**
+ * Lien du push F1 : la fiche du chantier (format des liens des notifications,
+ * `/?page=<id de page>&chantier=<id du chantier>`).
+ */
+export const lienPushF1 = (chantierId) =>
+  chantierId ? `/?page=chantiers&chantier=${encodeURIComponent(chantierId)}` : "/?page=chantiers";
+
+/** Contenu du push F1 (titre court, texte d'une ligne, lien vers la fiche chantier). */
+export function contenuPushF1({ chantierId = null, chantierNom, ligne }) {
   const montant = Math.round(ligne?.montantAttendu || 0).toLocaleString("fr-FR");
   return {
     titre: `Facture à émettre — ${chantierNom || "chantier"}`.slice(0, 120),
     texte: `${ligne?.nom || "Échéance"} (${ligne?.pct ?? "?"} %, ${montant} € HT) : à émettre ${ligne?.declencheurLibelle || ""}.`.replace(/\s+\./, ".").slice(0, 1000),
-    lien: "/",
+    lien: lienPushF1(chantierId),
   };
 }
 

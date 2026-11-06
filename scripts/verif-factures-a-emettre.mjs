@@ -120,7 +120,9 @@ test("8. push F1 : nouvelle → oui ; mail parti depuis la mise en service → o
 test("9. push F1 : contenu accepté par send-push, lien interne", () => {
   const ph = phasageV2();
   const ligne = etatPour(ph).lignes.find((l) => l.id === "situation_1");
-  const c = F.contenuPushF1({ chantierNom: "CHANTIER FICTIF", ligne });
+  const c = F.contenuPushF1({ chantierId: "ch fictif/1", chantierNom: "CHANTIER FICTIF", ligne });
+  assert.equal(c.lien, "/?page=chantiers&chantier=ch%20fictif%2F1", "lien vers la fiche du chantier");
+  assert.equal(F.lienPushF1(null), "/?page=chantiers");
   const v = validerContenu({ mode: "serveur", type: "F1", ...c, cle_regroupement: F.cleRegroupementF1(ph.id, ligne.id) });
   assert.equal(v.ok, true, v.erreur);
   assert.match(c.texte, /Facture de situation n° 1/);
@@ -275,6 +277,7 @@ test("17. envoi : un appel send-push F1 par échéance à pousser, avec sa clé 
   ]);
   assert.equal(r.appels, 2);
   assert.equal(r.envoyes, 2);
+  assert.ok(corps.every((c) => c.lien === "/?page=chantiers&chantier=ch-fictif-1"), "lien vers la fiche du chantier");
   assert.ok(!r.error);
 });
 
