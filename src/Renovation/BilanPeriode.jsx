@@ -19,7 +19,7 @@ import {
   periodeSemaineV3, periodeMoisV3, periodeLibreV3, bornesComparaisonV3, ajouterJoursV3, semaineIsoV3,
   indexerRelevesV3, releveAuPlusTardV3, syntheseChantiersV3, bandeauV3, activiteChantiersV3,
   preselectionChantiersV3, ligneSansActiviteV3, avertissementsExportV3, LEGENDE_PASTILLES_V3,
-  COULEURS_PASTILLES_V3, fmtJourV3, resumeSansActiviteV3,
+  COULEURS_PASTILLES_V3, fmtJourV3, resumeSansActiviteV3, nbChantiersV3,
 } from "./bilanPeriodeV3.js";
 import { documentBilanV3 } from "./bilanPdfV3.js";
 import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3 } from "./bilanFicheV3.js";
@@ -39,7 +39,12 @@ const CHANTIERS_EXCLUS = ["DÉPOT"];
 const COLONNES_LEGERES = "chantier_id, chantier_nom, date_releve, avancement, vendu_ht, heures_vendues, heures_reelles, "
   + "production_cumulee, marge_avancement, marge_terminaison, marge_probable, budget_restant, materiaux_en_avance, "
   + "heures_sans_lot, pct_sans_lot, chantier_repris, statut_completude, cr_manquants";
-const COLONNES_COMPLETES = `${COLONNES_RELEVES_ALERTES_V2}, materiaux_en_avance, materiaux_imputes, mat_reel, mat_prev, mo_reel, fg, reste_a_commander, couts_par_nature, cr_manquants`;
+// Relevés complets des deux jours comparés. mo_prev (main-d'œuvre prévue) sert
+// à la marge prévue au devis (margePrevueDevisReleve) ; reste_a_faire_h à la
+// cascade « du devis au probable » des fiches (cascadeMargeDevisReleve). Sans
+// elles, « marge devis inconnue » partout (corrigé le 06/11/2026). Contrôle :
+// scripts/verif-bilan-periode.mjs (colonnes lues par ces deux fonctions).
+const COLONNES_COMPLETES = `${COLONNES_RELEVES_ALERTES_V2}, materiaux_en_avance, materiaux_imputes, mat_reel, mat_prev, mo_prev, mo_reel, fg, reste_a_faire_h, reste_a_commander, couts_par_nature, cr_manquants`;
 
 const fmtEur = v => (v == null ? "—" : `${Math.round(v).toLocaleString("fr-FR")} €`);
 const fmtEurSigne = v => (v == null ? "—" : `${v > 0.5 ? "+" : v < -0.5 ? "−" : ""}${Math.round(Math.abs(v)).toLocaleString("fr-FR")} €`);
@@ -637,7 +642,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
             return [
               ["Production de la période", fmtEur(b.production), T.text, []],
               ["Marge de la période", fmtEurSigne(b.margePeriode), couleurSigne(b.margePeriode, T), [`${fmtPctSur(b.margePeriodePct)} de la production`]],
-              [b.nbChantiersHorsComparaison > 0 ? `Marge probable (${b.nbChantiersComparables} chantiers)` : "Marge probable, tous chantiers",
+              [b.nbChantiersHorsComparaison > 0 ? `Marge probable (${nbChantiersV3(b.nbChantiersComparables)})` : "Marge probable, tous chantiers",
                 fmtEurSigne(b.margeProbableTotale), couleurSigne(b.margeProbableTotale, T), [
                 `${fmtPctSur(b.margeProbableTotalePct)} du vendu · devis ${fmtEurSigne(b.margeDevisTotale)} (${fmtPctSur(b.margeDevisTotalePct)})`,
                 b.evolutionMargeProbable == null ? "évolution sur la période : —" : `${fleche(b.evolutionMargeProbable)} ${fmtEurSigne(b.evolutionMargeProbable)} sur la période, tous chantiers`,

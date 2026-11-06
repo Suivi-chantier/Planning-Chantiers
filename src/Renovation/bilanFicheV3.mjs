@@ -222,7 +222,7 @@ export function methodeBilanV3() {
 // Cascade affichée seulement pour les chantiers qui décrochent (projet « Bilan
 // détaillé », étape 6, 06/11/2026) : marge probable en baisse de plus du seuil
 // sur la période, ou pastille rouge. Sinon une ligne, calculée ici :
-//   - |évolution| ≤ seuil      → « Marge probable stable (±X €) » ;
+//   - |évolution| ≤ seuil      → « Marge probable stable (−X €) » ou « (+X €) » (écart signé) ;
 //   - hausse de plus du seuil  → « Marge probable en hausse (+X €) » ;
 //   - évolution inconnue (pas de relevé de départ) → la cascade reste affichée :
 //     on ne peut pas affirmer que la marge est stable.
@@ -235,7 +235,12 @@ export function affichageCascadeV3({ evolutionMargeProbable, couleurPastille, se
   if (evo == null) return { afficherCascade: true, motif: "évolution inconnue", texte: null };
   if (evo < -seuil) return { afficherCascade: true, motif: "marge probable en baisse", texte: null };
   if (evo > seuil) return { afficherCascade: false, motif: "marge probable en hausse", texte: `Marge probable en hausse (+${fmtEurFiche(evo)})` };
-  return { afficherCascade: false, motif: "marge probable stable", texte: `Marge probable stable (±${fmtEurFiche(Math.abs(evo))})` };
+  // Écart signé (décision de Loris du 06/11/2026) : « stable (−217 €) » dit
+  // que c'est une petite baisse, « stable (+98 €) » une petite hausse. Même
+  // format que les euros signés du PDF (seuil 0,5 €, signe moins « − »).
+  const r = Math.round(Math.abs(evo));
+  const signe = evo > 0.5 ? "+" : evo < -0.5 ? "−" : "";
+  return { afficherCascade: false, motif: "marge probable stable", texte: `Marge probable stable (${signe}${fmtEurFiche(r)})` };
 }
 
 /** Assemble la fiche d'un chantier pour le PDF détaillé. */

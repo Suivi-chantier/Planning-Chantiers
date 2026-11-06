@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
+    type: "correctif",
+    titre: "Bilan : la marge prévue au devis réapparaît, avec le total de la marge probable",
+    pages: [{ id: "bilan-semaine", label: "Bilan" }],
+    quoi: "Le Bilan affichait « marge devis inconnue » pour tous les chantiers : l'écran ne lisait plus la main-d'œuvre prévue au devis, pourtant bien enregistrée chaque jour. Elle est de nouveau lue. Résultat : la marge prévue au devis et l'écart au devis apparaissent pour chaque chantier, la marge probable du bandeau et de la ligne TOTAL a de nouveau un total, et l'explication « Du devis au probable » des fiches repart bien de la marge du devis. Cela vaut aussi pour la version direction du PDF. Aucun calcul ne change : on lit des chiffres déjà enregistrés. Dans les fiches des chantiers stables, la ligne dit maintenant le sens de l'écart : « Marge probable stable (−217 €) » pour une petite baisse, « (+98 €) » pour une petite hausse.",
+    comment: "Rien à faire : ouvrez le Bilan comme d'habitude. Dans le PDF détaillé, le tableau du haut est aussi plus lisible : noms de chantier sur une ligne, fiabilité résumée en « 43 % avancé · 70 % constaté », « 0 chantier » / « 1 chantier » au singulier, et les alertes suivent directement le détail des marges, sans page à moitié vide.",
+  },
+  {
+    date: "2026-11-06",
     type: "amelioration",
     titre: "Bilan détaillé : fiches chantier plus courtes, et méthode de calcul seulement si on la demande",
     pages: [{ id: "bilan-semaine", label: "Bilan" }],
