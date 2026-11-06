@@ -21,7 +21,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
-import { DEFAULT_CHANTIERS } from "../constants";
+import { chargerChantiers } from "./chantiersDonnees";
+import { filtrerChantiersActifs, estChantierActif, estChantierTermine } from "./chantierActif";
 import { getISOWeek } from "../rythmeSemaine";
 import { Icon } from "../ui";
 import {
@@ -323,15 +324,18 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
           const { year, week } = getISOWeek(d);
           semaines.push(`${year}-W${String(week).padStart(2, "0")}`);
         }
-        const [{ data: cfg, error: e1 }, { data: cells }] = await Promise.all([
-          supabase.from("planning_config").select("key,value").eq("key", "chantiers"),
+        const [tousChantiers, { data: cells }] = await Promise.all([
+          // Table public.chantiers (Refonte Opérations, lot 1) ; l'ouvrier ne
+          // voit que les chantiers non archivés (RLS).
+          chargerChantiers(),
           // Ouvrier : la RLS ne renvoie que ses cellules. Aperçu bureau : tout,
           // le module filtre sur le prénom.
           supabase.from("planning_cells").select("week_id,jour,chantier_id,ouvriers,taches").in("week_id", semaines),
         ]);
         if (annule) return;
-        if (e1) { setErreur(true); setChantiers([]); return; }
-        const liste = Array.isArray(cfg?.[0]?.value) ? cfg[0].value : DEFAULT_CHANTIERS;
+        // Règle unique estChantierActif() : terminés gardés (groupe « Terminés »).
+        const liste = filtrerChantiersActifs(tousChantiers, { inclureTermines: true });
+        if (!liste.length) { setErreur(true); setChantiers([]); return; }
         const aujourdhuiISO = isoLocal(aujourdhui);
         const defaut = choisirChantierParDefaut({ cellules: cells || [], prenom, aujourdhuiISO });
         const mesIds = [...new Set((cells || [])
@@ -339,7 +343,7 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
           .map(c => c.chantier_id))];
         setRecents(mesIds);
         setChantiers(liste);
-        const repli = liste.find(c => (c.statut || "en_cours") === "en_cours") || liste.find(c => c.statut !== "termine") || liste[0];
+        const repli = liste.find(c => (c.statut || "en_cours") === "en_cours") || liste.find(c => estChantierActif(c)) || liste[0];
         setChantierId((defaut && liste.some(c => c.id === defaut) ? defaut : repli?.id) || "");
       } catch (e) {
         console.error("Mes phases — chargement des chantiers :", e);
@@ -385,8 +389,8 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
   const groupes = useMemo(() => {
     const l = chantiers || [];
     const recentsL = l.filter(c => recents.includes(c.id));
-    const autres = l.filter(c => !recents.includes(c.id) && c.statut !== "termine");
-    const termines = l.filter(c => !recents.includes(c.id) && c.statut === "termine");
+    const autres = l.filter(c => !recents.includes(c.id) && estChantierActif(c));
+    const termines = l.filter(c => !recents.includes(c.id) && estChantierTermine(c));
     return [
       { label: "Mes chantiers récents", items: recentsL },
       { label: "Autres chantiers", items: autres },

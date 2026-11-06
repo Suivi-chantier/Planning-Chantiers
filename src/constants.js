@@ -585,17 +585,16 @@ export async function loadGroupesTypes() {
 
 // ─── OPÉRATIONS (regroupement de chantiers — la maison / l'adresse) ──────────
 // Une opération regroupe les chantiers/logements d'une même maison. La
-// convention « 1 devis = 1 chantier = 1 logement » reste intacte : l'opération
-// n'est qu'un PARENT OPTIONNEL, référencé par chantier.operation_id (champ
-// optionnel des objets de planning_config/chantiers, "" ou absent = aucun).
-// Périmètre volontairement minimal : ni montant, ni statut, ni consolidation.
-// Forme : { id, nom, adresse, couleur }
-// Gérées via Admin → onglet Opérations (planning_config/operations).
-// Pas de défaut hardcodé : aucune opération n'existe tant qu'on n'en crée pas.
+// convention « 1 devis = 1 chantier = 1 logement » reste intacte.
+// Refonte Opérations, lot 1 (06/11/2026) : les opérations vivent dans la table
+// public.operations et TOUT chantier en a une (chantiers.operation_id
+// obligatoire ; un chantier créé sans opération en reçoit une à son nom).
+// Forme : { id, nom, adresse, couleur, creee_automatiquement? }
+// Gérées via Admin → onglet Opérations. Lecture : chantiersDonnees.js.
 export async function loadOperations() {
   try {
-    const { data } = await _supabase.from("planning_config").select("value").eq("key", "operations").maybeSingle();
-    const items = data?.value?.items;
+    const { chargerOperations } = await import("./Renovation/chantiersDonnees.js");
+    const items = await chargerOperations();
     if (Array.isArray(items)) {
       return items.map((o, i) => ({
         id:      o.id      || `op_${i}`,

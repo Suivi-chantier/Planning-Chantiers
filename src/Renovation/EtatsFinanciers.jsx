@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
+import { chargerChantiers } from "./chantiersDonnees";
+import { filtrerChantiersActifs } from "./chantierActif";
 import {
   SANS_DONNEE,
   donneesLieesLigne,
@@ -3613,11 +3615,8 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
     (async () => {
       try {
         const [refChantiers, refSnapshots, refSituations] = await Promise.all([
-          supabase
-            .from("planning_config")
-            .select("value")
-            .eq("key", "chantiers")
-            .maybeSingle(),
+          // Table public.chantiers (Refonte Opérations, lot 1).
+          chargerChantiers(),
           // On ne lit ni `marge` ni `situation_a_facturer` : hors périmètre.
           // Relevés JOURNALIERS (refonte du Bilan, 24/10/2026 : les relevés du
           // vendredi sont arrêtés) : le plus récent par chantier fait foi.
@@ -3634,10 +3633,9 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
 
         if (annule) return;
 
-        const chantiers = Array.isArray(refChantiers?.data?.value) ? refChantiers.data.value : [];
+        // Règle unique estChantierActif() — les terminés restent (bilans financiers).
         setChantiersRef(
-          chantiers
-            .filter(c => c?.id)
+          filtrerChantiersActifs(refChantiers, { inclureTermines: true })
             .map(c => ({ id: String(c.id), nom: c.nom || String(c.id) }))
             .sort((a, b) => a.nom.localeCompare(b.nom, "fr"))
         );

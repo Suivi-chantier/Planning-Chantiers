@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
-import { DEFAULT_CHANTIERS } from "../constants";
+import { chargerChantiers } from "./chantiersDonnees";
+import { estChantierActif } from "./chantierActif";
 import { Icon, InputNombre } from "../ui";
 import { ShoppingCart, Search, X, Plus, Minus, AlertTriangle, Clock, CheckCircle2, Ban, Building2, Send, Package, ListChecks } from "lucide-react";
 import { MobileCard, MobileEmptyState, Pill, MobileTabs } from "../mobileUI";
@@ -18,7 +19,7 @@ const imgOf = (a) => a.image_url || a.image || a.photo || a.photo_url || null;
 
 export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview = false }) {
   const [view, setView] = useState("catalogue"); // catalogue | demandes
-  const [chantiers, setChantiers] = useState(DEFAULT_CHANTIERS);
+  const [chantiers, setChantiers] = useState([]);
   const [besoins, setBesoins]     = useState([]);
   const [loadingBesoins, setLoadingBesoins]   = useState(true);
 
@@ -47,8 +48,8 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
   };
 
   useEffect(() => {
-    supabase.from("planning_config").select("value").eq("key", "chantiers").maybeSingle()
-      .then(({ data }) => { if (Array.isArray(data?.value) && data.value.length) setChantiers(data.value); });
+    // Table public.chantiers (Refonte Opérations, lot 1).
+    chargerChantiers().then(setChantiers);
     chargerBesoins();
   }, []);
 
@@ -138,7 +139,7 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
               <label style={{ fontSize:11, fontWeight:800, letterSpacing:0.5, textTransform:"uppercase", color:T.textMuted, display:"block", marginBottom:6 }}>Pour quel chantier ?</label>
               <select style={input} value={chantierId} onChange={e=>setChantierId(e.target.value)}>
                 <option value="">— Aucun / non précisé —</option>
-                {chantiers.filter(c=>!c.archive).map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                {chantiers.filter(c=>estChantierActif(c,{inclureTermines:true})).map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
               </select>
             </div>
             <div style={{ display:"flex", gap:8 }}>

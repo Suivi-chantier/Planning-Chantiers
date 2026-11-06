@@ -180,7 +180,12 @@ const chercher_chantier = {
     const { data, error } = await ctx.sb
       .from("planning_config").select("value").eq("key", "chantiers").maybeSingle();
     if (error) throw new Error(`planning_config/chantiers : ${error.message}`);
-    const liste = Array.isArray(data && data.value) ? data.value : [];
+    // Copie planning_config tenue par la base depuis la table public.chantiers
+    // (Refonte Opérations, lot 1) ; règle unique estChantierActif() (les
+    // terminés restent cherchables, comme avant).
+    const { estChantierActif } = await import("../../../src/Renovation/chantierActif.mjs");
+    const liste = (Array.isArray(data && data.value) ? data.value : [])
+      .filter((c) => estChantierActif(c, { inclureTermines: true }));
 
     const trouves = liste
       .filter((c) => c && c.id != null)

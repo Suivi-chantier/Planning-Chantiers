@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
+    type: "amelioration",
+    titre: "Opérations et chantiers : chaque modification n'écrase plus celle d'un collègue, et chaque chantier a son opération",
+    pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Chantiers" }, { id: "admin", label: "Réglages" }],
+    quoi: "Jusqu'ici, la liste des opérations et celle des chantiers étaient enregistrées d'un seul bloc : changer le statut d'un chantier réécrivait tous les autres, et deux personnes qui travaillaient en même temps pouvaient effacer le travail l'une de l'autre. Désormais chaque opération et chaque chantier est enregistré séparément : modifier un chantier ne touche plus que ce chantier. Chaque chantier appartient maintenant à une opération : les 7 chantiers qui n'en avaient pas (LAMARTINE, METOIS, GILDAS BAUGE 2, LOU, 14 BOULEVARD DU ROI RENÉ, MAUDUIT, DÉPOT) ont reçu une opération à leur nom, avec un seul logement. Une même règle décide maintenant, pour toutes les pages (planning, bilans, tableau de bord, commandes, espace ouvrier, états financiers…), quels chantiers sont affichés : rien ne change à l'écran aujourd'hui, mais les statuts « À l'étude » et « Perdu » qui arrivent pourront être masqués partout d'un seul coup.",
+    comment: "Rien à faire. Dans Réglages → Chantiers, un nouveau chantier se crée en choisissant son opération (ou « Nouvelle opération à son nom ») ; on ne peut plus laisser un chantier sans opération, on le déplace d'une opération à l'autre avec la liste déroulante. « Supprimer » un chantier le retire des listes mais le garde en réserve (il peut être récupéré). Une opération ne peut être supprimée que lorsqu'elle n'a plus aucun chantier.",
+  },
+  {
+    date: "2026-11-06",
     type: "correctif",
     titre: "Bilan : la marge prévue au devis réapparaît, avec le total de la marge probable",
     pages: [{ id: "bilan-semaine", label: "Bilan" }],
