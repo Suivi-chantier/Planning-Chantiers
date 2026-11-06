@@ -14,6 +14,7 @@ import { X, AlertTriangle, Ban, Undo2, UserCircle, Briefcase } from "lucide-reac
 import { STATUTS_AFFICHAGE, MOTIFS_PERTE, validerMotifPerte, libelleMotifPerte, STATUTS_OPERATION } from "./statutsChantier.js";
 import { estObligatoire, controlerFiche, genererCodeClient, TYPES_CLIENT } from "./reglesSaisieProgbat.js";
 import { FICHE_CLIENT_VIDE, enregistrerClient, libelleClient, nomCollaborateur } from "./clientsDonnees.js";
+import { RessemblancesProgbat } from "./ClientsProgbat.jsx";
 
 const couleurs = (T = {}) => ({
   surface: T.surface || "#262a32", card: T.card || "rgba(255,255,255,0.04)", border: T.border || "rgba(255,255,255,0.1)",
@@ -100,8 +101,15 @@ export function FicheClientModal({ T, client = null, initial = null, onClose, on
     </div>
   );
   const code = genererCodeClient(fiche);
+  // Lot 4 (demande de Loris du 06/11) : un NOUVEAU client montre d'abord les
+  // clients ProGBat qui lui ressemblent ; enregistrer exige de les écarter.
+  const nouveau = !client?.id;
+  const [accuse, setAccuse] = useState(false);
+  const [etatPg, setEtatPg] = useState({ ressemblances: 0 });
+  const bloqueParProgbat = nouveau && etatPg.ressemblances > 0 && !accuse;
   const enregistrer = async () => {
     setErreur("");
+    if (bloqueParProgbat) { setErreur("Ce client existe peut-être déjà dans ProGBat : choisir l'un des clients proposés, ou cocher « Aucun de ces clients ProGBat ne correspond »."); return; }
     const m = controlerFiche("client", fiche);
     setManquants(m);
     if (m.length) return;
@@ -141,6 +149,10 @@ export function FicheClientModal({ T, client = null, initial = null, onClose, on
         </div>
       </div>
       <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+        {nouveau && <RessemblancesProgbat T={T} fiche={fiche} accuse={accuse} setAccuse={setAccuse} onEtat={setEtatPg} onUtiliser={(c) => onEnregistre?.(c)} />}
+        {!nouveau && client?.progbat_client_id && (
+          <div style={{ fontSize: FONT.xs.size + 1, color: s.c.textMuted }}>Fiche reliée au client ProGBat n° {client.progbat_client_id} : la compléter ici ne modifie pas ProGBat.</div>
+        )}
         <ListeManquants T={T} manquants={manquants} titre="Enregistrement refusé, il manque :" />
         {erreur && <div style={{ color: "#e15a5a", fontSize: FONT.sm.size }}>Enregistrement impossible : {erreur}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -156,7 +168,7 @@ export function FicheClientModal({ T, client = null, initial = null, onClose, on
  * Choix d'un client existant ou création. `heritage` : libellé affiché quand
  * la valeur vide signifie « celui de l'opération ».
  */
-export function ChoixClient({ T, clients = [], valeur = "", onChange, heritage = null, onNouveau, disabled = false }) {
+export function ChoixClient({ T, clients = [], valeur = "", onChange, heritage = null, onNouveau, onProgbat, disabled = false }) {
   const s = styles(T);
   return (
     <div style={{ display: "flex", gap: 6 }}>
@@ -164,6 +176,7 @@ export function ChoixClient({ T, clients = [], valeur = "", onChange, heritage =
         <option value="">{heritage ? `Comme l'opération : ${heritage}` : "— Choisir un client —"}</option>
         {clients.map((c) => <option key={c.id} value={c.id}>{libelleClient(c)}{c.ville ? ` — ${c.ville}` : ""}</option>)}
       </select>
+      {onProgbat && !disabled && <button type="button" onClick={onProgbat} title="Choisir parmi les clients qui existent déjà dans ProGBat (aucun doublon)" style={{ ...s.btnSec, whiteSpace: "nowrap" }}>Client ProGBat existant</button>}
       {onNouveau && !disabled && <button type="button" onClick={onNouveau} style={{ ...s.btnSec, whiteSpace: "nowrap" }}>+ Nouveau client</button>}
     </div>
   );

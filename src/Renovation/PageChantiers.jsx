@@ -77,6 +77,8 @@ import { exporterDiagrammePDF } from "./diagrammeFinancierPdf";
 import { buildPreparationDocHTML } from "./preparationChantierDoc";
 import { sauvegarderPhasage, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
 import { lireToutParTranches } from "./lectureParTranches";
+import AcompteProgbat from "./AcompteProgbat.jsx";
+import { decisionStatutDevis } from "./progbatAutomatisation.js";
 import { chargerAchatsTermines, achatsTerminesParChantier } from "./achatsLotsTermines";
 // Le rendu recharts du diagramme est chargé à la demande (React.lazy) pour
 // que le chunk "charts" ne pèse pas sur l'ouverture de la page Chantiers.
@@ -705,6 +707,10 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
         )}
         <div style={{ fontSize: FONT.xs.size + 1, color: etape.alerte ? "#e0a800" : textMuted, marginTop: 1, fontWeight: etape.alerte ? 700 : 400 }}>{etape.raison}</div>
         {etape.complement && <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1, fontStyle: "italic" }}>{etape.complement}</div>}
+        {etape.statutProgbat?.message && (
+          <div style={{ fontSize: FONT.xs.size + 1, marginTop: 1, color: etape.statutProgbat.niveau === "alerte" ? "#e0a800" : textMuted, fontWeight: etape.statutProgbat.niveau === "alerte" ? 700 : 400 }}>{etape.statutProgbat.message}</div>
+        )}
+        {etape.extra || null}
 
         {/* Boutons de l'étape : Google Agenda, ProGBat (lecture seule : on
             ouvre ProGBat dans un onglet, l'application n'y écrit rien). */}
@@ -2488,7 +2494,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           ? supabase.from("chantier_factures_reglements").select("id, facture_id, montant, annule, date_reglement").in("facture_id", ids)
           : Promise.resolve({ data: [], error: null }),
         (lien.data || []).length
-          ? supabase.from("profero_projets").select("id, progbat_devis_id, chantier_adresse, chantier_code_postal, chantier_ville, adresse_bien").in("id", lien.data.map(l => l.projet_id))
+          ? supabase.from("profero_projets").select("id, progbat_devis_id, chantier_adresse, chantier_code_postal, chantier_ville, adresse_bien, progbat_devis_statut, progbat_devis_statut_lu_le, progbat_acompte_bill_id, progbat_acompte_code").in("id", lien.data.map(l => l.projet_id))
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (!actif) return;
@@ -2682,11 +2688,25 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       out.lienProgbat = lienProgbat("facture", fSolde?.progbat_bill_id || null, { nom: fSolde?.numero || ligne?.facture?.numero || "" });
     }
     if (e.relance && relancesCV?.[e.relance]?.statut === "impossible") out.alerte = true;
-    if (e.id === "devis_signe" && !e.fait) {
-      out.complement = "À la validation : passage automatique en « Planifié » si le chantier est à l'étude, et arrêt des relances devis. Facture d'acompte dans ProGBat : création automatique à venir (lot 4) — à créer à la main dans ProGBat pour l'instant.";
+    // Lot 4 : statut du devis lu dans ProGBat (tâche planifiée) et facture
+    // d'acompte créée en brouillon dans ProGBat, sur bouton, à la signature.
+    if ((e.id === "devis_envoye" || e.id === "devis_signe") && cvD.projet?.progbat_devis_id) {
+      out.statutProgbat = decisionStatutDevis({
+        statut: cvD.projet.progbat_devis_statut ?? null,
+        devisSigneFait: !!cvEtats.devis_signe?.fait,
+        perdu: estChantierPerdu(selectedChantier),
+        luLe: cvD.projet.progbat_devis_statut_lu_le || null,
+      });
+      if (e.id === "devis_envoye" && out.statutProgbat.action !== "marquer_perdu") out.statutProgbat = null;
     }
-    if (e.id === "devis_signe" && e.fait) {
-      out.complement = "Facture d'acompte dans ProGBat : création automatique à venir (lot 4) — à créer à la main dans ProGBat pour l'instant.";
+    if (e.id === "devis_signe") {
+      if (!e.fait) out.complement = "À la validation : passage automatique en « Planifié » si le chantier est à l'étude, et arrêt des relances devis.";
+      const factureConnue = acompteCV?.billId ? { id: acompteCV.billId, code: acompteCV.numero || null }
+        : cvD.projet?.progbat_acompte_bill_id ? { id: cvD.projet.progbat_acompte_bill_id, code: cvD.projet.progbat_acompte_code || null } : null;
+      out.extra = (
+        <AcompteProgbat T={T} acc={acc} projetId={cvD.projet?.id || null} quoteId={cvD.projet?.progbat_devis_id || null}
+          devisSigneFait={!!e.fait} factureConnue={factureConnue} onChange={() => setRechargeCV(n => n + 1)}/>
+      );
     }
     if (e.id === "levee_reserves") {
       const ouvertes = (reservesGroupesSel || []).filter(r => !r.levee_le).length;

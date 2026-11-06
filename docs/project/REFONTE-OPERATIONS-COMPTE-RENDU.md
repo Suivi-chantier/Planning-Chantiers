@@ -258,6 +258,88 @@ l'administrateur les active** (Réglages → Relances ; livrées ÉTEINTES) :
   Paris), au plus 30 relances par passage.
 - Aucun e-mail réel n'a été envoyé pendant le développement.
 
+### Lot 4 — Automatisation ProGBat : client, chantier, facture d'acompte, statut du devis
+
+**Vérifications faites EN LECTURE avant de coder (06/11/2026).** Aucune écriture
+dans ProGBat, ni client, ni chantier, ni devis, ni facture de test. Les lectures
+sont passées par une fonction serveur dédiée (`progbat-devis-statut-cron`,
+action « diagnostic », uniquement des GET), déclenchée depuis la base avec le
+même secret que la synchronisation des factures ; le diagnostic ne rapporte que
+la forme des réponses et des valeurs techniques (identifiants, types, statuts),
+jamais les coordonnées d'un client. La documentation officielle ProGBat
+(progbat.readme.io) a été lue par la même fonction.
+
+| Point à vérifier | Ce qui a été lu | Conclusion |
+|---|---|---|
+| Droits de la clé | La documentation donne les droits de chaque route : client = `thirds` ou `thirds.write`, chantier = `business` ou `business.write`, facture d'acompte = `bills` ou `bills.write`. Clé « devis » (`PROGBAT_PRIVATE_ACCESS_TOKEN`) : lit les devis (413), les clients (`/company/thirds`) et les types de tiers ; **refusée (403)** sur `/company/business`, `/company/bills`, `/company/users`, `/company/employees`. Clé « facturation » : lit chantiers (123), yards (126) et factures (516) ; refusée sur `/me`, les devis et les clients. Aucune route ne donne la liste des droits d'une clé. | **Non vérifiable sans écriture.** Très probable : la clé « devis » **n'a pas** `business.write` ni `bills.write` (elle n'a même pas leur lecture) ; `thirds.write` possible mais non prouvé. Le premier clic affichera « Droit ProGBat manquant : … » si ProGBat répond 403 (voir « À faire par Loris »). |
+| `type` d'un client | `/company/third-types` : 1 Fournisseur, 2 **Client**, 3 Sous-traitant, 4 Prospect. 113 tiers de type 2 (= les 113 clients du 06/11), 61 fournisseurs, 12 sous-traitants. | **Confirmé : client = type 2.** Particulier / société = `legalType` 1 / 0 (89 clients à 1, civilités « Mr et Mme »… ; 24 à 0, civilités « SAS », « SARL »…). |
+| `status` d'un chantier ProGBat | 123 chantiers : statut 0 (30), 1 (21), 2 (67), 3 (5). `business/2` (créé en 1970, ancien) = 2. La documentation ne décrit pas ces valeurs. | Correspondance probable 0 = À l'étude, 1 = En cours, 2 = Achevé, 3 = inconnu. **Non utilisé** : le chantier est créé sans statut (ProGBat met sa valeur par défaut). |
+| `managerId` ↔ chargés d'affaires | `managerId` des chantiers : 0 (aucun, 62), 2 (50), 15 (10), 21 (1). Liste des utilisateurs / salariés ProGBat **refusée (403, droit `staff.read`)**. La clé « devis » est celle de l'utilisateur ProGBat n° 26. | **Correspondance illisible.** Réglage ajouté (Réglages → Outils → ProGBat : chargés d'affaires) ; sans correspondance, le chantier ProGBat est créé sans responsable et l'écran le dit. |
+| `business/2` et `quotes/524` | `business/2` : id 2, client (thirdId) 4, responsable 2, statut 2, 2 yards (2 et 40). `quotes/524` = **D-260264** : client 174, **businessId 0, yardId 0** (« Chantier : Aucun » confirmé), **statut 1 = accepté**. | Formes conformes à la documentation. |
+| `yardLabel` crée-t-il le yard ? | La création d'un chantier (`POST /company/business`) accepte `yardLabel` mais sa réponse documentée **ne contient pas le yard**. | Les deux cas sont gérés : yard lu dans la réponse s'il y est, sinon relu (`GET /company/business/{id}/yards`) ; s'il reste introuvable, l'écran le dit et propose « Relire le chantier ProGBat ». |
+| Longueur maximale des codes | Aucune limite documentée (client : 1 caractère minimum). Codes existants : clients jusqu'à 38 caractères, chantiers jusqu'à 49. | Pas de troncature. |
+| Statut des devis | Documenté : 0 étude (et brouillon), 1 accepté, 2 refusé, 6 en attente. Sur les 413 devis : 119 / 156 / 22 / 116. | Utilisé tel quel. |
+
+**Nouveau process, pas à pas.**
+1. **Client** — Opérations → fiche de l'opération → « Client ProGBat existant »
+   (aussi dans le nouveau chiffrage, étape client) : liste des clients et
+   prospects ProGBat, recherche par nom, e-mail, ville ou adresse ; « Choisir »
+   crée la fiche client de l'application pré-remplie depuis ProGBat (ou reprend
+   celle qui existe déjà : un client ProGBat n'a jamais deux fiches). Ce qui
+   manque selon les règles Profero (souvent le prénom, l'e-mail, le téléphone)
+   est affiché ; compléter la fiche ne modifie pas ProGBat. « + Nouveau client »
+   montre d'abord les clients ProGBat qui ressemblent (« ce client existe
+   peut-être déjà dans ProGBat ») : on en choisit un, ou on coche « aucun ne
+   correspond ».
+2. **Chiffrage → Aperçu ProGBat** : en haut, « 1. Client ProGBat ». Un client
+   déjà relié est « fait » : aucune création. Sinon « Chercher dans ProGBat »
+   (correspondances avec leurs raisons : même e-mail, même téléphone, même
+   adresse, même nom, même identifiant), puis « Choisir ce client » ou « Créer
+   le client dans ProGBat » (aperçu exact de ce qui sera envoyé, puis
+   « Confirmer la création »). La création est refusée tant que les clients
+   ressemblants n'ont pas été écartés explicitement.
+3. « 2. Chantier ProGBat » → « Créer le chantier dans ProGBat » : nom et code
+   générés, adresse du chantier, client ProGBat, responsable si la
+   correspondance est renseignée ; aperçu puis confirmation. Le chantier
+   ProGBat et son yard sont notés sur le chantier (et dans les yards ProGBat
+   du chantier, utilisés par la synchronisation des factures).
+4. Le bouton « Créer le brouillon dans ProGBat » ne s'active qu'avec client et
+   chantier ProGBat : le devis part avec thirdId, businessId et yardId (plus de
+   « Chantier : Aucun »). Si ProGBat a refusé une création faute de droit, une
+   case permet de créer le devis comme avant (sans client ni chantier reliés),
+   pour ne pas bloquer le chiffrage.
+5. **Signature** — fiche chantier → Contrat → « Devis signé » validé : bouton
+   « Créer la facture d'acompte en brouillon (50 %) ». Le serveur vérifie la
+   signature, qu'aucune facture d'acompte n'existe déjà pour ce devis (factures
+   synchronisées + lecture de ProGBat ; si la lecture échoue, rien n'est créé),
+   puis crée le brouillon. « Ouvrir dans ProGBat » ouvre la facture : l'assistante
+   la valide et l'émet dans ProGBat (l'API ne le permet pas).
+6. **Statut du devis** — relu dans ProGBat toutes les heures de 6 h à 19 h
+   (UTC) : devis accepté et « Devis signé » non validé → « Devis accepté dans
+   ProGBat : importer le devis signé » ; refusé → « … utiliser « Marquer
+   perdu » » ; devis introuvable (supprimé dans ProGBat) → dit tel quel.
+
+**Protection de chaque écriture ProGBat.** Utilisateur du bureau, aperçu
+puis confirmation (l'empreinte de l'aperçu doit être identique au moment de
+l'envoi), réservation en base avant l'appel (table `progbat_ecritures` :
+une seule tentative en cours, réussie ou incertaine par élément), jamais de
+nouvel essai automatique. Coupure réseau, délai dépassé ou erreur ProGBat
+5xx = « état incertain » : tout nouvel essai est bloqué jusqu'à « J'ai vérifié
+dans ProGBat : rien n'a été créé ». Un refus de ProGBat est affiché tel quel
+(« Droit ProGBat manquant : business.write (ProGBat a répondu 403 …) »).
+
+**Qui voit quoi.** Aucun droit d'accès modifié (`src/access.js` inchangé). Les
+boutons sont sur des pages existantes (Opérations, Chiffrage, fiche chantier)
+et servent aux utilisateurs du bureau (le serveur refuse les ouvriers). Le
+réglage des responsables ProGBat est dans Réglages → Outils (administrateur).
+Aucun e-mail.
+
+**Statuts lus dans ProGBat le 06/11/2026** (requête sur la base, premier passage
+de la tâche planifiée) : sur 27 chiffrages ayant un devis, 5 « à l'étude /
+brouillon », 19 « en attente », 0 accepté, 0 refusé, **3 introuvables**
+(devis supprimés dans ProGBat). Aucun chiffrage n'est encore rattaché à un
+chantier (`chantier_projets` vide) : ces statuts n'apparaîtront sur les fiches
+chantier qu'après rattachement (lot 2).
 ### Lot 5 — Opérations devient la porte d'entrée
 
 **Bureau (conducteurs, comptable, commerciaux, direction).**
@@ -504,6 +586,16 @@ rôle).
 | 06/11/2026 | **Lot 3 — Phase déclarée à la main** : enregistrée dans la même table (pseudo-étape `_phase_declaree`), l'ancienne déclaration du phasage est reprise et traduite. | Fonctionne sans phasage, comme les étapes. | — |
 | 06/11/2026 | **Lot 3 — Ouvriers** : nouvelle policy de lecture limitée à l'étape « Plans techniques » sur la nouvelle table. La fonction `ouvrier_chantier_detail` (droits élevés) n'est pas modifiée ; l'écran ouvrier ajoute les plans de la table et retire les anciens plans d'exécution quand la table les a repris (pas de doublon). | Les ouvriers voyaient déjà les plans d'exécution ; ne pas leur retirer les nouveaux plans. Aucune fonction à droits élevés touchée. | Supprimer la policy « cycle vie ouvrier plans techniques ». |
 | 06/11/2026 | **Lot 3 — Facture d'acompte ProGBat (lot 4)** : aucun appel ProGBat. Point d'accroche : la bascule `decisionBasculeSignature()` / l'effet « bascule à la signature » de `PageChantiers.jsx` ; message honnête sur l'étape « Devis signé ». | Garde-fou « ProGBat en lecture seule » ; le lot 4 ajoute le bouton avec confirmation et anti-doublon. | — |
+| 06/11/2026 | **Lot 4 — Lectures de vérification par une fonction serveur dédiée** (`progbat-devis-statut-cron`, GET uniquement), déclenchée depuis la base avec le secret de la synchronisation des factures. | La session de développement n'a pas d'accès réseau à ProGBat ni à Supabase hors base ; les clés ProGBat ne sont lisibles que par les fonctions serveur. Le diagnostic ne rend que des formes et des valeurs techniques. | L'action « diagnostic » peut être retirée de la fonction sans effet sur le reste. |
+| 06/11/2026 | **Lot 4 — Écritures avec la clé « devis »** (`PROGBAT_PRIVATE_ACCESS_TOKEN`), la clé « facturation » restant en lecture (repli pour lire chantiers, yards et factures). | La clé de facturation a été créée volontairement en lecture seule ; la clé « devis » écrit déjà les devis. | Changer le jeton dans `progbat-operations`. |
+| 06/11/2026 | **Lot 4 — Client ProGBat** : créé en type 2 (client), `legalType` 1 particulier / 0 société, code = identifiant « NOM VILLE » du lot 2, adresse et contact avec e-mail et téléphone ; pays « France » envoyé « FR ». Création refusée tant que les clients ProGBat ressemblants (même identifiant, e-mail, téléphone, adresse ou nom) n'ont pas été écartés un par un. | « Jamais de rapprochement automatique par ressemblance » ; « création directement en client ». | — |
+| 06/11/2026 | **Lot 4 — Demande de Loris du 06/11 : les clients existent déjà dans ProGBat.** « Client ProGBat existant » dans Opérations et le chiffrage : la fiche locale est créée pré-remplie depuis le client ProGBat choisi (ou réutilisée), index unique sur `clients.progbat_client_id`. Le nom d'un particulier (« Mr et Mme DUPONT ») est repris tel quel dans « nom » ; le prénom, l'e-mail, le téléphone manquants sont affichés à compléter. « + Nouveau client » montre d'abord les ressemblances et exige « aucun ne correspond ». Modifier une fiche reliée garde l'identifiant ProGBat d'origine. | Éviter les doublons dans ProGBat ; ne rien deviner du nom. | Les fiches créées restent ; ne plus proposer le bouton. |
+| 06/11/2026 | **Lot 4 — Chantier ProGBat** : créé sans `status` (valeur par défaut de ProGBat), avec `yardLabel` = référence du logement ; responsable (`managerId`) seulement si la correspondance est renseignée dans Réglages → Outils. | Statuts des chantiers non documentés ; liste des utilisateurs ProGBat illisible (403, `staff.read`). | Renseigner / vider la correspondance. |
+| 06/11/2026 | **Lot 4 — Identifiants reportés sur le chiffrage** (`profero_projets.progbat_client_id / progbat_business_id / progbat_yard_id`) seulement pour les chiffrages **sans devis**, à chaque ouverture de l'aperçu. | La fonction des devis lit le chiffrage : elle envoie thirdId / businessId / yardId sans être modifiée. Un devis déjà créé garde ses identifiants. | Vider les colonnes d'un chiffrage sans devis. |
+| 06/11/2026 | **Lot 4 — Devis sans chantier ProGBat** : bloqué, sauf si ProGBat a refusé la création du client ou du chantier faute de droit (403) — une case « créer comme avant » apparaît alors. | Ne pas bloquer le chiffrage tant que les droits ProGBat ne sont pas ajoutés (chaque lot laisse l'application utilisable). | — |
+| 06/11/2026 | **Lot 4 — Facture d'acompte** : seulement si « Devis signé » est validé (table du lot 3 ou ancienne coche reprise), 50 % (`advanceRate`), refusée si une facture d'acompte existe déjà pour ce devis (synchronisation des factures ou lecture de ProGBat) ou si la lecture des factures échoue. | Anti-doublon maximal sur une écriture comptable. | — |
+| 06/11/2026 | **Lot 4 — Statut des devis** : tâche planifiée de la base (`progbat-devis-statut`, toutes les heures à 37 de 6 h à 19 h UTC) → fonction `progbat-devis-statut-cron` (GET des devis). Un devis supprimé dans ProGBat (404) est enregistré « introuvable » (valeur -1) et affiché, jamais présenté comme « pas encore lu ». | Pas de webhook ProGBat ; le dispatcher Vercel n'a pas de clé ProGBat. | `select cron.unschedule('progbat-devis-statut')`. |
+| 06/11/2026 | **Lot 4 — `progbat-quote` non redéployée.** Comparaison faite avec la version en ligne (v9) : elle sait déjà envoyer thirdId / businessId / yardId ; ses seules différences avec le dépôt sont les règles de saisie du lot 2 (contrôlées aussi par le bouton) et des fonctions d'heures du chiffrage sans effet sur le devis. | Recopier à la main 150 Ko de code de prix pour un redéploiement sans effet fonctionnel sur le lot 4 présentait plus de risque que d'intérêt. | Redéployer depuis le dépôt (`supabase functions deploy progbat-quote`). |
 | 06/11/2026 | **Lot 5 — L'identifiant de page « chantiers » est gardé** comme droit d'ouvrir la fiche chantier ; seule l'entrée de menu disparaît (liste `PAGES_HORS_MENU` de `navigationOperations.mjs`, lue par le menu latéral et la barre mobile). | Le plus prudent : aucun droit retiré, les liens existants (Alertes, Notes des ouvriers, Opérations) et les réglages d'accès en base continuent de fonctionner sans réécriture. | Retirer « chantiers » de `PAGES_HORS_MENU`. |
 | 06/11/2026 | **Lot 5 — « operations » ajouté en base** à tous les rôles qui avaient « chantiers » (admin, super_admin, conducteur, comptable, commercial), **avant la fusion**, sans rien retirer. | Compatible avec l'ancien et le nouveau code ; sans cela, ces rôles n'auraient plus eu de porte d'entrée vers leurs chantiers (la liste en base remplace la liste par défaut, sauf pour l'admin). Admin ajouté aussi pour que la ligne en base se lise seule. | `sql/202611_refonte_operations_lot5_acces_rollback.sql` (sauvegarde id 4). |
 | 06/11/2026 | **Lot 5 — La liste Chantiers reste joignable en repli**, seulement si un rôle a « chantiers » sans « operations » (cas qui n'existe plus en base) : « Retour » de la fiche y ramène alors comme avant. Sinon « Retour » ramène à l'opération, et un lien générique vers « chantiers » (Journal des MAJ) mène à Opérations. La page d'arrivée n'est jamais la liste Chantiers. | Ne jamais perdre l'accès à ses chantiers si quelqu'un modifie les accès dans Réglages → Accès. | — |
@@ -612,6 +704,19 @@ aujourd'hui avec le délai de 7 jours : **0 relance partirait**.
   opération), cette facture serait relancée au premier passage : à vérifier
   avant d'activer (elle a peut-être été réglée hors ProGBat).
 
+### Lot 4
+
+Migration `refonte_operations_lot4` (version 20261106073709) **purement
+additive**, essayée d'abord dans une transaction annulée : table
+`progbat_ecritures` (vide, `profero_collaborateurs_seulement`, accessible au
+seul serveur), colonnes vides sur `chantiers` (chantier ProGBat) et
+`profero_projets` (chantier ProGBat, statut du devis, facture d'acompte), index
+unique sur `clients.progbat_client_id` (0 fiche reliée : aucun conflit), tâche
+planifiée `progbat-devis-statut`. Aucune donnée existante réécrite. Comptes
+avant / après : 46 chantiers, 88 chiffrages, 0 client. Seule écriture de
+données depuis : le statut des 27 devis existants, lu dans ProGBat (voir
+plus haut). Retour arrière : `sql/202611_refonte_operations_lot4_rollback.sql`.
+
 ---
 
 ## À faire par Loris
@@ -655,6 +760,26 @@ aujourd'hui avec le délai de 7 jours : **0 relance partirait**.
   planning ou les plans (non par défaut), et s'il doit ne pas voir les
   totaux de vente et de marge de la page Opérations (visibles aujourd'hui,
   comme pour le commercial).
+
+- Lot 4 : **ajouter des droits à l'application ProGBat** dont le jeton est
+  `PROGBAT_PRIVATE_ACCESS_TOKEN` (celui des devis), sur le « Portail
+  développeur ProGBat » : `thirds` (ou `thirds.write`) pour créer un client,
+  `business` (lecture + écriture des chantiers) pour créer un chantier et lire
+  son yard, `bills` (ou `bills.write`) pour créer la facture d'acompte. Sans ces
+  droits, le bouton concerné affiche « Droit ProGBat manquant : … » et rien
+  n'est créé. Facultatif : `staff.read` pour lire la liste des utilisateurs
+  ProGBat (correspondance des chargés d'affaires). Si le jeton change, mettre
+  le nouveau dans le secret Supabase du même nom.
+- Lot 4 : **Réglages → Outils → « Chargés d'affaires : responsable dans
+  ProGBat »** : indiquer le numéro ProGBat de chaque chargé d'affaires (les
+  numéros utilisés aujourd'hui sont 2, 15 et 21 ; leur nom n'est pas lisible
+  par l'application).
+- Lot 4 : **3 devis sont introuvables dans ProGBat** (supprimés ?) alors que
+  leur chiffrage les mentionne encore : l'écran le signale ; dans l'aperçu du
+  devis, « Ce brouillon a été supprimé dans ProGBat ? » libère le chiffrage.
+- Lot 4 : choisir vos clients avec « Client ProGBat existant » plutôt que
+  « + Nouveau client » (les 113 clients sont déjà dans ProGBat), puis
+  compléter les fiches (prénom, e-mail, téléphone) quand l'écran le demande.
 
 ---
 
@@ -758,6 +883,51 @@ aujourd'hui avec le délai de 7 jours : **0 relance partirait**.
     d'affaires d'un devis envoyé il y a plus de 7 jours reçoit un e-mail avec
     le lien ProGBat ; l'étape affiche « 1 relance envoyée, dernière le … ».
 
+### Lot 4
+
+À faire dans l'ordre, sur une opération de test. **Les étapes 4 à 7 écrivent
+dans ProGBat** (la vraie comptabilité) : les faire avec un client et un
+chantier de test que vous supprimerez ensuite dans ProGBat, ou sur un vrai
+dossier.
+
+1. **Client ProGBat existant** (Opérations → une opération → « Client ProGBat
+   existant ») : la liste des clients ProGBat s'affiche (113 clients et les
+   prospects) ; taper un nom ou une ville filtre la liste. « Choisir » →
+   confirmation → la fiche apparaît comme client de l'opération ; ce qui manque
+   (prénom, e-mail, téléphone…) est listé. Rechoisir le même client ProGBat
+   sur un autre chantier → message « fiche réutilisée » (pas de doublon).
+2. **+ Nouveau client** : taper le nom d'un client existant dans ProGBat → le
+   bloc orange « Ce client existe peut-être déjà dans ProGBat » le propose ;
+   « Enregistrer » est refusé tant que « aucun ne correspond » n'est pas coché.
+3. **Chiffrage → Aperçu ProGBat** d'un chantier dont le client vient de
+   ProGBat : « 1. Client ProGBat » est déjà « fait » (aucune création) ; le
+   bouton du devis est grisé avec « À faire avant de créer le devis : le
+   chantier ProGBat ».
+4. **Créer le chantier dans ProGBat** : l'aperçu montre code, nom, adresse,
+   client, (responsable) ; « Confirmer » → « Chantier créé dans ProGBat (n° …) »
+   avec « Ouvrir dans ProGBat » ; si ProGBat répond 403 → « Droit ProGBat
+   manquant : business.write », et la case « créer le devis comme avant »
+   apparaît.
+5. **Devis** : le bouton s'active ; le devis créé apparaît dans ProGBat
+   rattaché au client et au chantier (plus de « Chantier : Aucun »).
+6. **Nouveau client inconnu de ProGBat** (autre chantier) : « Chercher dans
+   ProGBat » → aucune correspondance → « Créer le client dans ProGBat » →
+   aperçu → confirmer. Recliquer : « Déjà relié à ProGBat ».
+7. **Facture d'acompte** : fiche chantier → Contrat → avant « Devis signé »
+   validé, le texte dit que le bouton viendra ; valider « Devis signé » →
+   « Créer la facture d'acompte en brouillon (50 %) » → aperçu → confirmer →
+   facture « $… » en brouillon, « Ouvrir dans ProGBat ». Recliquer : bloqué
+   (« existe déjà »).
+8. **Statut du devis** : accepter un devis dans ProGBat ; au plus une heure
+   après (de 7 h à 20 h, heure d'hiver), « Devis signé » affiche « Devis
+   accepté dans ProGBat : importer le devis signé ». Un devis refusé fait
+   proposer « Marquer perdu ».
+9. **Réglages → Outils → Chargés d'affaires : responsable dans ProGBat** :
+   saisir « 2 » pour un collaborateur, enregistrer, recharger : conservé ; un
+   texte non numérique est refusé.
+10. **Coupure** : si un message « état incertain » apparaît, vérifier dans
+    ProGBat ; « J'ai vérifié dans ProGBat : rien n'a été créé » rouvre la
+    création.
 ### Lot 5
 
 1. **Menu** (compte administrateur, sur ordinateur puis sur téléphone) :
