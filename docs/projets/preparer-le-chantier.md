@@ -128,7 +128,7 @@ correspondance « À placer ».
 | 2 | Tranche 1b — Étape « Où se fait chaque ouvrage » (3 modes, reste à placer, granularité par tâche, aperçu ouvriers) + entrée `journalMaj.js` | en ligne | **Arrêt avant fusion** : démonstration sur LOUISON APPT 2 (T2), rien d'enregistré sans accord | Tableau avant / après du doublage MU-001 (50 m²), totaux identiques au centième | [#200](https://github.com/Suivi-chantier/Planning-Chantiers/pull/200) (fusionnée après accord de Loris) |
 | 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | en ligne | Auto | Consignes et photos relues après rechargement ; contrôle final juste | [#201](https://github.com/Suivi-chantier/Planning-Chantiers/pull/201) |
 | 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | en ligne | Auto (modification de `ouvrier_mes_phases` acceptée par Loris le 06/11) | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | [#202](https://github.com/Suivi-chantier/Planning-Chantiers/pull/202) (fusionnée ; migration appliquée le 06/11) |
-| 5 | Tranche 3 — Copie depuis un autre logement (moteur de correspondance + étape « Point de départ ») + vérifications + entrée `journalMaj.js` | en cours | Auto | Vérifications de copie vertes ; copie d'un logement préparé vers un logement vierge de la même opération | — |
+| 5 | Tranche 3 — Copie depuis un autre logement (moteur de correspondance + étape « Point de départ ») + vérifications + entrée `journalMaj.js` | en cours | Auto | Vérifications de copie vertes ; copie d'un logement préparé vers un logement vierge de la même opération | [#203](https://github.com/Suivi-chantier/Planning-Chantiers/pull/203) (ouverte) |
 
 ## Journal des décisions
 
@@ -487,6 +487,14 @@ un seul phasage a des pièces.
   aucune étape n'est enregistrée et qu'il n'y a aucune pièce ; sinon reprise
   à l'étape enregistrée. Bouton « Retour : point de départ » à l'étape des
   pièces.
+
+**06/11/2026 — Tâche 5 : reprise après coupure.** La session précédente s'est
+arrêtée (limite d'utilisation) juste après avoir poussé le travail de la
+tâche 5, avant d'ouvrir la demande de fusion. État réel vérifié à la reprise :
+code, vérifications et simulation présents sur la branche, aucune demande de
+fusion ouverte. Le travail a été repris tel quel sur la branche
+`claude/happy-archimedes-eqqhj2` (branche attribuée à la nouvelle session) et
+la demande de fusion #203 ouverte.
 
 ## Comptes rendus
 
