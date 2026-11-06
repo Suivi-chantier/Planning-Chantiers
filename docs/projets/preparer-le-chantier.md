@@ -126,8 +126,8 @@ correspondance « À placer ».
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Tranche 1a — Moteur de calcul du découpage (module pur `preparationChantierV1.mjs` + façade, script `verif-preparation-chantier.mjs` branché dans un workflow) ; bouton « Préparer le chantier » dans Phasage V2, parcours plein écran, étape « Les pièces », « Enregistrer et quitter » / reprise | en ligne | Auto (contrôles verts) | Vérifications vertes sur GitHub ; le parcours s'ouvre, les pièces s'enregistrent, la reprise revient à la bonne étape | [#199](https://github.com/Suivi-chantier/Planning-Chantiers/pull/199) |
 | 2 | Tranche 1b — Étape « Où se fait chaque ouvrage » (3 modes, reste à placer, granularité par tâche, aperçu ouvriers) + entrée `journalMaj.js` | en ligne | **Arrêt avant fusion** : démonstration sur LOUISON APPT 2 (T2), rien d'enregistré sans accord | Tableau avant / après du doublage MU-001 (50 m²), totaux identiques au centième | [#200](https://github.com/Suivi-chantier/Planning-Chantiers/pull/200) (fusionnée après accord de Loris) |
-| 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | en cours | Auto | Consignes et photos relues après rechargement ; contrôle final juste | [#201](https://github.com/Suivi-chantier/Planning-Chantiers/pull/201) |
-| 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | à faire | Auto | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | — |
+| 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | en ligne | Auto | Consignes et photos relues après rechargement ; contrôle final juste | [#201](https://github.com/Suivi-chantier/Planning-Chantiers/pull/201) |
+| 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | en cours | Auto | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | — |
 | 5 | Tranche 3 — Copie depuis un autre logement (moteur de correspondance + étape « Point de départ ») + vérifications + entrée `journalMaj.js` | à faire | Auto | Vérifications de copie vertes ; copie d'un logement préparé vers un logement vierge de la même opération | — |
 
 ## Journal des décisions
@@ -337,6 +337,12 @@ ouverture n'a pas pu être contrôlée directement.
   (tâche 4), qui rend les consignes visibles aux équipes.
 - *Phasage V2* : seul ajout, l'identifiant du chantier transmis au
   parcours (dossier des photos).
+
+**06/11/2026 — Tâche 3 en ligne.** Demande de fusion #201 fusionnée, tous les
+contrôles verts (dont `verif-pieces-phasage`, touché par la correction de
+`piecesDuPhasage`). Vérifié sur la base avant fusion : aucun phasage ne porte
+encore `meta.preparation`, la nouvelle note « Tout le logement » ne concerne
+aucune donnée existante.
 
 ## Comptes rendus
 
