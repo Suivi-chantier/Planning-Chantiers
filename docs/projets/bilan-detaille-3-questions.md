@@ -134,6 +134,14 @@ Règle par défaut de `CLAUDE.md`.
 - 06/11/2026 — #206 fusionnée, contrôles tous verts. Le site de production
   n'est pas joignable depuis la session (proxy) ; la prévisualisation Vercel du
   même code a été construite avec succès (« Ready »). Tâche 2 lancée.
+- 06/11/2026 — Tâche 2 livrée en #208. Choix retenus : la ligne TOTAL reprend
+  les totaux du bandeau tels quels (« même chiffre = même service ») ; la marge
+  probable totale du bandeau ne compte que les chantiers comparables (marge
+  devis connue), et la cellule TOTAL le dit (« N chantiers, comme le
+  bandeau ») plutôt que d'afficher un second total différent. Pour une période
+  autre qu'une semaine, les en-têtes deviennent « Généré sur la période » /
+  « Marge de la période ». Chargement des relevés inchangé : il couvrait déjà
+  les 6 semaines.
 
 ## Comptes rendus
 
@@ -147,3 +155,16 @@ couverture). Aucun calcul de marge modifié : dans `chantierFinance.mjs`, seules
 les 4 valeurs par défaut ont été ajoutées. Script de vérification local :
 154 contrôles OK (exemples issus des tests, données fictives).
 
+
+### Tâche 2 — haut du PDF détaillé (06/11/2026)
+
+Le PDF détaillé s'ouvre sur un tableau qui répond aux 3 questions : une ligne
+TOTAL en tête (généré, marge de la semaine, marge probable), puis une ligne par
+chantier avec avancement, généré cette semaine, marge de la semaine (€ et % de
+la production), marge probable (€ et % du vendu), fourchette, fiabilité et
+tendance sur 6 semaines. Le détail des marges qui suit gagne le budget restant
+et les € produits par heure (avec le repère du devis en gris), avec une phrase
+d'explication par marge. La version direction est inchangée (HTML identique
+avant / après sur le même jeu d'essai). Aucun calcul de marge modifié.
+Scripts : 171, 44 et 63 contrôles OK (exemples issus des tests, données
+fictives). Entrée ajoutée dans `journalMaj.js`.
