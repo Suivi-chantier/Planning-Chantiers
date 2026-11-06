@@ -25,17 +25,26 @@ import {
   computeQCD, qcdDepuisFinance, QCD_METHODE,
   lireOverridesQCD, construireOverrideQCD, QCD_OVERRIDE_KEYS, QCD_STATUTS_FORCABLES,
 } from "./qcd";
-// Cycle de vie du chantier (Point 2a) : référentiel des 6 phases (devis → SAV),
-// déduction de la phase (modèle frise CRM Invest) et évaluation des étapes.
-// Rien à voir avec les phases V1 du phasage (plan_travaux[phase_id]).
+// Cycle de vie du chantier (Refonte Opérations, lot 3) : référentiel des 5
+// phases (Étude → Réception), reprise à la lecture de l'ancien cycle,
+// évaluation des étapes. Rien à voir avec les phases V1 du phasage.
+// États : table chantier_cycle_vie (cycleVieDonnees.js) ; l'ancien état du
+// phasage (meta.cycle_vie_etapes) n'est plus jamais écrit.
 import {
   CYCLE_VIE_PHASES, getPhase, etapesTravauxDepuisGroupes,
-  computeCycleVie, evaluerEtape, lireEtatsEtapes, lirePhaseDeclaree,
-  CV_META_PHASE_DECLAREE, CV_META_ETAPES,
+  computeCycleVie, evaluerEtape, etatsCycleVie, phaseDeclareeCycleVie,
+  etatAcompteChantier, etatPhasageMateriaux, autorisationPartagee,
 } from "./cycleVie";
 import {
+  chargerCycleVie, chargerEtapeSurChantiers, ecrireEtapeCycleVie, ecrirePhaseDeclaree,
+  chargerRelances, chargerReglagesRelances,
+} from "./cycleVieDonnees";
+import { decisionRelance, referencesRelances } from "./relancesCycleVie";
+import { lienProgbat } from "./progbatLiens";
+import { lienGoogleAgenda, adresseChantierAgenda } from "./agendaGoogle";
+import {
   STATUTS_AFFICHAGE, STATUTS_CHOIX_MANUEL, decisionBasculeSignature, preparerPerte, preparerAnnulationPerte,
-  peutMarquerPerdu, estChantierPerdu, estChantierAEtude,
+  peutMarquerPerdu, estChantierPerdu, estChantierAEtude, chargeAffairesEffectif,
 } from "./statutsChantier";
 import { journaliserStatut } from "./chantiersDonnees";
 import { MarquerPerduModal, AnnulerPerteModal, ResumePerte } from "./ComposantsCommerciaux.jsx";
@@ -46,7 +55,6 @@ import { MarquerPerduModal, AnnulerPerteModal, ResumePerte } from "./ComposantsC
 import {
   ECHEANCIER_DEFAUT, normaliserEcheancier, lireEcheancierChantier, lireMontantReference,
   etatFacturation, etapesFacturationTravaux, facturationParLigne,
-  etapesAValiderDepuisFacturation,
 } from "./facturationClient";
 import FacturationChantier from "./FacturationChantier";
 import PageSuggestionsMateriaux from "./PageSuggestionsMateriaux";
@@ -624,6 +632,11 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
     setFormOpen(false);
   };
   const devalider = async () => { setBusy(true); await actions.onDevalider(etape.id); setBusy(false); };
+  const departager = async (oui) => { setBusy(true); await actions.onDepartager?.(etape.id, oui); setBusy(false); };
+  // Document avec date (signature, réception) : la date est exigée à l'import.
+  const datesRequises = etape.nature === "document" ? champs.filter(c => c.type === "date") : [];
+  const dateManquante = datesRequises.some(c => !valeurs[c.id]);
+  const lienPg = etape.lienProgbat || null;
   const importerDoc = async (file) => {
     if (!file) return;
     setBusy(true);
@@ -687,7 +700,30 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
             borderRadius: RADIUS.pill, padding: "1px 7px", verticalAlign: "middle",
           }}>à émettre</span>
         )}
-        <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1 }}>{etape.raison}</div>
+        <div style={{ fontSize: FONT.xs.size + 1, color: etape.alerte ? "#e0a800" : textMuted, marginTop: 1, fontWeight: etape.alerte ? 700 : 400 }}>{etape.raison}</div>
+        {etape.complement && <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1, fontStyle: "italic" }}>{etape.complement}</div>}
+
+        {/* Boutons de l'étape : Google Agenda, ProGBat (lecture seule : on
+            ouvre ProGBat dans un onglet, l'application n'y écrit rien). */}
+        {(etape.agendaUrl || etape.agendaRaison || lienPg) && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
+            {etape.agendaUrl && (
+              <a href={etape.agendaUrl} target="_blank" rel="noopener noreferrer" style={{ ...btn(false), textDecoration: "none" }}
+                title="Ouvre Google Agenda avec un événement pré-rempli (nom du chantier et adresse) : à enregistrer dans Google Agenda.">
+                <Icon as={Calendar} size={11}/> Créer l'événement Google Agenda
+              </a>
+            )}
+            {etape.agendaRaison && <span style={{ fontSize: FONT.xs.size + 1, color: "#e0a800", fontWeight: 600 }}>{etape.agendaRaison}</span>}
+            {lienPg?.url && (
+              <a href={lienPg.url} target="_blank" rel="noopener noreferrer" style={{ ...btn(false), textDecoration: "none" }} title={lienPg.titre}>
+                <Icon as={ExternalLink} size={11}/> {lienPg.repli ? lienPg.libelle : "Ouvrir dans ProGBat"}
+              </a>
+            )}
+            {lienPg && !lienPg.url && lienPg.raison && (
+              <span style={{ fontSize: FONT.xs.size + 1, color: textMuted, fontStyle: "italic" }}>Ouvrir dans ProGBat : {lienPg.raison}</span>
+            )}
+          </div>
+        )}
         {resume && <div style={{ fontSize: FONT.xs.size + 1, color: textSub, marginTop: 2, fontWeight: 600 }}>{resume}</div>}
 
         {/* Entrée de GROUPE (phase Travaux) : avancement + témoin de contrôle
@@ -755,7 +791,14 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
         {/* Actions */}
         {peutModifier && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
-            {etape.nature === "coche" && !etape.journal && (etape.fait ? (
+            {etape.partagee && (etape.departage ? (
+              <button onClick={() => departager(false)} disabled={busy} style={btn(busy)}
+                title="Ce chantier reprend la validation faite sur un autre chantier de l'opération">Re-partager</button>
+            ) : (
+              <button onClick={() => departager(true)} disabled={busy} style={btn(busy)}
+                title="Ce chantier attend sa propre autorisation : les validations des autres chantiers de l'opération ne comptent plus pour lui">Dé-partager pour ce chantier</button>
+            ))}
+            {etape.nature === "coche" && !etape.journal && (etat.fait ? (
               <button onClick={devalider} disabled={busy} style={btn(busy)}><Icon as={X} size={11}/> Annuler la validation</button>
             ) : formOpen ? (
               <>
@@ -771,11 +814,13 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
             ))}
             {etape.nature === "document" && !etape.fait && (
               <>
-                {champs.filter(c => c.type === "date").map(champInput)}
-                <button onClick={() => fileDocRef.current?.click()} disabled={busy} style={btn(busy)}>
+                {datesRequises.map(champInput)}
+                <button onClick={() => fileDocRef.current?.click()} disabled={busy || dateManquante} style={btn(busy || dateManquante)}
+                  title={dateManquante ? `Saisir d'abord : ${datesRequises.map(c => c.nom.toLowerCase()).join(", ")}` : "Importer le document : l'étape est validée à la date d'import"}>
                   <Icon as={Upload} size={11}/> Importer le document
                 </button>
-                <input ref={fileDocRef} type="file" accept={ACCEPT_DOCS} style={{ display: "none" }}
+                {dateManquante && <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>{datesRequises.map(c => c.nom).join(", ")} obligatoire</span>}
+                <input ref={fileDocRef} type="file" accept={etape.accept || ACCEPT_DOCS} style={{ display: "none" }}
                   onChange={e => { importerDoc(e.target.files?.[0]); e.target.value = ""; }}/>
               </>
             )}
@@ -803,12 +848,12 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
   );
 }
 
-// ─── FRISE DU CYCLE DE VIE (Point 2a) ────────────────────────────────────────
-// Les 6 phases du chantier (devis → SAV), sous le bandeau QCD. Affichage pur :
+// ─── FRISE DU CYCLE DE VIE (Point 2a, refondue au lot 3) ─────────────────────
+// Les 5 phases du chantier (Étude → Réception), sous le bandeau QCD. Affichage pur :
 // le positionnement vient de computeCycleVie (src/Renovation/cycleVie.js),
 // sur le modèle de la frise CRM Invest — phase déclarée à la main PRIORITAIRE,
 // phase déduite toujours visible à côté, raisons affichées.
-function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturation, peutModifier, onDeclarer, actionsEtape, T }) {
+function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturation, peutModifier, onDeclarer, actionsEtape, enrichirEtape, anciennesPieces = [], erreurChargement = null, T }) {
   const [saving, setSaving] = useState(false);
   const [phaseVue, setPhaseVue] = useState(null); // phase consultée (null = suivre la phase en cours)
   const surface   = T?.surface   || "#262a32";
@@ -839,17 +884,22 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
         )}
       </div>
 
+      {erreurChargement && (
+        <div style={{ fontSize: FONT.sm.size, color: "#e15a5a", fontWeight: 600, marginBottom: 8 }}>
+          Étapes du cycle de vie illisibles ({erreurChargement}) : l'affichage ci-dessous ne montre que l'ancien cycle repris du phasage, et aucune validation n'est possible.
+        </div>
+      )}
       {!cv ? (
         <div style={{ fontSize: FONT.sm.size, color: textMuted, fontStyle: "italic" }}>
-          Aucun phasage lié à ce chantier : la frise s'activera dès qu'un phasage est lié.
+          Cycle de vie en cours de chargement…
         </div>
       ) : (
         <>
-          {/* Les 6 phases sur un rail horizontal (scroll sur mobile) */}
+          {/* Les 5 phases sur un rail horizontal (scroll sur mobile) */}
           <div style={{ overflowX: "auto", paddingBottom: 4 }}>
             <div style={{ position: "relative", minWidth: 560 }}>
               <div style={{ position: "absolute", left: 32, right: 32, top: 15, height: 2, background: border }}/>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 6, position: "relative" }}>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${CYCLE_VIE_PHASES.length},1fr)`, gap: 6, position: "relative" }}>
                 {CYCLE_VIE_PHASES.map(ph => {
                   const courante = ph.id === cv.phaseId;
                   const atteinte = ph.ordre < cv.ordre;
@@ -928,10 +978,14 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
               // Travaux : les groupes d'exécution, puis les échéances de
               // facturation du chantier (bloc Facturation client — leur état
               // vient des factures réellement importées, jamais d'une coche).
+              // (la facture de solde est dans la phase Réception).
               ? [...etapesTravauxDepuisGroupes(chronoGroupes, statsGroupes),
-                 ...(etapesFacturation || [])]
+                 ...(etapesFacturation || []).filter(e => e.ligneId !== "solde")]
               : (phaseVueObj?.etapes || [])
-            ).map(e => ({ ...e, ...evaluerEtape(e, cvCtx), etat: (cvCtx?.etatsEtapes || {})[e.id] || null }));
+            ).map(e => {
+              const ev = { ...e, ...evaluerEtape(e, cvCtx), etat: (cvCtx?.etatsEtapes || {})[e.id] || null };
+              return enrichirEtape ? enrichirEtape(ev) : ev;
+            });
             const estPhaseCourante = phaseVueId === cv.phaseId;
             return (
               <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${border}` }}>
@@ -970,7 +1024,7 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
                 </div>
                 {etapes.length === 0 ? (
                   <div style={{ fontSize: FONT.sm.size, color: textMuted, fontStyle: "italic" }}>
-                    Aucun groupe d'exécution défini dans la vue chrono du phasage.
+                    {cvCtx?.phasageExiste ? "Aucun groupe d'exécution défini dans la vue chrono du phasage." : "Aucun phasage lié à ce chantier : les groupes d'exécution apparaîtront avec le phasage."}
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -982,6 +1036,29 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
               </div>
             );
           })()}
+
+          {/* Pièces jointes des étapes de l'ancien cycle SANS équivalent
+              (Réponse client, DOE, SAV…) : l'étape n'est plus affichée, mais
+              aucun document ne disparaît de l'écran. */}
+          {anciennesPieces.length > 0 && (
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px dashed ${border}` }}>
+              <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: textMuted, letterSpacing: .5, textTransform: "uppercase", marginBottom: 6 }}>
+                Documents des anciennes étapes (cycle de vie d'avant le 06/11/2026)
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {anciennesPieces.map(({ etapeNom, pj }) => (
+                  <button key={pj.path} onClick={() => actionsEtape?.onOuvrirPJ(pj)} title={`Ancienne étape « ${etapeNom} » — ouvrir / télécharger`} style={{
+                    display: "inline-flex", alignItems: "center", gap: 4, background: "transparent",
+                    border: `1px solid ${border}`, borderRadius: RADIUS.pill, padding: "2px 8px",
+                    color: textSub, cursor: "pointer", fontFamily: "inherit", fontSize: FONT.xs.size + 1, maxWidth: 320,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    <Icon as={Paperclip} size={10}/> {etapeNom} — {pj.nom}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -2362,26 +2439,68 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   };
   const retourAutoSommetQCD = (axeId) => saveMetaPhasage({ [QCD_OVERRIDE_KEYS[axeId]]: null });
 
-  // ── Cycle de vie (Point 2a) : positionnement déduit + phase déclarée ──
+  // ── Cycle de vie (lot 3) : états de la table chantier_cycle_vie, ancien
+  // cycle du phasage repris à la lecture, signaux automatiques ──
   const metaSelected = selectedPhasage?.plan_travaux?.meta || {};
-  const cvEtats = lireEtatsEtapes(metaSelected);
-  const cvPhaseDeclaree = lirePhaseDeclaree(metaSelected);
   const chronoGroupesSelected = Array.isArray(metaSelected.chrono_groupes) ? metaSelected.chrono_groupes : [];
-  // « Équipes affectées » : chaque groupe a au moins une tâche et toutes ses
-  // tâches ont des ouvriers (ou sont marquées externes). null = aucun groupe
-  // défini (indéterminé).
-  const cvEquipesAffectees = (() => {
-    if (!chronoGroupesSelected.length) return null;
-    const taches = (selectedPhasage?.ouvrages || []).flatMap(o => o.taches || []);
-    return chronoGroupesSelected.every(g => {
-      const tg = taches.filter(t => t.chrono_groupe_id === g.id);
-      return tg.length > 0 && tg.every(t => (Array.isArray(t.ouvriers) && t.ouvriers.length > 0) || t.externe);
-    });
-  })();
+  const cvCleChantier = selectedChantier?.id || null;
+  const [cvDonnees, setCvDonnees] = useState({ chantierId: null, charge: false });
+  const [rechargeCV, setRechargeCV] = useState(0);
+  const operationIdSel = selectedChantier?.operation_id || null;
+  const freresIdsSel = chantiers
+    .filter(c => operationIdSel && c.operation_id === operationIdSel && c.id !== cvCleChantier && !c.archive_le)
+    .map(c => c.id).join("|");
+  useEffect(() => {
+    if (!cvCleChantier) return;
+    let actif = true;
+    (async () => {
+      const freres = freresIdsSel ? freresIdsSel.split("|") : [];
+      const [cv, auto, rel, reg, fact, lien, ops] = await Promise.all([
+        chargerCycleVie([cvCleChantier]),
+        chargerEtapeSurChantiers("autorisation_recue", freres),
+        chargerRelances([cvCleChantier]),
+        chargerReglagesRelances(),
+        // Toutes sources (ProGBat compris) : la facture d'acompte et son
+        // règlement (étape « Acompte encaissé », relance acompte).
+        supabase.from("chantier_factures_client")
+          .select("id, chantier_id, ligne_id, numero, statut, source, date_facture, date_encaissement, montant_ttc, created_at, progbat_bill_id, progbat_bill_code, progbat_quote_id, progbat_type, progbat_situation_number, progbat_document_date")
+          .eq("chantier_id", cvCleChantier),
+        supabase.from("chantier_projets").select("projet_id").eq("chantier_id", cvCleChantier),
+        loadOperations().catch(() => []),
+      ]);
+      const factures = fact.error ? [] : (fact.data || []);
+      const ids = factures.map(f => f.id).filter(Boolean);
+      const [regl, proj] = await Promise.all([
+        ids.length
+          ? supabase.from("chantier_factures_reglements").select("id, facture_id, montant, annule, date_reglement").in("facture_id", ids)
+          : Promise.resolve({ data: [], error: null }),
+        (lien.data || []).length
+          ? supabase.from("profero_projets").select("id, progbat_devis_id, chantier_adresse, chantier_code_postal, chantier_ville, adresse_bien").in("id", lien.data.map(l => l.projet_id))
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (!actif) return;
+      const projets = proj.error ? [] : (proj.data || []);
+      setCvDonnees({
+        chantierId: cvCleChantier, charge: true,
+        lignes: cv.lignes, erreur: cv.erreur,
+        autorisations: auto.lignes, relances: rel.lignes, erreurRelances: rel.erreur,
+        reglages: reg.reglages,
+        factures, reglements: regl.error ? [] : (regl.data || []),
+        erreurFacturation: fact.error?.message || regl.error?.message || null,
+        projet: projets.find(p => p.progbat_devis_id) || projets[0] || null,
+        operations: ops || [],
+      });
+    })();
+    return () => { actif = false; };
+  }, [cvCleChantier, freresIdsSel, rechargeCV]);
+  const cvD = cvDonnees.chantierId === cvCleChantier ? cvDonnees : { charge: false };
+  const { etats: cvEtats, nonReprises: cvNonReprises } = etatsCycleVie({ meta: metaSelected, lignes: cvD.lignes || [] });
+  const cvPhaseDeclaree = phaseDeclareeCycleVie({ meta: metaSelected, lignes: cvD.lignes || [] });
+  const operationSel = (cvD.operations || []).find(o => o.id === operationIdSel) || null;
   // ── Facturation client : échéancier retenu pour CE chantier (surcharge du
   // phasage, sinon réglage Admin, sinon défaut Profero), montant du marché et
   // état de chaque échéance. Alimente le bloc Facturation ET les étapes de
-  // facturation de la phase Travaux dans la frise.
+  // facturation de la frise (Travaux, et « Facture de solde » en Réception).
   const echeancierChantier = lireEcheancierChantier(metaSelected, echeancierDefaut);
   const montantRefFact = lireMontantReference(metaSelected, finances?.prixVendu || 0);
   const etatFact = etatFacturation({
@@ -2391,24 +2510,45 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     avancement,
     etatsEtapes: cvEtats,
   });
+  const todayCV = new Date().toISOString().slice(0, 10);
+  const acompteCV = cvD.charge ? etatAcompteChantier({ factures: cvD.factures, reglements: cvD.reglements }) : null;
+  const chargeCV = selectedChantier ? chargeAffairesEffectif(selectedChantier, operationSel) : { id: null };
+  const refsRelances = referencesRelances({ etats: cvEtats, acompte: acompteCV });
+  const relancesCV = cvD.charge ? Object.fromEntries(["devis", "acompte"].map(type => [type, decisionRelance({
+    type, chantierId: cvCleChantier,
+    reference: refsRelances[type].reference, termine: refsRelances[type].termine,
+    perdu: estChantierPerdu(selectedChantier),
+    // L'adresse e-mail n'est pas lue ici (liste des comptes réservée à
+    // l'administrateur) : la tâche planifiée la vérifie avant d'envoyer.
+    chargeAffaires: chargeCV.id ? { id: chargeCV.id, nom: chargeCV.nom } : null,
+    journal: cvD.relances, reglages: cvD.reglages, todayISO: todayCV,
+  })])) : null;
+  const autorisationCV = cvD.charge ? autorisationPartagee({
+    chantierId: cvCleChantier,
+    etatPropre: cvEtats.autorisation_recue || null,
+    autres: (cvD.autorisations || []).map(l => ({
+      chantierId: l.chantier_id, etat: l.etat,
+      chantierNom: chantiers.find(c => c.id === l.chantier_id)?.nom || l.chantier_id,
+    })),
+  }) : null;
   const cvCtx = {
     etatsEtapes: cvEtats,
-    chiffrage: totalHeures.vendues > 0 || (finances?.prixVendu || 0) > 0,
-    equipesAffectees: cvEquipesAffectees,
+    chiffrage: totalHeures.vendues > 0 || (finances?.prixVendu || 0) > 0 || !!cvD.projet,
+    acompte: acompteCV,
+    phasage: etatPhasageMateriaux(selectedPhasage || null),
+    phasageExiste: !!selectedPhasage,
+    groupes: chronoGroupesSelected,
     controles: controlesGroupesSel, // témoins « contrôlé » (Point 2 b)
     facturation: facturationParLigne(etatFact), // signal "facture_client"
-    todayISO: new Date().toISOString().slice(0, 10),
+    relances: relancesCV,
+    autorisation: autorisationCV,
+    todayISO: todayCV,
   };
-  const cv = selectedPhasage ? computeCycleVie({
+  const cv = selectedChantier ? computeCycleVie({
     statutChantier: getStatut(selectedChantier, selectedPhasage),
     avancement, // entier 0-100
-    chiffrage: cvCtx.chiffrage,
-    etatsEtapes: cvEtats,
+    ctx: cvCtx,
     phaseDeclaree: cvPhaseDeclaree,
-    equipesAffectees: cvEquipesAffectees,
-    groupes: chronoGroupesSelected, // règle : Travaux ne se clôture que si tous les groupes sont contrôlés
-    controles: controlesGroupesSel,
-    todayISO: cvCtx.todayISO,
   }) : null;
   // Avancement de chaque groupe (pondéré heures_vendues, comme la vue chrono).
   const statsGroupesSelected = (() => {
@@ -2418,28 +2558,36 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     });
     return map;
   })();
+  const auteurCV = profil?.nom || profil?.email || "";
   // Déclare la phase en cours à la main (prioritaire) — null = retour auto.
-  const declarerPhaseCV = (phaseId) => saveMetaPhasage({
-    [CV_META_PHASE_DECLAREE]: phaseId ? {
-      phaseId, auteur: profil?.nom || profil?.email || "", date: new Date().toISOString(),
-    } : null,
-  });
+  const declarerPhaseCV = async (phaseId) => {
+    const r = await ecrirePhaseDeclaree({ chantierId: cvCleChantier, phaseId, auteur: auteurCV });
+    if (!r.ok) { alert(`Phase non enregistrée : ${r.erreur}`); return false; }
+    setRechargeCV(n => n + 1);
+    return true;
+  };
 
   // ── Écriture de l'état d'UNE étape du cycle de vie ──
-  // Même read-before-write que saveMetaPhasage, mais le merge se fait au
-  // niveau de l'étape : l'updater reçoit l'état FRAIS relu en base (jamais le
-  // state local), pour ne pas écraser les autres étapes modifiées entre-temps.
-  const saveEtatEtapeCV = (etapeId, updater) => ecrireMetaPhasage((currentPlan) => {
-    const etats = lireEtatsEtapes(currentPlan.meta || {});
-    const nouveau = typeof updater === "function" ? updater(etats[etapeId] || {}) : updater;
-    const nextEtats = { ...etats };
-    if (nouveau == null) delete nextEtats[etapeId]; else nextEtats[etapeId] = nouveau;
-    return { ...currentPlan, meta: { ...(currentPlan.meta || {}), [CV_META_ETAPES]: nextEtats } };
-  });
+  // Une ligne par chantier et par étape (cycleVieDonnees.js) : l'updater reçoit
+  // l'état FRAIS relu en base — ou, la première fois, l'ancien état du phasage
+  // (pièces jointes comprises), qui lui n'est jamais modifié.
+  const saveEtatEtapeCV = async (etapeId, updater) => {
+    if (!cvCleChantier) return false;
+    if (cvD.erreur) { alert(`Écriture impossible : le cycle de vie n'a pas pu être lu (${cvD.erreur}).`); return false; }
+    const phasageId = selectedPhasage?.id || null;
+    const r = await ecrireEtapeCycleVie({
+      chantierId: cvCleChantier, etapeId, updater, auteur: auteurCV,
+      lireMetaPhasage: phasageId ? async () => {
+        const { data } = await supabase.from("phasages").select("plan_travaux").eq("id", phasageId).maybeSingle();
+        return data?.plan_travaux?.meta || null;
+      } : null,
+    });
+    if (!r.ok) { alert(`${MESSAGE_ERREUR_ECRITURE}${r.erreur ? ` (${r.erreur})` : ""}`); return false; }
+    setRechargeCV(n => n + 1);
+    return true;
+  };
 
-  // ── Actions sur les étapes du cycle de vie (Prompt 6) ──
-  const auteurCV = profil?.nom || profil?.email || "";
-  // Coche manuelle (avec données saisies : montant, date, réponse…).
+  // ── Actions sur les étapes du cycle de vie ──
   const validerEtapeCV = (etapeId, donnees = {}) => saveEtatEtapeCV(etapeId, (courant) => ({
     ...courant, fait: true, date: new Date().toISOString(), auteur: auteurCV,
     donnees: { ...(courant.donnees || {}), ...donnees },
@@ -2448,11 +2596,16 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const devaliderEtapeCV = (etapeId) => saveEtatEtapeCV(etapeId, (courant) => ({
     ...courant, fait: false, date: null, auteur: null,
   }));
+  // Étape partagée : dé-partager (ce chantier attend sa propre validation) ou re-partager.
+  const departagerEtapeCV = (etapeId, oui) => saveEtatEtapeCV(etapeId, (courant) => ({
+    ...courant, departage: !!oui, departage_par: auteurCV, departage_le: new Date().toISOString(),
+  }));
   // Pièce jointe (toute étape) ; valide=true = import qui VALIDE l'étape
-  // (nature "document"), avec d'éventuelles données (date de signature…).
+  // (nature "document") — la date d'import est la date de validation (date
+  // d'envoi du devis), avec d'éventuelles données (date de signature…).
   const ajouterPieceJointeCV = async (etapeId, file, { valide = false, donnees = {} } = {}) => {
-    if (!selectedPhasage?.id || !file) return false;
-    const doc = await uploadDocumentChantier(file, `cycle-vie/${selectedPhasage.id}/${etapeId}`);
+    if (!cvCleChantier || !file) return false;
+    const doc = await uploadDocumentChantier(file, `cycle-vie/chantier/${cvCleChantier}/${etapeId}`);
     if (!doc) {
       alert(`Échec de l'envoi du fichier. ${derniereErreurDocument() || "Réessayez dans un instant."}`);
       return false;
@@ -2475,7 +2628,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       pieces_jointes: (Array.isArray(courant.pieces_jointes) ? courant.pieces_jointes : []).filter(x => x.path !== pj.path),
     }));
   };
-  // Journal (interventions SAV) : entrées multiples, l'étape ne se termine pas.
+  // Journal (ancienne étape SAV : plus affichée ; conservé pour compatibilité).
   const ajouterJournalCV = (etapeId, texte) => saveEtatEtapeCV(etapeId, (courant) => ({
     ...courant,
     journal: [
@@ -2486,39 +2639,57 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Envoi d'une pièce jointe par email (modale de choix des destinataires).
   const [envoiPJ, setEnvoiPJ] = useState(null); // { pj, etapeNom } | null
 
-  // ── Report de la facturation sur le cycle de vie ──
-  // Une échéance rattachée à une étape existante (l'acompte → « Acompte
-  // encaissé ») coche cette étape dès qu'elle est ENCAISSÉE, et la décoche si
-  // l'encaissement est annulé — mais seulement si c'est elle qui l'avait
-  // cochée (une coche posée à la main avant la mise en service du bloc n'est
-  // jamais retirée : etapesAValiderDepuisFacturation s'en assure).
-  // Le calcul est pur ; ici on ne fait qu'écrire ce qui diffère, ce qui rend
-  // l'effet idempotent : après écriture, cvEtats change, le calcul suivant ne
-  // renvoie plus rien.
-  const syncFactRef = useRef("");
-  useEffect(() => {
-    if (!selectedPhasage?.id) return;
-    const aEcrire = etapesAValiderDepuisFacturation(etatFact, cvEtats);
-    if (!aEcrire.length) return;
-    const cle = `${selectedPhasage.id}:${aEcrire.map(e => `${e.etapeId}=${e.fait}`).join(",")}`;
-    if (syncFactRef.current === cle) return; // garde anti-doublon pendant l'aller-retour réseau
-    syncFactRef.current = cle;
-    (async () => {
-      for (const e of aEcrire) {
-        if (e.fait) {
-          await saveEtatEtapeCV(e.etapeId, (courant) => ({
-            ...courant, fait: true, date: new Date().toISOString(), auteur: "Facturation",
-            donnees: { ...(courant.donnees || {}), ...e.donnees },
-          }));
-        } else {
-          await saveEtatEtapeCV(e.etapeId, (courant) => ({
-            ...courant, fait: false, date: null, auteur: null,
-          }));
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPhasage?.id, facturesClient, cvEtats]);
+  // Boutons des étapes : Google Agenda (visites) et « Ouvrir dans ProGBat ».
+  // Tout est calculé ici à partir des données chargées ; une impossibilité
+  // (adresse inconnue, devis ProGBat inconnu) est affichée, jamais tue.
+  const adresseAgendaCV = adresseChantierAgenda({
+    adresseFiche: selected ? chantierAdresses[selected]?.adresse : "",
+    projet: cvD.projet || null, operation: operationSel,
+  });
+  const quoteIdCV = cvD.projet?.progbat_devis_id || acompteCV?.quoteId || null;
+  const enrichirEtapeCV = (e) => {
+    const out = { ...e };
+    if (e.agenda && selectedChantier) {
+      out.agendaUrl = lienGoogleAgenda({
+        titre: `${e.agenda.titre} — ${selectedChantier.nom}`,
+        lieu: adresseAgendaCV.lieu,
+        details: [`Chantier : ${selectedChantier.nom}`, operationSel?.nom ? `Opération : ${operationSel.nom}` : null,
+          adresseAgendaCV.lieu ? `Adresse : ${adresseAgendaCV.lieu}` : null].filter(Boolean).join("\n"),
+      });
+      if (!adresseAgendaCV.source) out.agendaRaison = "Adresse du chantier inconnue : l'événement sera créé sans lieu.";
+    }
+    if (e.progbat === "devis") out.lienProgbat = lienProgbat("devis", quoteIdCV);
+    if (e.progbat === "facture_acompte") {
+      out.lienProgbat = acompteCV?.facture ? lienProgbat("facture", acompteCV.billId, { nom: acompteCV.numero || "" })
+        : { ...lienProgbat("facture", null), raison: "Facture d'acompte pas encore émise : le lien ouvre la liste des factures." };
+    }
+    if (e.progbat === "facture_solde") {
+      const ligne = etatFact.lignes.find(l => l.id === "solde");
+      const fSolde = (cvD.factures || []).find(f => f.ligne_id === "solde" && f.progbat_bill_id);
+      out.lienProgbat = lienProgbat("facture", fSolde?.progbat_bill_id || null, { nom: fSolde?.numero || ligne?.facture?.numero || "" });
+    }
+    if (e.relance && relancesCV?.[e.relance]?.statut === "impossible") out.alerte = true;
+    if (e.id === "devis_signe" && !e.fait) {
+      out.complement = "À la validation : passage automatique en « Planifié » si le chantier est à l'étude, et arrêt des relances devis. Facture d'acompte dans ProGBat : création automatique à venir (lot 4) — à créer à la main dans ProGBat pour l'instant.";
+    }
+    if (e.id === "devis_signe" && e.fait) {
+      out.complement = "Facture d'acompte dans ProGBat : création automatique à venir (lot 4) — à créer à la main dans ProGBat pour l'instant.";
+    }
+    if (e.id === "levee_reserves") {
+      const ouvertes = (reservesGroupesSel || []).filter(r => !r.levee_le).length;
+      if (ouvertes > 0) out.complement = `${ouvertes} réserve(s) de contrôle de groupe encore ouverte(s) dans l'application.`;
+    }
+    return out;
+  };
+  // Diagramme financier : la date de signature (acompte prévu) se lit dans
+  // les états du NOUVEAU cycle (table + reprise), pas seulement dans le phasage.
+  const phasageAvecCycleVie = selectedPhasage ? {
+    ...selectedPhasage,
+    plan_travaux: { ...(selectedPhasage.plan_travaux || {}), meta: { ...metaSelected, cycle_vie_etapes: cvEtats } },
+  } : null;
+  // Pièces jointes des anciennes étapes sans équivalent (consultables).
+  const anciennesPiecesCV = (cvNonReprises || []).flatMap(n =>
+    (Array.isArray(n.etat?.pieces_jointes) ? n.etat.pieces_jointes : []).filter(pj => pj?.path).map(pj => ({ etapeNom: n.nom, pj })));
 
   // ── Notification « facture à émettre » (best-effort, côté client).
   // Quand une échéance de l'échéancier atteint son déclencheur (avancement,
@@ -2618,7 +2789,9 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Bascule automatique : étape « Devis signé » validée sur un chantier « À
   // l'étude » → « Planifié », chantier par chantier, une seule fois.
   const basculeFaite = useRef(new Set());
-  const decisionBascule = selectedChantier ? decisionBasculeSignature(selectedChantier, cvEtats) : { basculer: false };
+  // Attendu : les états de la table chargés (sinon une dé-validation récente
+  // serait masquée par l'ancien état du phasage).
+  const decisionBascule = selectedChantier && cvD.charge && !cvD.erreur ? decisionBasculeSignature(selectedChantier, cvEtats) : { basculer: false };
   useEffect(() => {
     if (!decisionBascule.basculer || !selectedChantier || basculeFaite.current.has(selectedChantier.id)) return;
     if (!setChantiers || !saveConfig) return;
@@ -2967,11 +3140,6 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               </button>
             )}
             {estChantierPerdu(selectedChantier) && <ResumePerte chantier={selectedChantier} T={T}/>}
-            {estChantierAEtude(selectedChantier) && !selectedPhasage && (
-              <span style={{ fontSize: FONT.xs.size + 1, color: "#f5a623" }}>
-                Passage automatique en Planifié impossible pour l'instant : l'étape « Devis signé » se valide dans le cycle de vie, qui n'apparaît qu'avec un phasage.
-              </span>
-            )}
             {modalePerte === "perdu" && <MarquerPerduModal T={T} chantier={selectedChantier} onClose={() => setModalePerte(null)} onValider={marquerPerdu}/>}
             {modalePerte === "annuler" && <AnnulerPerteModal T={T} chantier={selectedChantier} onClose={() => setModalePerte(null)} onValider={annulerPerte}/>}
             {selectedPhasage ? (
@@ -3020,10 +3188,13 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         {/* ── Frise du cycle de vie (Point 2a) : sous le bandeau QCD ── */}
         <FriseCycleVie cv={cv} cvCtx={cvCtx} chronoGroupes={chronoGroupesSelected} statsGroupes={statsGroupesSelected}
           etapesFacturation={etapesFacturationTravaux(etatFact)}
-          peutModifier={!!selectedPhasage} onDeclarer={declarerPhaseCV}
+          peutModifier={!!(cvD.charge && !cvD.erreur)} onDeclarer={declarerPhaseCV}
+          enrichirEtape={enrichirEtapeCV} anciennesPieces={anciennesPiecesCV}
+          erreurChargement={cvD.charge ? cvD.erreur : null}
           actionsEtape={{
             onValider: validerEtapeCV,
             onDevalider: devaliderEtapeCV,
+            onDepartager: departagerEtapeCV,
             onAjouterPJ: ajouterPieceJointeCV,
             onSupprimerPJ: supprimerPieceJointeCV,
             onAjouterJournal: ajouterJournalCV,
@@ -3044,7 +3215,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
 
         {/* ── Référence financière figée (Point 5) : sous la frise cycle de vie ── */}
         <BlocReferenceFinanciere T={T} chantierId={selected} chantierNom={selectedChantier?.nom || ""}
-          phasage={selectedPhasage} finance={finances?.fin || null} auteur={auteurCV}/>
+          phasage={phasageAvecCycleVie} finance={finances?.fin || null} auteur={auteurCV}/>
 
         {/* Modale d'envoi d'un document d'étape par email */}
         {envoiPJ && (

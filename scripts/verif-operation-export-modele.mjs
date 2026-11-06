@@ -59,6 +59,7 @@ const PHASAGE = {
         metres: { fait: true, date: "2026-05-02T08:00:00.000Z", auteur: "Loris", donnees: {} },
         reponse_client: { fait: false, date: null, auteur: null, donnees: { reponse: "accepte" } },
         devis_signe: {
+          donnees: { date: "2026-05-19" },
           pieces_jointes: [
             { path: "cycle-vie/ph-1/devis_signe/1757000000000_Devis.pdf", nom: "Devis signé.pdf", taille: 120000, type: "application/pdf", date: "2026-05-20T10:00:00.000Z", auteur: "Loris" },
           ],
@@ -407,18 +408,43 @@ test("une tâche planifiée au-delà de l'horizon sort des échéances mais rest
 // ─── CYCLE DE VIE ET DOCUMENTS ───────────────────────────────────────────────
 
 test("le cycle de vie reprend les étapes validées, leurs données typées et la phase déclarée", () => {
-  const metres = C.cycleVie.etapes.find((e) => e.id === "metres");
-  assert.equal(metres.fait, true);
-  assert.equal(metres.auteur, "Loris");
-  const reponse = C.cycleVie.etapes.find((e) => e.id === "reponse_client");
-  // Les données sont TYPÉES (pas une chaîne « reponse : accepte ») : c'est ce
+  // Lot 3 : l'ancienne étape « Métrés » est reprise sur « Visite avant
+  // chiffrage + Imapper » (reprise à la lecture, cycleVieReprise.mjs).
+  assert.equal(C.cycleVie.etapes.some((e) => e.id === "metres"), false, "l'ancien identifiant n'est plus listé");
+  const visite = C.cycleVie.etapes.find((e) => e.id === "visite_chiffrage");
+  assert.equal(visite.fait, true);
+  assert.equal(visite.auteur, "Loris");
+  // « Réponse client » n'a pas d'équivalent : conservée en base, plus listée.
+  assert.equal(C.cycleVie.etapes.some((e) => e.id === "reponse_client"), false);
+  const signe = C.cycleVie.etapes.find((e) => e.id === "devis_signe");
+  // Les données sont TYPÉES (pas une chaîne « date : 2026-05-19 ») : c'est ce
   // qui permet au générateur d'écrire un libellé métier et un format humain.
-  assert.equal(reponse.donnees.length, 1);
-  assert.equal(reponse.donnees[0].cle, "reponse");
-  assert.equal(reponse.donnees[0].label, "Réponse");
-  assert.equal(reponse.donnees[0].valeur, "accepte");
+  assert.equal(signe.donnees.length, 1);
+  assert.equal(signe.donnees[0].cle, "date");
+  assert.equal(signe.donnees[0].label, "Date de signature");
+  assert.equal(signe.donnees[0].type, "date");
+  assert.equal(signe.donnees[0].valeur, "2026-05-19");
   assert.ok(C.cycleVie.phaseLabel.startsWith("Travaux"));
   assert.ok(C.cycleVie.prochaine, "la prochaine étape à faire doit être identifiée");
+  assert.equal(C.cycleVie.prochaine.nom === "Chiffrage réalisé", false, "une étape automatique n'est jamais « la prochaine à faire »");
+});
+
+test("une ligne du nouveau cycle (table chantier_cycle_vie) prime sur l'ancien état du phasage", () => {
+  const c = normaliserChantier({
+    ...CONTEXTE,
+    sources: { ...(CONTEXTE.sources || {}), cycleVie: [
+      { chantier_id: "x", etape_id: "visite_chiffrage", etat: { fait: false, date: null, auteur: null } },
+      { chantier_id: "x", etape_id: "_phase_declaree", etat: { phaseId: "cv_contrat", auteur: "Loris", date: "2026-11-06" } },
+    ] },
+  });
+  assert.equal(c.cycleVie.etapes.find((e) => e.id === "visite_chiffrage").fait, false);
+  assert.ok(c.cycleVie.phaseLabel.startsWith("Contrat"));
+});
+
+test("une étape automatique n'est jamais présentée « à faire » dans l'export", () => {
+  const auto = C.cycleVie.etapes.filter((e) => e.auto);
+  assert.ok(auto.length >= 5, "Chiffrage, relances, acompte, phasage, pré-réception, solde");
+  assert.ok(auto.every((e) => e.fait === true || e.fait === null));
 });
 
 test("un montant saisi sur une étape est typé « montant », pas un nombre nu", () => {
@@ -552,7 +578,8 @@ test("un chantier sans phasage produit un modèle vide mais complet", () => {
   assert.deepEqual(VIDE.documents, []);
   assert.equal(VIDE.totalCommandes, 0);
   assert.equal(VIDE.cycleVie.etapes.length > 0, true, "les étapes du référentiel restent listées, à faire");
-  assert.ok(VIDE.cycleVie.etapes.every((e) => e.fait === false));
+  assert.ok(VIDE.cycleVie.etapes.every((e) => (e.auto ? e.fait === null : e.fait === false)),
+    "manuelles à faire, automatiques non évaluées dans l'export");
 });
 
 // ─── AGRÉGATION D'OPÉRATION ──────────────────────────────────────────────────

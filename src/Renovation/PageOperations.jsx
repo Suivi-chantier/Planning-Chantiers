@@ -45,6 +45,7 @@ import { STATUTS_AFFICHAGE, statutOperation } from "./statutsChantier.js";
 import { estChantierActif } from "./chantierActif.js";
 import { BadgeStatut } from "./ComposantsCommerciaux.jsx";
 import OperationCommercial from "./OperationCommercial.jsx";
+import SyntheseCycleVieOperation from "./SyntheseCycleVieOperation.jsx";
 import { useReglagesMarges } from "./reglagesMarges";
 import { detailKpiOperation, carteDeriveOperation } from "./operationKpiDetail";
 import {
@@ -770,6 +771,9 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
       <OperationCommercial T={T} op={op} chantiersOp={chantiersOp} chantiers={chantiers}
         setChantiers={setChantiers} saveConfig={saveConfig} profil={profil}
         onOperationModifiee={(maj) => setOperations((l) => (l || []).map((o) => (o.id === maj.id ? { ...o, ...maj } : o)))}/>
+
+      {/* Lot 3 : synthèse en lecture seule du cycle de vie de ses chantiers. */}
+      <SyntheseCycleVieOperation T={T} chantiersOp={chantiersOp} phasagesParChantier={etat.phasagesParChantier}/>
 
       {chantiersOp.length === 0 ? (
         <div style={{ textAlign: "center", padding: 60, color: textMuted }}>

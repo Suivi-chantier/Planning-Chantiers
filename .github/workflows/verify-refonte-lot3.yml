@@ -1,0 +1,36 @@
+name: Verify Refonte Opérations, lot 3 (cycle de vie 5 phases, relances)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'api/**'
+      - 'supabase/migrations/*refonte_operations*'
+      - 'sql/202611_refonte_operations*'
+      - 'scripts/verif-refonte-lot3.mjs'
+      - 'scripts/verif-operation-export-modele.mjs'
+      - '.github/workflows/cron-dispatcher.yml'
+      - '.github/workflows/verify-refonte-lot3.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dépendances (supabase-js pour la tâche planifiée simulée, build)
+        run: npm ci
+      - name: Cycle de vie 5 phases, reprise, relances (interrupteur éteint = aucun envoi), liens uniques, migration additive
+        run: node scripts/verif-refonte-lot3.mjs
+      - name: Export de la fiche Opération (cycle de vie repris)
+        run: node scripts/verif-operation-export-modele.mjs
+      - name: Build Vite (fiche chantier, page Opération, Réglages)
+        run: npm run build

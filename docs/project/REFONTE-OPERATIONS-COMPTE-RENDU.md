@@ -165,6 +165,99 @@ utilisateur ne voit que lui-même, et l'écran le dit.
 
 **E-mails** : aucun changement. Les relances arrivent au lot 3.
 
+### Lot 3 — Nouveau cycle de vie du chantier, relances, synthèse par opération
+
+**Fiche chantier (pages Chantiers et Opérations → clic sur un chantier).**
+La frise « Cycle de vie du chantier » passe de 6 à **5 phases** : Étude,
+Contrat, Préparation, Travaux, Réception. Les phases Garanties/SAV et Clôture
+disparaissent, comme les étapes Métrés, Réponse client, Rétractation,
+Commandes & approvisionnements, Équipes affectées, Installation, Nettoyage et
+DOE.
+
+| Phase | Étape | Comment elle se valide |
+|---|---|---|
+| Étude | Visite avant chiffrage + Imapper | Case « Fait » + bouton « Créer l'événement Google Agenda » |
+| Étude | Chiffrage réalisé | Automatique (phasage chiffré ou chiffrage rattaché) |
+| Étude | Devis envoyé | Import du devis (la date d'import = date d'envoi) + « Ouvrir dans ProGBat » |
+| Étude | Relance devis | Automatique : nombre de relances envoyées et date de la dernière, ou pourquoi aucune ne part |
+| Contrat | Devis signé | Import du devis signé **avec sa date de signature** (obligatoire) + « Ouvrir dans ProGBat » |
+| Contrat | Acompte encaissé | Automatique (facture d'acompte réglée dans ProGBat ou encaissement saisi) + bouton vers la facture |
+| Contrat | Relance acompte | Automatique (comme la relance devis) |
+| Contrat | Autorisation reçue (DP ou autre) | Case à cocher, **partagée** entre les chantiers de l'opération |
+| Préparation | Visite conducteur + chargé d'affaires | Case « Fait » + bouton Google Agenda |
+| Préparation | Plans techniques | Import du document (visible aussi des ouvriers) |
+| Préparation | Phasage créé | Automatique, **seulement si le phasage contient des matériaux prévus** ; sinon l'étape dit ce qui manque |
+| Préparation | Planning prévisionnel | Import du PDF |
+| Préparation | Visite conducteur + chef de chantier | Case « Fait » + bouton Google Agenda |
+| Préparation | Finalisation de la préparation | Case à cocher |
+| Travaux | Un groupe d'exécution = une étape | Inchangé : validée par le contrôle de fin de groupe |
+| Réception | Pré-réception interne | Automatique quand tous les groupes sont contrôlés |
+| Réception | Réception + PV | Import du PV **avec la date de réception** (obligatoire) |
+| Réception | Levée des réserves | Case à cocher (voir décision ci-dessous) |
+| Réception | Facture de solde | Automatique (échéance « solde » émise) + bouton vers la facture |
+
+- **Le cycle de vie n'a plus besoin d'un phasage.** Un chantier « À l'étude »
+  (pas encore de phasage) peut enregistrer son devis envoyé et son devis
+  signé ; la bascule « À l'étude → Planifié » fonctionne donc dès la
+  signature. Les étapes sont enregistrées une par une : deux personnes qui
+  valident deux étapes différentes ne s'écrasent plus.
+- **Devis signé** validé : le chantier « À l'étude » passe en « Planifié »
+  (historique conservé) et les relances du devis s'arrêtent. L'étape affiche
+  « Facture d'acompte dans ProGBat : création automatique à venir (lot 4) — à
+  créer à la main dans ProGBat pour l'instant ».
+- **Autorisation reçue** cochée sur un chantier : les autres chantiers de la
+  même opération affichent « Validée via le chantier X le … », sans copie de
+  la donnée. « Dé-partager pour ce chantier » le dispense (il attend alors sa
+  propre autorisation) ; « Re-partager » annule.
+- **Ouvrir dans ProGBat** : ouvre le devis ou la facture dans un nouvel onglet
+  (l'application n'écrit rien dans ProGBat). L'infobulle rappelle que
+  l'entreprise « PROFERO RENOVATION » doit être active dans ProGBat. Devis
+  inconnu (aucun devis créé depuis l'application pour ce chantier) : pas de
+  bouton, la raison est écrite. Facture pas encore connue : le bouton ouvre la
+  liste des factures, et le dit.
+- **Créer l'événement Google Agenda** : même mécanisme que le bouton du
+  Planning hebdo (un seul module pour les deux), événement pré-rempli avec le
+  nom du chantier, l'opération et l'adresse (fiche chantier, sinon chiffrage,
+  sinon opération). Adresse inconnue : c'est écrit sous le bouton.
+- **Étapes déjà validées avant le lot 3** : reprises sur leur équivalent
+  (tableau « Données migrées »). Les anciennes étapes sans équivalent ne sont
+  plus affichées ; leurs documents restent consultables en bas de la frise
+  (« Documents des anciennes étapes »).
+- **Page Opération** : nouveau bloc « Cycle de vie des chantiers » en lecture
+  seule : « 2/5 devis envoyés », « 1/5 devis signés », « autorisations
+  reçues », « préparations finalisées », « réceptionnés », puis une ligne par
+  chantier. Les chantiers perdus ne comptent pas (ils sont signalés à part).
+  L'opération n'a pas de cycle de vie à elle.
+- **Espace ouvrier** : inchangé, sauf que les nouveaux « plans techniques »
+  apparaissent dans « Documents » (comme les anciens plans d'exécution).
+- **Export de l'opération** (Markdown) : 5 phases ; une étape automatique y est
+  marquée « Automatique (voir la fiche chantier) », jamais « À faire ».
+
+**Qui voit quoi** : aucun droit d'accès aux pages modifié (`src/access.js`
+inchangé). La fiche chantier et la page Opération gardent leurs rôles (lot 2).
+Nouvel onglet **Réglages → Logistique → Relances**, réservé au rôle
+administrateur (comme « Utilisateurs » ou « Accès »). Les deux nouvelles
+tables portent `profero_collaborateurs_seulement` ; le bureau lit et écrit les
+étapes, les ouvriers ne lisent que l'étape « Plans techniques » ; le journal
+des relances n'est écrit que par le serveur.
+
+**E-mails — qui reçoit quoi.** Les relances partent **uniquement si
+l'administrateur les active** (Réglages → Relances ; livrées ÉTEINTES) :
+- **Relance devis** : au **chargé d'affaires** du chantier (celui du chantier,
+  sinon celui de l'opération), quand le devis a été importé comme envoyé depuis
+  au moins 7 jours (réglable) sans être signé, puis chaque semaine jusqu'à la
+  signature. Lien « Ouvrir dans ProGBat » vers le devis.
+- **Relance acompte** : au chargé d'affaires, quand la facture d'acompte est
+  émise depuis au moins 7 jours (réglable) sans être réglée, puis chaque
+  semaine jusqu'à l'encaissement. Lien vers la facture.
+- Jamais pour un chantier « Perdu », jamais sans chargé d'affaires (l'étape
+  affiche « relance impossible : aucun chargé d'affaires »), jamais vers un
+  compte inactif ou un identifiant sans vraie adresse e-mail. Une relance n'est
+  jamais envoyée deux fois (une par semaine au plus, garantie par la base).
+  Tâche planifiée : chaque matin du lundi au vendredi (6h15 UTC, 7h15 ou 8h15 à
+  Paris), au plus 30 relances par passage.
+- Aucun e-mail réel n'a été envoyé pendant le développement.
+
 ---
 
 ## Journal de décisions
@@ -190,6 +283,17 @@ utilisateur ne voit que lui-même, et l'écran le dit.
 | 06/11/2026 | **Lot 2 — Une seule liste de règles de saisie** (`src/Renovation/reglesSaisieProgbat.mjs`), lue par les formulaires (astérisques, refus d'enregistrer une fiche client incomplète, bouton grisé) et par `construireEnTeteDevis` (contrôle d'avant-envoi, navigateur et serveur). Code postal / ville du chantier, e-mail, téléphone et pays du client deviennent bloquants. Le formulaire de chiffrage reste en enregistrement automatique (brouillon) : le blocage porte sur la création du devis. | Refuser d'enregistrer un brouillon de chiffrage à chaque frappe le rendrait inutilisable ; les fiches client, elles, sont refusées si incomplètes. | Retirer une règle de la liste. |
 | 06/11/2026 | **Lot 2 — Identifiants ProGBat générés** : client = « NOM VILLE » (nom ou raison sociale + ville, majuscules, sans accents ni ponctuation, SAINT → ST) ; nom du chantier ProGBat = « client — référence du logement » (déjà utilisé) ; code du chantier = code client + référence. Calculés, jamais saisis ; rien n'est envoyé à ProGBat dans ce lot. | Modèle de l'exemple du cahier des charges (« CORRAL ST BARTHELEMY D ANJOU ») ; aucune trace du modèle dans le code ni en base. Longueur maximale ProGBat inconnue : à vérifier au lot 4. | `genererCodeClient()` et voisines. |
 | 06/11/2026 | **Lot 2 — Fonction serveur `progbat-quote`** : sa copie des règles est à jour dans le dépôt mais **n'est pas redéployée** par ce lot. | Pas de mise en production hors fusion. D'ici son déploiement, le serveur applique encore les anciennes règles ; le bouton de l'application, lui, applique déjà les nouvelles. | — |
+| 06/11/2026 | **Lot 3 — Étapes du cycle de vie dans une table à part** (`chantier_cycle_vie`, une ligne par chantier et par étape), au lieu du phasage. | Un chantier à l'étude n'a pas de phasage : il ne pouvait valider ni « Devis envoyé » ni « Devis signé », donc jamais basculer en Planifié. Une ligne par étape évite aussi qu'une validation en écrase une autre. | Annuler la demande de fusion + `sql/202611_refonte_operations_lot3_rollback.sql` (renomme les tables en `_sauvegarde_refonte`, rien n'est supprimé). |
+| 06/11/2026 | **Lot 3 — Reprise À LA LECTURE de l'ancien cycle**, aucune réécriture en base. Correspondances : Métrés → Visite avant chiffrage + Imapper ; Chiffrage réalisé, Devis envoyé, Devis signé, Acompte encaissé, Levée des réserves → même étape ; Plans d'exécution → Plans techniques ; Visite de réception → Réception + PV ; phases Devis → Étude, Garanties → Réception. Sans équivalent (conservées en base, non affichées, documents consultables) : Réponse client, Rétractation, Commandes, Équipes affectées, Installation, DOE, Parfait achèvement, SAV, Fin de garantie. Une ligne de la nouvelle table prime toujours sur l'ancien état ; à la première modification d'une étape reprise, son état (documents compris) est recopié dans la table, l'ancien reste intact. | Les anciennes données restent la vérité de secours ; l'ancien code relit exactement ce qu'il avait. | Retour arrière : l'ancien code relit `meta.cycle_vie_etapes`, jamais modifié. |
+| 06/11/2026 | **Lot 3 — « Réponse client : accepté » n'est pas repris en « Devis signé ».** | « Devis signé » se prouve par le devis signé importé ; une réponse orale ne déclenche pas la bascule en Planifié. Les 8 chantiers concernés avaient de toute façon déjà « Devis signé » ou un statut d'exploitation. | — |
+| 06/11/2026 | **Lot 3 — « Acompte encaissé » devient automatique**, mais une coche manuelle de l'ancien cycle reste valable (« coche manuelle conservée »). La facture d'acompte retenue est celle de l'échéance « acompte », sinon la première facture d'acompte ProGBat du chantier (l'écran le précise). Réglée = règlements ProGBat couvrant le montant, ou encaissement saisi dans le bloc Facturation. L'ancienne écriture automatique de l'étape depuis la facturation est supprimée (le calcul se fait à la lecture). | Ne jamais retirer une information saisie ; un seul calcul, pas de recopie. | — |
+| 06/11/2026 | **Lot 3 — Levée des réserves reste une case à cocher.** | Vérifié : les seules réserves saisies dans l'application sont celles des contrôles de fin de groupe (table `reserves`, 0 ligne en base au 06/11/2026), pas les réserves du PV de réception. L'étape affiche le nombre de réserves de contrôle encore ouvertes, à titre d'information. | Brancher l'étape sur `reserves` si un jour les réserves de réception y sont saisies. |
+| 06/11/2026 | **Lot 3 — Phasage créé** = le phasage existe et au moins un ouvrage a des matériaux prévus (liens matériaux ou coût matériaux) ; les ouvrages sans matériau sont comptés dans la raison. | « Pas seulement des heures » sans rendre bloquants les ouvrages de pure main-d'œuvre (démolition…). | Durcir la règle dans `etatPhasageMateriaux()`. |
+| 06/11/2026 | **Lot 3 — Dates obligatoires à l'import** : le devis signé ne s'importe qu'avec sa date de signature, le PV qu'avec sa date de réception. | Cahier des charges (« + date de signature », « + date de réception ») ; la date de signature sert au diagramme financier. | — |
+| 06/11/2026 | **Lot 3 — Relances** : première relance au bout du délai réglé (7 jours par défaut, entre 1 et 60), puis tous les 7 jours ; une semaine manquée n'est pas rattrapée (on envoie celle en cours) ; la relance est réservée en base avant l'envoi (contrainte d'unicité), un échec d'envoi est retenté le lendemain ; 30 relances au plus par passage. Créneau dédié (`?job=relances_cycle_vie`) dans le workflow existant `cron-dispatcher.yml` ; envoi par `api/send-email.js` (profil serveur). Interrupteur éteint = la tâche ne lit rien d'autre que l'interrupteur. | Prudence : rien ne part sans l'accord de Loris ; jamais de double envoi ; pas de déluge le jour de l'activation. | Éteindre l'interrupteur (Réglages → Relances). |
+| 06/11/2026 | **Lot 3 — Phase déclarée à la main** : enregistrée dans la même table (pseudo-étape `_phase_declaree`), l'ancienne déclaration du phasage est reprise et traduite. | Fonctionne sans phasage, comme les étapes. | — |
+| 06/11/2026 | **Lot 3 — Ouvriers** : nouvelle policy de lecture limitée à l'étape « Plans techniques » sur la nouvelle table. La fonction `ouvrier_chantier_detail` (droits élevés) n'est pas modifiée ; l'écran ouvrier ajoute les plans de la table et retire les anciens plans d'exécution quand la table les a repris (pas de doublon). | Les ouvriers voyaient déjà les plans d'exécution ; ne pas leur retirer les nouveaux plans. Aucune fonction à droits élevés touchée. | Supprimer la policy « cycle vie ouvrier plans techniques ». |
+| 06/11/2026 | **Lot 3 — Facture d'acompte ProGBat (lot 4)** : aucun appel ProGBat. Point d'accroche : la bascule `decisionBasculeSignature()` / l'effet « bascule à la signature » de `PageChantiers.jsx` ; message honnête sur l'étape « Devis signé ». | Garde-fou « ProGBat en lecture seule » ; le lot 4 ajoute le bouton avec confirmation et anti-doublon. | — |
 
 ---
 
@@ -242,6 +346,52 @@ Retour arrière : `sql/202611_refonte_operations_lot2_rollback.sql` (remet les
 chantiers à l'étude sans statut et archive les perdus, après les avoir notés
 dans l'historique ; ne supprime rien).
 
+### Lot 3 — étapes de l'ancien cycle de vie
+
+Comptes lus en base le 06/11/2026 (requête sur `phasages.plan_travaux.meta.cycle_vie_etapes`,
+24 phasages sur 49 portent des étapes, tous rattachés à un chantier existant).
+**Rien n'est réécrit** : la reprise se fait à l'affichage.
+
+| Ancienne étape | États en base | Dont validées | Avec documents | Devient |
+|---|---|---|---|---|
+| Métrés | 1 | 0 | 0 | Visite avant chiffrage + Imapper |
+| Chiffrage réalisé | 1 | 0 | 0 | Chiffrage réalisé (automatique, recalculé) |
+| Devis signé | 8 | 8 | 7 | Devis signé |
+| Acompte encaissé | 8 | 8 (toutes cochées à la main) | 0 | Acompte encaissé (coche conservée) |
+| Plans d'exécution | 1 | 1 | 1 | Plans techniques |
+| Visite de réception | 2 | 1 | 2 | Réception + PV |
+| Levée des réserves | 9 | 9 | 7 | Levée des réserves |
+| Réponse client | 9 | 8 | 7 | — (non affichée ; 7 documents consultables en bas de la frise) |
+| Commandes & approvisionnements | 2 | 2 | 0 | — (non affichée) |
+| Facture de situation 100 % (déjà masquée depuis l'échéancier) | 2 | 2 | 0 | — (non affichée) |
+
+Phases déclarées à la main : 2 (une « Travaux », une « Réception ») — reprises
+telles quelles. Aucune phase « Devis » ni « Garanties » déclarée.
+
+Migration `supabase/migrations/20261106061807_refonte_operations_lot3.sql`,
+**purement additive** : tables `chantier_cycle_vie` et `relances_cycle_vie`
+créées (vides), policy `profero_collaborateurs_seulement` posée sur les deux,
+aucune ligne existante lue ni modifiée, aucune fonction à droits élevés.
+Vérifiée avant (objets inexistants, SQL relu), essayée dans une transaction
+annulée (2 policies restrictives, une ligne d'essai par table, 46 chantiers /
+49 phasages inchangés), puis appliquée et enregistrée (version
+20261106061807). Pas de sauvegarde nécessaire : rien n'est réécrit. Retour
+arrière : `sql/202611_refonte_operations_lot3_rollback.sql`.
+
+**Simulation des relances** (lecture seule de la base le 06/11/2026, module
+`relancesCycleVie.mjs`, aucun e-mail) — si l'interrupteur était activé
+aujourd'hui avec le délai de 7 jours : **0 relance partirait**.
+- Devis : aucun chantier n'a encore d'étape « Devis envoyé » importée (38
+  chantiers sans devis envoyé, 8 avec un devis signé repris de l'ancien
+  cycle).
+- Acompte : 30 chantiers ont une facture d'acompte émise ; 29 sont réglées
+  (ou cochées à la main), **1 n'est pas réglée** (facture du 25/08/2025, chantier
+  en cours) mais **aucun chantier n'a de chargé d'affaires** (0 sur 46) :
+  l'étape affiche « relance impossible : aucun chargé d'affaires ».
+- Dès qu'un chargé d'affaires sera renseigné sur ce chantier (ou son
+  opération), cette facture serait relancée au premier passage : à vérifier
+  avant d'activer (elle a peut-être été réglée hors ProGBat).
+
 ---
 
 ## À faire par Loris
@@ -261,6 +411,15 @@ dans l'historique ; ne supprime rien).
 - Lot 2 : la liste complète des collaborateurs n'est visible que par un
   administrateur ; un autre utilisateur ne peut désigner que lui-même comme
   chargé d'affaires.
+- Lot 3 : **renseigner les chargés d'affaires** (Opérations → fiche de
+  l'opération, ou chantier par chantier) : aucun n'est rempli aujourd'hui, et
+  sans chargé d'affaires aucune relance ne peut partir.
+- Lot 3 : **régler le délai** des relances si 7 jours ne convient pas, puis
+  **activer l'interrupteur** (Réglages → Logistique → Relances, compte
+  administrateur). Avant d'activer : vérifier la facture d'acompte du
+  25/08/2025 signalée non réglée (voir « Données migrées »).
+- Lot 3 : la facture d'acompte se crée encore à la main dans ProGBat après la
+  signature (automatisation au lot 4).
 
 ---
 
@@ -324,3 +483,42 @@ dans l'historique ; ne supprime rien).
    chiffrage »). « Rattacher à une opération » → ses adresses sont reprises.
 9. Nettoyage : marquer le chantier de test perdu (ou le supprimer dans
    Réglages → Chantiers) ; il reste en réserve.
+
+### Lot 3
+
+1. **Fiche d'un chantier existant avec phasage** (ex. un chantier en cours) :
+   la frise montre 5 phases. Les étapes validées avant (devis signé, levée des
+   réserves…) sont toujours validées, avec la mention « reprise de l'ancienne
+   étape » quand le nom a changé. En bas, « Documents des anciennes étapes »
+   liste les documents de « Réponse client ».
+2. **Chantier à l'étude sans phasage** (créé au lot 2) : la frise s'affiche.
+   Étude → « Visite avant chiffrage » → « Créer l'événement Google Agenda » :
+   Google Agenda s'ouvre avec le nom du chantier et l'adresse ; « Valider ».
+3. **Devis envoyé** : « Importer le document » → l'étape est validée à la date
+   du jour ; « Relance devis » affiche « Première relance prévue le … ».
+   « Ouvrir dans ProGBat » ouvre le devis si le chiffrage a créé un devis,
+   sinon la raison est écrite.
+4. **Devis signé** : le bouton d'import est grisé tant que la date de
+   signature n'est pas saisie ; après import, le chantier passe « Planifié »,
+   « Relance devis » dit « Relances arrêtées », et le message sur la facture
+   d'acompte (lot 4) s'affiche.
+5. **Autorisation reçue** : la cocher sur un chantier d'une opération à
+   plusieurs logements → sur un autre chantier, « Validée via le chantier X le
+   … ». « Dé-partager pour ce chantier » → redevient à faire ; « Re-partager »
+   → revient.
+6. **Phasage créé** : sur un chantier dont le phasage n'a que des heures,
+   l'étape dit « aucun matériau prévu » ; sur un phasage avec matériaux, elle
+   est validée.
+7. **Réception + PV** : import grisé sans date de réception ; « Pré-réception
+   interne » se valide quand tous les groupes ont leur contrôle.
+8. **Opérations → une opération** : bloc « Cycle de vie des chantiers »
+   (« x/y devis signés »…), une ligne par chantier ; un chantier perdu n'est
+   pas compté.
+9. **Réglages → Logistique → Relances** (administrateur) : « Relances
+   désactivées » ; régler 10 jours et enregistrer, recharger : 10 jours. Ne pas
+   activer avant d'avoir renseigné les chargés d'affaires.
+10. **Espace ouvrier** : un plan importé dans « Plans techniques » apparaît
+    dans « Documents » du chantier.
+11. Relances (après activation par Loris) : le lendemain matin, le chargé
+    d'affaires d'un devis envoyé il y a plus de 7 jours reçoit un e-mail avec
+    le lien ProGBat ; l'étape affiche « 1 relance envoyée, dernière le … ».

@@ -36,7 +36,7 @@ import OuvrierPreparationChantier from "./OuvrierPreparationChantier";
 import { MobileCard, MobileSection, MobileEmptyState, Pill, SummaryBar } from "../mobileUI";
 import { indexPointagesParTache, tacheHeuresReelles, heuresReellesComparablesOuvrage, heuresHorsDevisOuvrage } from "../chantierFinance";
 import { urlDocumentChantier, derniereErreurDocument } from "./storageChantier";
-import { getEtape } from "./cycleVie";
+import { nomEtape } from "./cycleVie";
 import { NavButtons } from "./ouvrierNav";
 import PlanViewerOuvrier from "./PlanViewerOuvrier";
 // Mémo chantier : mêmes données et mêmes écrans que l'onglet Notes.
@@ -113,12 +113,23 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
       if (error) { console.error("ouvrier_plans_chantier:", error); setPlans([]); return; }
       setPlans(Array.isArray(data) ? data : []);
     });
-    const { data, error } = await supabase.rpc("ouvrier_chantier_detail", {
-      p_chantier_id: c.id, p_chantier_nom: c.nom,
-    });
+    const [{ data, error }, cvPlans] = await Promise.all([
+      supabase.rpc("ouvrier_chantier_detail", { p_chantier_id: c.id, p_chantier_nom: c.nom }),
+      // Plans techniques du NOUVEAU cycle de vie (lot 3, table
+      // chantier_cycle_vie : les ouvriers ne lisent que cette étape). La RPC,
+      // inchangée, ne voit que l'ancien stockage du phasage.
+      supabase.from("chantier_cycle_vie").select("etat").eq("chantier_id", c.id).eq("etape_id", "plans_techniques").maybeSingle(),
+    ]);
     setLoading(false);
     if (error || !data) { console.error("ouvrier_chantier_detail:", error); setErreur(true); return; }
-    setDetail(data);
+    if (cvPlans?.error) console.warn("plans techniques (cycle de vie) illisibles :", cvPlans.error.message);
+    const pieces = Array.isArray(cvPlans?.data?.etat?.pieces_jointes) ? cvPlans.data.etat.pieces_jointes : null;
+    // Une ligne de la table reprend (et remplace) les anciens « plans
+    // d'exécution » du phasage : on n'affiche pas deux fois les mêmes fichiers.
+    const documents = pieces
+      ? [...(data.documents || []).filter(g => g.etape_id !== "plans_execution"), ...(pieces.length ? [{ etape_id: "plans_techniques", pieces }] : [])]
+      : (data.documents || []);
+    setDetail({ ...data, documents });
   };
 
   const ouvrirDoc = async (pj) => {
@@ -490,7 +501,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
                 {(detail.documents || []).map(grp => (
                   <div key={grp.etape_id}>
                     <div style={{ fontSize:11, fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", color:T.textMuted, marginBottom:6 }}>
-                      {getEtape(grp.etape_id)?.nom || grp.etape_id}
+                      {nomEtape(grp.etape_id)}
                     </div>
                     <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                       {(grp.pieces || []).map((pj, i) => {
