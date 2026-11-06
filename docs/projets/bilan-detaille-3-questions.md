@@ -108,7 +108,8 @@ Règle par défaut de `CLAUDE.md`.
 | 1 | Calculs sans changement d'affichage : `fiabiliteMargeProbableV3`, tendance 6 semaines, fourchette (fonctions pures dans `bilanPeriodeV3.mjs`), seuils de fiabilité dans `normaliserSeuilsMarges` + `SeuilsMargesAdmin`, tests dans `scripts/verif-bilan-periode.mjs` (ou nouveau `verif-*` branché) | en ligne | Auto (contrôles verts) | Les 4 cas de fiabilité demandés + cas de tendance et de fourchette verts sur GitHub ; aucune formule de `chantierFinance.mjs` modifiée | [#206](https://github.com/Suivi-chantier/Planning-Chantiers/pull/206) (fusionnée) |
 | 2 | Haut du PDF détaillé : nouveau tableau de synthèse (ligne TOTAL, fourchette, fiabilité, tendance) + détail des marges complété (budget restant, €/h avec repère devis, une phrase par marge) ; chargement des relevés sur 6 semaines dans `BilanPeriode.jsx` + entrée `journalMaj.js` | en ligne | Auto | Contrôles verts ; version direction inchangée | [#208](https://github.com/Suivi-chantier/Planning-Chantiers/pull/208) (fusionnée) |
 | 3 | Fiches et annexe : cascade seulement si baisse > seuil ou pastille rouge, sinon « Marge probable stable (±X €) » ; méthode retirée, case « Joindre la méthode de calcul » décochée par défaut + entrée `journalMaj.js` | en ligne | Auto | Contrôles verts ; méthode absente par défaut, présente si cochée | [#209](https://github.com/Suivi-chantier/Planning-Chantiers/pull/209) (fusionnée) |
-| 4 | PDF d'exemple : ancien et nouveau PDF détaillé de la dernière semaine réelle, construits depuis la base | en cours | Livrable à Loris | Deux PDF sur les vrais chantiers, chiffres de marge identiques entre ancien et nouveau | — |
+| 4 | PDF d'exemple : ancien et nouveau PDF détaillé de la dernière semaine réelle, construits depuis la base | en ligne (PDF remis à Loris) | Livrable à Loris | Deux PDF sur les vrais chantiers, chiffres de marge identiques entre ancien et nouveau | — (aucun changement de code) |
+| 5 | Finitions vues sur le PDF réel : cellule TOTAL de la marge probable qui écrase les colonnes, explication de fiabilité trop longue (6–7 lignes par chantier), pluriel « 0 chantier(s) » ; selon les réponses de Loris : lecture de la marge devis (`mo_prev`) et sens de l'écart dans « Marge probable stable » | en attente de Loris | Auto après réponse | Nouveau PDF W44 : une ligne par chantier sans texte tassé ; total de marge probable affiché si Loris accepte la correction | — |
 
 ## Journal des décisions
 
@@ -151,6 +152,26 @@ Règle par défaut de `CLAUDE.md`.
   exactement égale au seuil compte comme stable (même règle que la pastille).
   Tâche 4 lancée : PDF construits hors navigateur depuis la base ; ils ne
   sont pas versionnés dans le dépôt (données financières réelles).
+- 06/11/2026 — Tâche 4 : semaine 2026-W44 (dernière semaine complète ; W45
+  en cours). Chiffres identiques ancien / nouveau sur les 7 chantiers.
+  Découverte : la marge prévue au devis n'est jamais affichée dans le Bilan
+  (« Marge devis inconnue » partout, « Marge probable (0 chantiers) — » dans le
+  bandeau) parce que l'écran ne lit pas la colonne `mo_prev` des relevés
+  (absente de `COLONNES_COMPLETES` dans `BilanPeriode.jsx`), alors qu'elle est
+  remplie en base. Défaut antérieur au projet (les exports réels W43 et
+  novembre l'ont aussi) ; il prive la ligne TOTAL de sa marge probable, donc la
+  question 3 de l'objectif n'a pas de total. Corriger touche aussi la version
+  direction (hors périmètre) : arrêt, question à Loris. Tâche 5 ajoutée pour
+  les finitions d'affichage vues sur le PDF réel.
+
+### Question en attente (06/11/2026)
+
+1. Je corrige la lecture de la marge devis (colonne déjà remplie en base, non
+   lue par l'écran) ? Effet : la marge devis, l'écart au devis et le total de
+   la marge probable apparaissent, y compris dans la version direction. Aucun
+   calcul ne change.
+2. « Marge probable stable (±217 €) » cache le sens : j'écris plutôt « stable
+   (−217 €) » / « stable (+98 €) » ?
 
 ## Comptes rendus
 
@@ -190,3 +211,29 @@ case « Joindre la méthode de calcul » (décochée) à côté de « Version
 détaillée ». Le bilan archivé est exactement le PDF téléchargé. Scripts : 63,
 173 et 63 contrôles OK (exemples issus des tests, données fictives). Entrée
 ajoutée dans `journalMaj.js`.
+
+### Tâche 4 — PDF d'exemple sur la semaine 2026-W44 (06/11/2026)
+
+Deux PDF détaillés reconstitués hors application depuis la base (lecture
+seule), mêmes données pour les deux : l'ancien rendu (avant le projet) et le
+nouveau. Non versionnés (données financières réelles). Sans synthèse relue,
+photos, commentaires ni « semaine qui vient » (saisis à l'écran ou calculés par
+le moteur de planning).
+
+Chiffres lus en base, ancien = nouveau, écart nul partout :
+
+| Chantier | Production | Marge de la période | Marge probable |
+|---|---|---|---|
+| FOURMOND 001 | 3 377,72 € | +68,99 € | +4 134,52 € |
+| FOURMOND 101 | 5 033,59 € | +1 200,77 € | +3 205,73 € |
+| FOURMOND 102 | 4 594,18 € | +1 074,08 € | +953,75 € |
+| FOURMOND COMMUNS | 0 € | −107,72 € | +1 501,73 € |
+| KATHLEEN T2 | 659,01 € | +210,31 € | +8 314,10 € |
+| MONTILLERS APPT 2 (T2) | 0 € | 0 € | +14 709,79 € |
+| MONTILLERS APPT 4 (T2) | 0 € | 0 € | +14 757,33 € |
+| Total | 13 664,50 € | +2 446,43 € (18 %) | « — » (0 chantier comparable) |
+
+Nouveau PDF : 9 pages au lieu de 11 ; cascade dans 2 fiches (FOURMOND 001 et
+101, pastille rouge), « stable » dans 5 ; fiabilité bonne 1, moyenne 3,
+faible 3 ; tendance incomplète (« · ») pour 3 chantiers récents.
+
