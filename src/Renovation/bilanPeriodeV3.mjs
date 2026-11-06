@@ -445,3 +445,136 @@ export function avertissementsExportV3({ periode, chantierIds, rapports = [], re
   }
   return { lignes, nbNonValides, nbJoursIncomplets, textes };
 }
+
+// ── Bilan détaillé : « où va chaque chantier » (projet du 06/11/2026) ───────
+// Trois lectures de la marge probable, sans aucun recalcul de marge : elles
+// LISENT les colonnes et la colonne `lots` des relevés journaliers.
+
+// Format euros signé, identique à celui du PDF (bilanPdfV3.mjs).
+const NBSP_V3 = " ";
+const fmtEurSigneV3 = v => (v == null ? "—" : `${v > 0.5 ? "+" : v < -0.5 ? "−" : ""}${Math.round(Math.abs(v)).toLocaleString("fr-FR")}${NBSP_V3}€`);
+
+/**
+ * Fourchette de la marge probable : de la marge probable (« au rythme
+ * actuel ») à la marge à terminaison (« si le reste se passe comme le
+ * devis »), bornes triées.
+ *   - l'une des deux inconnue → « — » (jamais 0) ;
+ *   - écart ≤ 1 € → « pas de dérive en cours » ;
+ *   - sinon « entre +8 400 € et +11 200 € ».
+ * @returns {{ texte: string, basse: number|null, haute: number|null, ecart: number|null, connue: boolean, sansDerive: boolean }}
+ */
+export function fourchetteMargeProbableV3({ margeProbable, margeTerminaison } = {}) {
+  const p = num(margeProbable), t = num(margeTerminaison);
+  if (p == null || t == null) return { texte: "—", basse: null, haute: null, ecart: null, connue: false, sansDerive: false };
+  const basse = Math.min(p, t), haute = Math.max(p, t);
+  const ecart = round2(haute - basse);
+  if (ecart <= 1) return { texte: "pas de dérive en cours", basse, haute, ecart, connue: true, sansDerive: true };
+  return { texte: `entre ${fmtEurSigneV3(basse)} et ${fmtEurSigneV3(haute)}`, basse, haute, ecart, connue: true, sansDerive: false };
+}
+
+const RANG_FIABILITE = { faible: 0, moyenne: 1, bonne: 2 };
+const fmtPctEntier = v => `${Math.round(v)}${NBSP_V3}%`;
+
+/**
+ * Niveau de fiabilité de la marge probable d'un chantier.
+ *   a) avancement (échelle 0–100, comme la colonne `avancement` du relevé) :
+ *      < fiabiliteAvancementFaiblePct → faible ; > fiabiliteAvancementBonPct
+ *      → bonne ; entre les deux (bornes comprises) → moyenne ;
+ *   b) couverture : part des heures restantes prévues (heuresRestantesPrevues)
+ *      des lots NON terminés (avancement exact < 100) dont le coefficient est
+ *      « constatee » ou « neutralisee » (« historique » et « aucune » ne
+ *      comptent pas, décision de Loris du 06/11/2026) ;
+ *      ≥ fiabiliteCouvertureBonnePct → bonne ; < fiabiliteCouvertureFaiblePct
+ *      → faible ; sinon moyenne ; aucune heure restante → bonne.
+ *   Niveau = la plus basse des deux notes.
+ * Avancement inconnu (null) : JAMAIS traité comme 0 → niveau null, « fiabilité
+ * inconnue : avancement inconnu ». Heures restantes illisibles sur les lots
+ * non terminés (relevé sans détail des lots) → niveau null également.
+ * @returns {{ niveau: "bonne"|"moyenne"|"faible"|null, raison: string, noteAvancement, noteCouverture, couverturePct: number|null, heuresRestantes: number|null }}
+ */
+export function fiabiliteMargeProbableV3({ avancement, lots, seuils = null } = {}) {
+  const s = normaliserSeuilsMarges(seuils);
+  const av = num(avancement);
+  const inconnue = raison => ({ niveau: null, raison, noteAvancement: null, noteCouverture: null, couverturePct: null, heuresRestantes: null });
+  if (av == null) return inconnue("fiabilité inconnue : avancement inconnu");
+
+  const noteAvancement = av < s.fiabiliteAvancementFaiblePct ? "faible" : av > s.fiabiliteAvancementBonPct ? "bonne" : "moyenne";
+
+  let total = 0, couvert = 0, illisibles = 0;
+  for (const l of listeSure(lots)) {
+    if (!l || typeof l !== "object") continue;
+    const avLot = num(l.avancementExact) ?? num(l.avancement);
+    if (avLot != null && avLot >= 100) continue; // lot terminé
+    const h = num(l.heuresRestantesPrevues);
+    if (h == null) { illisibles++; continue; }
+    if (!(h > 0)) continue;
+    total += h;
+    if (l.provenanceCoefficient === "constatee" || l.provenanceCoefficient === "neutralisee") couvert += h;
+  }
+  if (total <= 0 && illisibles > 0) return inconnue("fiabilité inconnue : heures restantes des lots illisibles");
+
+  let noteCouverture, couverturePct = null, texteCouv;
+  if (total <= 0) {
+    noteCouverture = "bonne";
+    texteCouv = "aucune heure restante";
+  } else {
+    couverturePct = round2(couvert / total * 100);
+    noteCouverture = couverturePct >= s.fiabiliteCouvertureBonnePct ? "bonne" : couverturePct < s.fiabiliteCouvertureFaiblePct ? "faible" : "moyenne";
+    texteCouv = `coefficients constatés sur ${fmtPctEntier(couverturePct)} des heures restantes`;
+  }
+  const niveau = RANG_FIABILITE[noteAvancement] <= RANG_FIABILITE[noteCouverture] ? noteAvancement : noteCouverture;
+  return { niveau, raison: `${fmtPctEntier(av)} avancé · ${texteCouv}`, noteAvancement, noteCouverture, couverturePct, heuresRestantes: round2(total) };
+}
+
+/**
+ * Les `nb` fins de semaine de la tendance, de la plus ancienne à la plus
+ * récente : la dernière est la date de fin de la période (un dimanche pour
+ * une semaine), les autres la précèdent de 7 jours en 7 jours. Aucune horloge.
+ */
+export function finsSemainesTendanceV3(dateFin, nb = 6) {
+  const d = jour(dateFin);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !(nb > 0)) return [];
+  return Array.from({ length: nb }, (_, i) => ajouterJoursV3(d, -7 * (nb - 1 - i)));
+}
+
+/**
+ * Tendance de la marge probable d'un chantier sur les semaines données.
+ * @param {object} args
+ * @param {Array}  args.releves       relevés DU chantier, triés (indexerRelevesV3(...).get(id))
+ * @param {string[]} args.finsSemaines dates AAAA-MM-JJ croissantes (finsSemainesTendanceV3)
+ * Pour chaque fin de semaine : marge probable du relevé au plus tard à cette
+ * date (releveAuPlusTardV3) ; null si aucun relevé (ou marge probable
+ * inconnue). Le point de comparaison de la 1re semaine est le relevé au plus
+ * tard 7 jours avant elle.
+ * Symboles : « ▲ » hausse, « ▼ » baisse, « = » stable (écart ≤ 1 €), par
+ * rapport à la dernière valeur connue avant la semaine ; « · » semaine sans
+ * valeur, ou première valeur sans rien à quoi la comparer.
+ * Évolution totale : dernière valeur connue − première valeur connue
+ * (point de comparaison compris) ; null s'il y en a moins de deux.
+ * @returns {{ semaines: Array<{ date, valeur, dateReleve, releveDansLaSemaine, symbole }>, valeurs: Array<number|null>, symboles: string[], texteSymboles: string, reference: number|null, evolution: number|null }}
+ */
+export function tendanceMargeProbableV3({ releves, finsSemaines } = {}) {
+  const liste = listeSure(releves);
+  const fins = listeSure(finsSemaines).map(jour).filter(Boolean);
+  const valeurA = date => {
+    const r = releveAuPlusTardV3(liste, date);
+    return { r, valeur: r ? num(r.marge_probable) : null };
+  };
+  const reference = fins.length ? valeurA(ajouterJoursV3(fins[0], -7)).valeur : null;
+  let precedente = reference;
+  const semaines = fins.map(date => {
+    const { r, valeur } = valeurA(date);
+    let symbole = "·";
+    if (valeur != null && precedente != null) {
+      const e = valeur - precedente;
+      symbole = e > 1 ? "▲" : e < -1 ? "▼" : "=";
+    }
+    if (valeur != null) precedente = valeur;
+    const dateReleve = r ? jour(r.date_releve) : null;
+    return { date, valeur, dateReleve, releveDansLaSemaine: dateReleve != null && dateReleve > ajouterJoursV3(date, -7), symbole };
+  });
+  const connues = [reference, ...semaines.map(x => x.valeur)].filter(v => v != null);
+  const evolution = connues.length >= 2 ? round2(connues[connues.length - 1] - connues[0]) : null;
+  const symboles = semaines.map(x => x.symbole);
+  return { semaines, valeurs: semaines.map(x => x.valeur), symboles, texteSymboles: symboles.join(""), reference, evolution };
+}

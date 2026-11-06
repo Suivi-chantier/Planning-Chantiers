@@ -8,7 +8,9 @@
 //   - présélection : chantier sans activité décoché, chantier avec seulement
 //     une commande coché, décochage manuel conservé pour la période ;
 //   - avertissement : comptes rendus non validés + journées incomplètes ;
-//   - version direction : aucun commentaire brut d'ouvrier.
+//   - version direction : aucun commentaire brut d'ouvrier ;
+//   - Bilan détaillé (06/11/2026) : fiabilité, tendance 6 semaines et
+//     fourchette de la marge probable.
 //
 //   node scripts/verif-bilan-periode.mjs
 import assert from "node:assert/strict";
@@ -20,7 +22,7 @@ import * as C from "../src/Renovation/bilanClotureV3.mjs";
 import * as A from "../src/Renovation/bilanArchiveV3.mjs";
 import { etatMateriauxOuvrageV1 } from "../src/Renovation/commandesOuvrageV1.mjs";
 import { readFileSync as lireFichier } from "node:fs";
-import { computeChantierFinance, margePrevueDevisReleve } from "../src/chantierFinance.mjs";
+import { computeChantierFinance, margePrevueDevisReleve, normaliserSeuilsMarges, SEUILS_MARGES_DEFAUT } from "../src/chantierFinance.mjs";
 import { MOTIF_LOT_EN_DERIVE, MOTIF_HEURES_SANS_LOT, MOTIF_DEPASSEMENT_ENVELOPPE, MOTIF_MARGE_PROBABLE_EN_BAISSE } from "../src/Renovation/pointsAttentionV1.mjs";
 import { createRequire } from "node:module";
 const require_ = createRequire(import.meta.url);
@@ -436,6 +438,107 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   const det = documentBilanV3(d, { detaillee: true });
   ok(dir.includes("2 chantiers en cours sans activité") && !dir.includes("X, Y") && det.includes("X, Y"), "liste des chantiers sans activité : version détaillée seulement");
   ok(!dir.includes("mar. 21/10") && det.includes("mar. 21/10"), "détail des journées incomplètes : version détaillée seulement");
+}
+
+// ── Bilan détaillé : fiabilité de la marge probable (données fictives) ──────
+{
+  const N = " ";
+  eq([SEUILS_MARGES_DEFAUT.fiabiliteAvancementFaiblePct, SEUILS_MARGES_DEFAUT.fiabiliteAvancementBonPct,
+    SEUILS_MARGES_DEFAUT.fiabiliteCouvertureFaiblePct, SEUILS_MARGES_DEFAUT.fiabiliteCouvertureBonnePct], [25, 60, 30, 70],
+    "fiabilité (données fictives) : seuils par défaut 25 / 60 / 30 / 70");
+  ok(normaliserSeuilsMarges({ fiabiliteAvancementBonPct: "50" }).fiabiliteAvancementBonPct === 50
+    && normaliserSeuilsMarges({ fiabiliteCouvertureBonnePct: "abc" }).fiabiliteCouvertureBonnePct === 70,
+    "fiabilité (données fictives) : seuils réglables, valeur illisible → défaut");
+  const lot = (id, hrp, prov, av = 40) => ({ id, label: id, avancement: av, avancementExact: av, heuresRestantesPrevues: hrp, provenanceCoefficient: prov });
+
+  // Chantier neuf : 0 % avancé, aucun coefficient constaté.
+  const neuf = B.fiabiliteMargeProbableV3({ avancement: 0, lots: [lot("a", 100, "aucune", 0), lot("b", 50, "historique", 0)] });
+  ok(neuf.niveau === "faible" && neuf.noteAvancement === "faible" && neuf.noteCouverture === "faible",
+    "fiabilité (données fictives) : chantier neuf → faible");
+  eq(neuf.raison, `0${N}% avancé · coefficients constatés sur 0${N}% des heures restantes`, "fiabilité (données fictives) : raison du chantier neuf");
+
+  // Chantier à 80 % tout constaté (un lot terminé ignoré, un lot neutralisé compté).
+  const c80 = B.fiabiliteMargeProbableV3({ avancement: 80, lots: [lot("a", 30, "constatee", 70), lot("b", 10, "neutralisee", 60), lot("c", 0, "aucune", 100)] });
+  ok(c80.niveau === "bonne" && c80.couverturePct === 100, "fiabilité (données fictives) : chantier à 80 % tout constaté → bonne");
+  eq(c80.raison, `80${N}% avancé · coefficients constatés sur 100${N}% des heures restantes`, "fiabilité (données fictives) : raison à 80 %");
+
+  // Chantier à 50 % tout « aucune ».
+  const c50 = B.fiabiliteMargeProbableV3({ avancement: 50, lots: [lot("a", 40, "aucune"), lot("b", 20, "aucune")] });
+  ok(c50.niveau === "faible" && c50.noteAvancement === "moyenne" && c50.noteCouverture === "faible",
+    "fiabilité (données fictives) : chantier à 50 % tout « aucune » → faible (la plus basse des deux)");
+
+  // Chantier sans heures restantes : couverture bonne, l'avancement décide.
+  const fini = B.fiabiliteMargeProbableV3({ avancement: 100, lots: [lot("a", 0, "constatee", 100), lot("b", 0, "aucune", 100)] });
+  ok(fini.niveau === "bonne" && fini.couverturePct === null, "fiabilité (données fictives) : aucune heure restante → bonne");
+  eq(fini.raison, `100${N}% avancé · aucune heure restante`, "fiabilité (données fictives) : raison sans heure restante");
+  ok(B.fiabiliteMargeProbableV3({ avancement: 40, lots: [] }).niveau === "moyenne", "fiabilité (données fictives) : sans lot à 40 % → moyenne (avancement)");
+
+  // « historique » ne compte pas comme couvert (décision de Loris).
+  const hist = B.fiabiliteMargeProbableV3({ avancement: 70, lots: [lot("a", 60, "historique"), lot("b", 40, "constatee")] });
+  ok(hist.couverturePct === 40 && hist.niveau === "moyenne", "fiabilité (données fictives) : coefficient historique non compté (40 % couverts → moyenne)");
+  eq(hist.raison, `70${N}% avancé · coefficients constatés sur 40${N}% des heures restantes`, "fiabilité (données fictives) : raison avec historique");
+
+  // Bornes : 25 et 60 % → moyenne ; 30 % couverts → moyenne ; 70 % → bonne.
+  ok(B.fiabiliteMargeProbableV3({ avancement: 25, lots: [] }).noteAvancement === "moyenne"
+    && B.fiabiliteMargeProbableV3({ avancement: 60, lots: [] }).noteAvancement === "moyenne"
+    && B.fiabiliteMargeProbableV3({ avancement: 24.9, lots: [] }).noteAvancement === "faible", "fiabilité (données fictives) : bornes d'avancement");
+  ok(B.fiabiliteMargeProbableV3({ avancement: 90, lots: [lot("a", 30, "constatee"), lot("b", 70, "aucune")] }).noteCouverture === "moyenne"
+    && B.fiabiliteMargeProbableV3({ avancement: 90, lots: [lot("a", 70, "constatee"), lot("b", 30, "aucune")] }).noteCouverture === "bonne",
+    "fiabilité (données fictives) : bornes de couverture (30 % moyenne, 70 % bonne)");
+  // Seuils réglés.
+  ok(B.fiabiliteMargeProbableV3({ avancement: 50, lots: [], seuils: { fiabiliteAvancementBonPct: 45 } }).niveau === "bonne",
+    "fiabilité (données fictives) : seuil d'avancement réglé pris en compte");
+
+  // Avancement inconnu : jamais traité comme 0.
+  const inc = B.fiabiliteMargeProbableV3({ avancement: null, lots: [lot("a", 10, "constatee")] });
+  ok(inc.niveau === null && /inconnue/.test(inc.raison), "fiabilité (données fictives) : avancement inconnu → fiabilité inconnue, pas « faible »");
+  ok(B.fiabiliteMargeProbableV3({ avancement: 50, lots: [{ id: "a", avancement: null }] }).niveau === null,
+    "fiabilité (données fictives) : heures restantes illisibles → fiabilité inconnue");
+}
+
+// ── Bilan détaillé : tendance 6 semaines (données fictives) ─────────────────
+{
+  eq(B.finsSemainesTendanceV3("2026-11-01"), ["2026-09-27", "2026-10-04", "2026-10-11", "2026-10-18", "2026-10-25", "2026-11-01"],
+    "tendance (données fictives) : 6 dimanches jusqu'à la fin de la période");
+  eq(B.finsSemainesTendanceV3("n'importe quoi"), [], "tendance (données fictives) : date illisible → aucune semaine");
+  const fins = B.finsSemainesTendanceV3("2026-11-01");
+  const r = (d, mp) => ({ chantier_id: "t", date_releve: d, marge_probable: mp });
+  // Référence (20/09) 1000 ; S1 1000.5 (= à 1 € près) ; S2 1200 (▲) ; S3 aucun relevé
+  // dans la semaine (le relevé au plus tard reste celui de S2 → =) ; S4 900 (▼) ;
+  // S5 marge inconnue (·) ; S6 950 (▲ face à S4).
+  const idx = B.indexerRelevesV3([r("2026-09-18", 1000), r("2026-09-25", 1000.5), r("2026-10-02", 1200),
+    r("2026-10-16", 900), r("2026-10-22", null), r("2026-10-30", 950)]);
+  const t = B.tendanceMargeProbableV3({ releves: idx.get("t"), finsSemaines: fins });
+  eq(t.valeurs, [1000.5, 1200, 1200, 900, null, 950], "tendance (données fictives) : marge probable au plus tard à chaque fin de semaine");
+  eq(t.symboles, ["=", "▲", "=", "▼", "·", "▲"], "tendance (données fictives) : ▲ ▼ = avec seuil 1 €, « · » si inconnue");
+  ok(t.semaines[2].releveDansLaSemaine === false && t.semaines[1].releveDansLaSemaine === true, "tendance (données fictives) : semaine sans relevé signalée");
+  ok(t.reference === 1000 && t.evolution === -50, "tendance (données fictives) : évolution totale = 950 − 1 000 = −50 €");
+  // Chantier qui démarre dans la fenêtre : rien avant → « · », évolution depuis la 1re valeur.
+  const idx2 = B.indexerRelevesV3([r("2026-10-14", 500), r("2026-10-28", 700)]);
+  const t2 = B.tendanceMargeProbableV3({ releves: idx2.get("t"), finsSemaines: fins });
+  eq(t2.symboles, ["·", "·", "·", "·", "=", "▲"], "tendance (données fictives) : semaines sans relevé → « · », 1re valeur sans comparaison → « · »");
+  ok(t2.evolution === 200 && t2.texteSymboles === "····=▲", "tendance (données fictives) : évolution depuis la première valeur connue");
+  const t3 = B.tendanceMargeProbableV3({ releves: [], finsSemaines: fins });
+  ok(t3.evolution === null && t3.valeurs.every(v => v === null) && t3.texteSymboles === "······", "tendance (données fictives) : aucun relevé → évolution inconnue, jamais 0");
+  const t4 = B.tendanceMargeProbableV3({ releves: B.indexerRelevesV3([r("2026-10-30", 300)]).get("t"), finsSemaines: fins });
+  ok(t4.evolution === null, "tendance (données fictives) : une seule valeur → évolution inconnue");
+}
+
+// ── Bilan détaillé : fourchette de la marge probable (données fictives) ─────
+{
+  const N = " ";
+  eq(B.fourchetteMargeProbableV3({ margeProbable: 8400, margeTerminaison: 11200 }).texte, `entre +8${N}400${N}€ et +11${N}200${N}€`,
+    "fourchette (données fictives) : « entre +8 400 € et +11 200 € »");
+  eq(B.fourchetteMargeProbableV3({ margeProbable: 11200, margeTerminaison: 8400 }).texte, `entre +8${N}400${N}€ et +11${N}200${N}€`,
+    "fourchette (données fictives) : bornes triées");
+  eq(B.fourchetteMargeProbableV3({ margeProbable: -1500, margeTerminaison: 2000 }).texte, `entre −1${N}500${N}€ et +2${N}000${N}€`,
+    "fourchette (données fictives) : borne négative");
+  const egal = B.fourchetteMargeProbableV3({ margeProbable: 5000, margeTerminaison: 5001 });
+  ok(egal.texte === "pas de dérive en cours" && egal.sansDerive, "fourchette (données fictives) : égales à 1 € près → pas de dérive en cours");
+  ok(B.fourchetteMargeProbableV3({ margeProbable: 5000, margeTerminaison: 5001.5 }).texte.startsWith("entre"), "fourchette (données fictives) : écart de 1,50 € → fourchette");
+  ok(B.fourchetteMargeProbableV3({ margeProbable: null, margeTerminaison: 5000 }).texte === "—"
+    && B.fourchetteMargeProbableV3({ margeProbable: 5000, margeTerminaison: undefined }).texte === "—"
+    && B.fourchetteMargeProbableV3({}).connue === false, "fourchette (données fictives) : inconnue → « — », jamais 0");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);

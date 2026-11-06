@@ -27,6 +27,11 @@ const CHAMPS = [
   { cle: "horsDevisRappelSemaines", label: "Rappel des tâches « à arbitrer » au-delà de", unite: "semaines sans décision (avenant ou geste commercial)" },
   { titre: "PDF du Bilan, version direction" },
   { cle: "bilanDirectionEnveloppeMinEuros", label: "Dépassement d'enveloppe matériaux affiché à partir de", unite: "€ (en dessous : version détaillée seulement)" },
+  { titre: "PDF du Bilan, fiabilité de la marge probable" },
+  { cle: "fiabiliteAvancementFaiblePct", label: "Fiabilité faible si le chantier est avancé de moins de", unite: "%" },
+  { cle: "fiabiliteAvancementBonPct", label: "Fiabilité bonne si le chantier est avancé de plus de", unite: "% (entre les deux : moyenne)" },
+  { cle: "fiabiliteCouvertureFaiblePct", label: "Fiabilité faible si la dérive est constatée sur moins de", unite: "% des heures restantes" },
+  { cle: "fiabiliteCouvertureBonnePct", label: "Fiabilité bonne si la dérive est constatée sur au moins", unite: "% des heures restantes (le niveau retenu est le plus bas des deux)" },
 ];
 
 export default function SeuilsMargesAdmin({ T, saveConfig }) {
