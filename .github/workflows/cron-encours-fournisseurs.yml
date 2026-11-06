@@ -6,6 +6,11 @@ name: Encours fournisseurs (mail hebdo vendredi soir)
 #
 # Appelle l'endpoint /api/cron-encours-fournisseurs de l'app Vercel.
 #
+# Après le mail, le même appel envoie la notification F2 « Encours
+# fournisseurs : X € HT à payer » (projet notifications-push, tâche 8), tirée
+# du même calcul. 17h UTC = 19h Paris en été, 18h en hiver : avant la plage de
+# silence (20h). Le mail est inchangé.
+#
 # Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
 
 on:

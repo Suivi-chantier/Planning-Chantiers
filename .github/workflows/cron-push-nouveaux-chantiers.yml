@@ -1,0 +1,74 @@
+name: Nouveau chantier signé — notification D2 (8h45, jours ouvrés)
+
+# Projet docs/projets/notifications-push.md, tâche 8.
+# Chaque jour ouvré, le serveur liste les chantiers dont l'étape « Devis
+# signé » du cycle de vie est validée (même lecture que la fiche chantier),
+# compare avec ceux déjà vus (table notifications_etat, type D2) et envoie UNE
+# notification pour les nouveaux (admins + conducteurs par défaut).
+# Premier passage : tous les chantiers déjà signés sont enregistrés, rien
+# n'est envoyé.
+#
+# Heure d'été / heure d'hiver : DEUX créneaux, et le job ignore tout appel
+# avant 8h Paris (&pas_avant=8) :
+#   06h45 UTC = 08h45 Paris en été   (07h45 en hiver : ignoré)
+#   07h45 UTC = 08h45 Paris en hiver (09h45 en été : passage sans doublon,
+#                                     les chantiers vus sont déjà enregistrés)
+#
+# Bouton « Run workflow » : simulation cochée (par défaut) = chantiers signés,
+# ce qui serait notifié et enregistré, destinataires, sans rien envoyer ni écrire.
+#
+# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+
+on:
+  schedule:
+    - cron: '45 6 * * 1-5'     # Lun-Ven 06h45 UTC → 08h45 Paris (été)
+    - cron: '45 7 * * 1-5'     # Lun-Ven 07h45 UTC → 08h45 Paris (hiver)
+  workflow_dispatch:
+    inputs:
+      simulation:
+        description: "Simulation sans envoi ni écriture"
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  nouveaux-chantiers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-dispatcher?job=nouveaux_chantiers
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EVENEMENT: ${{ github.event_name }}
+          SIMULATION: ${{ github.event.inputs.simulation }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          if [ "$EVENEMENT" = "schedule" ]; then
+            job="nouveaux_chantiers&pas_avant=8"
+          elif [ "$SIMULATION" = "true" ]; then
+            job="nouveaux_chantiers&simulation=1"
+          else
+            job="nouveaux_chantiers"
+          fi
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://planning-chantiers.vercel.app/api/cron-dispatcher?job=$job")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
+          # Le dispatcher répond 200 même quand la tâche échoue : il range
+          # l'erreur dans son résumé. On la fait remonter.
+          if echo "$body" | grep -q '"error":'; then
+            echo "::error::Le job « nouveau chantier signé » a échoué — voir le corps de la réponse"
+            exit 1
+          fi
+          if echo "$body" | grep -qE '"echecs":[1-9]'; then
+            echo "::warning::Au moins un envoi a échoué — voir le corps de la réponse"
+          fi

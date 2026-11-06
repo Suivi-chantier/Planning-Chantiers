@@ -46,6 +46,13 @@
 //     (?job=alertes_chantiers&pas_avant=9) : avant 9h Paris l'appel est
 //     ignoré, donc il part à 9h05 Paris en hiver comme en été ; le second
 //     passage d'été (10h05) ne trouve rien de nouveau (cron-alertes-chantiers.yml)
+//   Lun-Ven 06h45 et 07h45 UTC → D2 « nouveau chantier signé »
+//     (?job=nouveaux_chantiers&pas_avant=8) : avant 8h Paris l'appel est
+//     ignoré, donc il part à 8h45 Paris en hiver comme en été ; le second
+//     passage d'été (9h45) ne trouve rien de nouveau (cron-push-nouveaux-chantiers.yml)
+//   Lundi 06h30 et 07h30 UTC → D3 « synthèse de la semaine »
+//     (?job=synthese_semaine&pas_avant=8) : 8h30 Paris en hiver comme en été,
+//     une notification par semaine (cron-push-synthese-semaine.yml)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");
@@ -62,6 +69,7 @@ const { runFacturesAEmettre } = require("./_cron/cron-factures-a-emettre.js");
 const { runPushMateriaux }     = require("./_cron/cron-push-materiaux.js");
 const { runPointConducteurs }  = require("./_cron/cron-point-conducteurs.js");
 const { runAlertesChantiers }  = require("./_cron/cron-alertes-chantiers.js");
+const { runNouveauxChantiers, runSyntheseSemaine } = require("./_cron/cron-notifications-direction.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -101,7 +109,8 @@ const TACHES = {
   // compte les écarts entre l'état des tâches et le journal. Par `?job=` seulement.
   journal_avancement: {
     fenetre: null,
-    run: (req, supabase) => runJournalAvancement(req, supabase),
+    // Écart ≠ 0 : notification D4 dans la boîte des admins, sans push.
+    run: (req, supabase, t) => runJournalAvancement(req, supabase, t),
   },
   // Relances e-mail du cycle de vie (Refonte Opérations, lot 3) : devis non
   // signé, facture d'acompte non réglée. Par `?job=` seulement. Interrupteur
@@ -155,6 +164,23 @@ const TACHES = {
   alertes_chantiers: {
     fenetre: null,
     run: (req, supabase, t) => runAlertesChantiers(req, supabase, t),
+  },
+  // Notification D2 « nouveau chantier signé » (projet notifications-push,
+  // tâche 8) : étape « Devis signé » validée, une notification regroupée par
+  // passage, chaque chantier une seule fois (notifications_etat). Premier
+  // passage : référence enregistrée, rien d'envoyé. `&simulation=1` : sans
+  // écriture ni envoi. Par `?job=` seulement.
+  nouveaux_chantiers: {
+    fenetre: null,
+    run: (req, supabase, t) => runNouveauxChantiers(req, supabase, t),
+  },
+  // Notification D3 « synthèse de la semaine » (tâche 8) : bandeau du Bilan
+  // semaine de la semaine écoulée, mêmes fonctions que l'écran. Relevé absent :
+  // la notification le dit. `&simulation=1` (et `&semaine=AAAA-Www`) : sans
+  // envoi. Par `?job=` seulement.
+  synthese_semaine: {
+    fenetre: null,
+    run: (req, supabase, t) => runSyntheseSemaine(req, supabase, t),
   },
 };
 
