@@ -16,7 +16,7 @@ import {
 import { nomAffiche } from "./phasageMobileV1";
 import { propositionPourOuvrage } from "./preparationCopieV1";
 
-const TOUCHE = 44;
+const TOUCHE = 34; // hauteur des boutons, alignée sur le reste de l'appli
 const rid = () => Math.random().toString(36).slice(2, 10);
 const fmt = (n) => (n == null ? "—" : (Math.round(Number(n) * 100) / 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 }));
 const libelleOuvrage = (o) => String(o?.libelle || o?.code_ouvrage || "Ouvrage sans nom").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&");
@@ -113,22 +113,22 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
 
   // ── Styles ──
   const btn = (plein = false, actif = false) => ({
-    minHeight: TOUCHE, padding: "0 18px", borderRadius: RADIUS.md, fontFamily: "inherit",
-    fontSize: FONT.sm.size + 1, fontWeight: plein || actif ? 700 : 500, cursor: "pointer",
+    minHeight: TOUCHE, padding: "0 14px", borderRadius: RADIUS.md, fontFamily: "inherit",
+    fontSize: FONT.sm.size, fontWeight: plein || actif ? 700 : 500, cursor: "pointer",
     border: `1px solid ${plein || actif ? accent : T.border}`,
     background: plein ? accent : actif ? (T.tagBg || "transparent") : "transparent",
     color: plein ? surAccent : actif ? accent : T.text,
   });
   const pastille = (pointille = false) => ({
-    minHeight: TOUCHE, padding: "0 14px", borderRadius: RADIUS.pill, fontFamily: "inherit", fontSize: FONT.sm.size + 1,
+    minHeight: TOUCHE, padding: "0 14px", borderRadius: RADIUS.pill, fontFamily: "inherit", fontSize: FONT.sm.size,
     border: `1px ${pointille ? "dashed" : "solid"} ${T.textMuted}`, background: "transparent", color: T.text, cursor: "pointer",
   });
-  const champ = { minHeight: TOUCHE, boxSizing: "border-box", padding: "0 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.fieldBorder || T.border}`, background: T.inputBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size + 2 };
+  const champ = { minHeight: TOUCHE, boxSizing: "border-box", padding: "0 12px", borderRadius: RADIUS.sm, border: `1px solid ${T.fieldBorder || T.border}`, background: T.inputBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size + 1 };
   const carte = { background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg || RADIUS.md };
-  const sousTitre = { margin: 0, fontSize: FONT.sm.size + 3, fontWeight: 700 };
+  const sousTitre = { margin: 0, fontSize: FONT.base.size, fontWeight: 700 };
   const badge = (e) => {
     const c = e === "place" ? [T.tagReelBg, T.tagReelColor] : e === "en_cours" ? [T.tagBg, T.tagColor || accent] : [T.card, T.textSub];
-    return { fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: RADIUS.pill, whiteSpace: "nowrap", background: c[0], color: c[1], border: `1px solid ${T.border}` };
+    return { fontSize: FONT.xs.size, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill, whiteSpace: "nowrap", background: c[0], color: c[1], border: `1px solid ${T.border}` };
   };
 
   const pct = compteur.total > 0 ? Math.round(100 * compteur.places / compteur.total) : 0;
@@ -148,11 +148,11 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
           <div style={{ width: `${pct}%`, height: "100%", background: accent }}/>
         </div>
         {compteur.dejaCommences > 0 && (
-          <div style={{ color: T.textSub, fontSize: FONT.xs.size + 1 }}>
+          <div style={{ color: T.textSub, fontSize: FONT.xs.size }}>
             {compteur.dejaCommences} ouvrage{compteur.dejaCommences > 1 ? "s" : ""} déjà commencé{compteur.dejaCommences > 1 ? "s" : ""} : non compté{compteur.dejaCommences > 1 ? "s" : ""}, il{compteur.dejaCommences > 1 ? "s restent" : " reste"} tel{compteur.dejaCommences > 1 ? "s" : ""} quel{compteur.dejaCommences > 1 ? "s" : ""}.
           </div>
         )}
-        {ouvrages.length === 0 && <div style={{ color: T.textSub, fontSize: FONT.sm.size + 1 }}>Aucun ouvrage dans le phasage.</div>}
+        {ouvrages.length === 0 && <div style={{ color: T.textSub, fontSize: FONT.sm.size }}>Aucun ouvrage dans le phasage.</div>}
         <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
           {ouvrages.map(o => {
             const e = etatOuvrage(o, { ...opts, enCoursId: courantId });
@@ -166,8 +166,8 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
                     padding: "10px 14px", minHeight: TOUCHE, borderRadius: RADIUS.md, background: actif ? (T.cardHover || T.card) : T.card,
                     border: `1px solid ${actif ? (T.borderHover || accent) : T.border}` }}>
                   <span style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
-                    <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{libelleOuvrage(o)}</span>
-                    <span style={{ fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                    <span style={{ fontSize: FONT.sm.size, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{libelleOuvrage(o)}</span>
+                    <span style={{ fontSize: FONT.xs.size, color: T.textSub }}>
                       {q ? `${fmt(q)} ${uniteOuvrage(o)}` : "Quantité non renseignée"} · {nb} tâche{nb > 1 ? "s" : ""}{ouvrageDejaDecoupe(o) ? " · déjà découpé" : ""}
                       {e !== "place" && e !== "deja_commence" && propositionPourOuvrage(preparation, o.id, pieces) ? " · proposition à vérifier" : ""}
                     </span>
@@ -182,11 +182,11 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
 
       {/* ── Ouvrage ouvert ── */}
       <section style={{ flex: "999 1 560px", minWidth: 0, display: "flex", flexDirection: "column", gap: 20 }}>
-        {!courant && <div style={{ color: T.textSub, fontSize: FONT.sm.size + 2 }}>Choisis un ouvrage dans la liste.</div>}
+        {!courant && <div style={{ color: T.textSub, fontSize: FONT.sm.size + 1 }}>Choisis un ouvrage dans la liste.</div>}
         {courant && (<>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ color: T.textSub, fontSize: FONT.sm.size }}>{libelleOuvrage(courant)}</div>
-            <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800 }}>
+            <h1 style={{ margin: 0, fontSize: FONT.xl.size, fontWeight: 800, letterSpacing: -0.2 }}>
               Où se fait cet ouvrage ? <span style={{ color: T.textSub, fontWeight: 600 }}>{quantiteOuvrage(courant) ? `${fmt(quantiteOuvrage(courant))} ${unite}` : ""}</span>
             </h1>
           </div>
@@ -196,10 +196,10 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
             <div style={{ ...carte, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <span style={badge("place")}>Placé</span>
-                <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 600 }}>Déjà découpé lors d'une préparation précédente</span>
+                <span style={{ fontSize: FONT.sm.size, fontWeight: 600 }}>Déjà découpé lors d'une préparation précédente</span>
               </div>
               {repartitionActuelle(courant, pieces).map((l, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: FONT.sm.size + 1, padding: "6px 0", borderTop: `1px solid ${T.border}` }}>
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: FONT.sm.size, padding: "6px 0", borderTop: `1px solid ${T.border}` }}>
                   <span>{l.piece}{l.mur ? `, ${l.mur}` : ""}</span><span style={{ color: T.textSub }}>{fmt(l.quantite)} {unite}</span>
                 </div>
               ))}
@@ -211,7 +211,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
           )}
 
           {!dejaDecoupe && etat === "deja_commence" && (
-            <div style={{ ...carte, padding: 16, color: T.textSub, fontSize: FONT.sm.size + 1, lineHeight: 1.5 }}>
+            <div style={{ ...carte, padding: 16, color: T.textSub, fontSize: FONT.sm.size, lineHeight: 1.5 }}>
               Toutes les tâches de cet ouvrage sont déjà commencées : il reste tel quel (déjà commencé, non découpé).
             </div>
           )}
@@ -223,7 +223,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
               </div>
             )}
             {choix.propose && (
-              <div style={{ ...carte, padding: "12px 16px", fontSize: FONT.sm.size + 1, lineHeight: 1.5, borderColor: accent }}>
+              <div style={{ ...carte, padding: "12px 16px", fontSize: FONT.sm.size, lineHeight: 1.5, borderColor: accent }}>
                 <strong>Proposition reprise{preparation?.copie?.nom ? ` de ${preparation.copie.nom}` : " d'un autre logement"}</strong>
                 {mode === "plusieurs" ? " — m² recalculés en proportion de la quantité de ce logement." : "."}
                 {" "}Vérifie les lignes ci-dessous, modifie-les si besoin, puis valide : rien n'est appliqué avant « Valider cet ouvrage ».
@@ -260,7 +260,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
               </div>
             )}
             {mode === "logement" && (
-              <div style={{ color: T.textSub, fontSize: FONT.sm.size + 1, lineHeight: 1.5 }}>
+              <div style={{ color: T.textSub, fontSize: FONT.sm.size, lineHeight: 1.5 }}>
                 Les tâches restent communes à tout le logement, sans pièce. Rien n'est découpé.
               </div>
             )}
@@ -268,7 +268,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
             {mode === "plusieurs" && (<>
               <div style={{ ...carte, overflow: "hidden" }}>
                 {lignes.length === 0 && (
-                  <div style={{ padding: "14px 16px", color: T.textSub, fontSize: FONT.sm.size + 1 }}>Touche une pièce ci-dessous pour ajouter une ligne.</div>
+                  <div style={{ padding: "14px 16px", color: T.textSub, fontSize: FONT.sm.size }}>Touche une pièce ci-dessous pour ajouter une ligne.</div>
                 )}
                 {lignes.map(l => (
                   <div key={l.key} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: `1px solid ${T.sectionDivider || T.border}` }}>
@@ -285,7 +285,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
                     </label>
                     <button onClick={() => retirerLigne(l.key)} aria-label="Retirer cette ligne"
                       style={{ width: TOUCHE, height: TOUCHE, border: "none", background: "transparent", color: T.textSub, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-                      <Icon as={X} size={18}/>
+                      <Icon as={X} size={15}/>
                     </button>
                   </div>
                 ))}
@@ -304,13 +304,13 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
                 return (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, background: juste ? T.tagReelBg : T.cmdBg, border: `1px solid ${juste ? T.tagReelColor : T.cmdBorder}`, borderRadius: RADIUS.md, padding: "14px 18px" }}>
                     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16 }}>
-                      <span style={{ fontSize: 24, fontWeight: 800, color: couleur }}>
+                      <span style={{ fontSize: FONT.xl.size, fontWeight: 800, color: couleur }}>
                         {juste ? "Tout est placé" : trop ? `${fmt(-reste.reste)} ${unite} de trop` : `Reste ${fmt(reste.reste)} ${unite} à placer`}
                       </span>
                       <div style={{ flex: "1 1 200px", height: 8, borderRadius: 999, background: T.border, overflow: "hidden" }}>
                         <div style={{ width: `${ratio}%`, height: "100%", background: couleur }}/>
                       </div>
-                      <span style={{ color: couleur, fontSize: FONT.sm.size + 1 }}>{fmt(reste.place)} / {fmt(reste.total)} {unite}</span>
+                      <span style={{ color: couleur, fontSize: FONT.sm.size }}>{fmt(reste.place)} / {fmt(reste.total)} {unite}</span>
                     </div>
                     {reste.reste > 0.001 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -329,7 +329,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
                     const g = granulariteDe(t);
                     return (
                       <div key={t.id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
-                        <span style={{ flex: "1 1 220px", fontSize: FONT.sm.size + 1 }}>{nomAffiche(t)}</span>
+                        <span style={{ flex: "1 1 220px", fontSize: FONT.sm.size }}>{nomAffiche(t)}</span>
                         <span role="group" aria-label={`Découpage de ${nomAffiche(t)}`} style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => maj({ granularites: { ...granularites, [String(t.id)]: GRANULARITE_MUR } })} aria-pressed={g === GRANULARITE_MUR} style={btn(false, g === GRANULARITE_MUR)}>Par mur</button>
                           <button onClick={() => maj({ granularites: { ...granularites, [String(t.id)]: GRANULARITE_PIECE } })} aria-pressed={g === GRANULARITE_PIECE} style={btn(false, g === GRANULARITE_PIECE)}>Par pièce</button>
@@ -347,7 +347,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
             {commencees.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {commencees.map(t => (
-                  <div key={t.id} style={{ fontSize: FONT.sm.size + 1, color: T.textSub }}>
+                  <div key={t.id} style={{ fontSize: FONT.sm.size, color: T.textSub }}>
                     {nomAffiche(t)} — <strong>déjà commencée, non découpée</strong> (reste telle quelle)
                   </div>
                 ))}
@@ -358,15 +358,15 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <h2 style={sousTitre}>Ce que verront les ouvriers</h2>
               {apercu && !apercu.ok && (
-                <div style={{ color: T.textSub, fontSize: FONT.sm.size + 1 }}>{apercu.erreur}</div>
+                <div style={{ color: T.textSub, fontSize: FONT.sm.size }}>{apercu.erreur}</div>
               )}
               {apercu?.ok && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 8 }}>
                   {apercu.taches.map((t, i) => (
-                    <div key={i} style={{ ...carte, padding: "10px 14px", display: "flex", justifyContent: "space-between", gap: 10, fontSize: FONT.sm.size + 1 }}>
+                    <div key={i} style={{ ...carte, padding: "10px 14px", display: "flex", justifyContent: "space-between", gap: 10, fontSize: FONT.sm.size }}>
                       <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
                         <span>{t.nom}</span>
-                        <span style={{ color: T.textSub, fontSize: FONT.xs.size + 1 }}>
+                        <span style={{ color: T.textSub, fontSize: FONT.xs.size }}>
                           {t.dejaCommencee ? "déjà commencée, non découpée" : (t.piece ? `${t.piece}${t.mur ? `, ${t.mur}` : ""}` : "Tout le logement")}
                         </span>
                       </span>
@@ -382,7 +382,7 @@ export default function PreparationRepartition({ ouvrages, pieces, preparation, 
               )}
             </div>
 
-            {erreur && <div role="alert" style={{ color: "#e15a5a", fontSize: FONT.sm.size + 1, fontWeight: 600 }}>{erreur}</div>}
+            {erreur && <div role="alert" style={{ color: "#e15a5a", fontSize: FONT.sm.size, fontWeight: 600 }}>{erreur}</div>}
           </>)}
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "flex-end", paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
