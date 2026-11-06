@@ -50,6 +50,8 @@ function PageLoader({ T }) {
 import { Sidebar, BottomNav, LABELS_PAGES } from "./Renovation/Navigation";
 import BarreOnglets, { MAX_ONGLETS } from "./Renovation/BarreOnglets";
 import PanneauProfil from "./Renovation/ProfilNotifications";
+import { useBoiteNotifications, BoutonCloche, PanneauBoite } from "./Renovation/ClocheNotifications";
+import { lienVersNavigation } from "./notificationsPushV1";
 import PageDashboard          from "./Renovation/Dashboard";
 import PagePlanning           from "./Renovation/Planning";
 import PagePlanningMensuel    from "./Renovation/PlanningMensuel";
@@ -519,6 +521,8 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const[onglets,setOnglets]=useState([{id:1,page:"dashboard"}]);
   // « Mon profil » (notifications sur ce téléphone) : panneau, pas une page.
   const[profilOuvert,setProfilOuvert]=useState(false);
+  // Cloche des notifications (projet notifications-push, tâche 3) : panneau, pas une page.
+  const[boiteOuverte,setBoiteOuverte]=useState(false);
   const[ongletActif,setOngletActif]=useState(1);
   const prochainOnglet=React.useRef(2);
   const page=(onglets.find(o=>o.id===ongletActif)||onglets[0]).page;
@@ -629,6 +633,47 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, []);
   const canAccess = (r, p) => _canAccess(rolePages, r, p);
+
+  // ── Notifications : cloche, et ouverture de l'écran d'une notification ──
+  // L'application navigue par page (pas par adresse) : le lien d'une
+  // notification (« /?page=alertes », « /?page=chantiers&chantier=… ») est
+  // traduit par lienVersNavigation. Jamais de rechargement de page (il
+  // interromprait une saisie, cf. src/pwa.js). Page non autorisée pour le
+  // rôle ou lien « / » : on reste où l'on est.
+  const boite = useBoiteNotifications(role!=="ouvrier");
+  const naviguerVersLien = (lien) => {
+    const { page: cible, chantier } = lienVersNavigation(lien);
+    if (!cible || !canAccess(role, cible)) return;
+    if (cible === "chantiers" && chantier) ouvrirFicheChantier(chantier);
+    else setPage(cible);
+  };
+  const naviguerRef = React.useRef(naviguerVersLien);
+  naviguerRef.current = naviguerVersLien;
+  // Message du service worker (public/push-sw.js) quand on touche une
+  // notification alors que l'application est déjà ouverte.
+  const rafraichirBoite = boite.rafraichir;
+  useEffect(() => {
+    if (role==="ouvrier" || typeof navigator==="undefined" || !("serviceWorker" in navigator)) return undefined;
+    const surMessage = (ev) => {
+      if (ev?.data?.type !== "profero-notification") return;
+      naviguerRef.current(String(ev.data.url || "/"));
+      rafraichirBoite();
+    };
+    navigator.serviceWorker.addEventListener("message", surMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", surMessage);
+  }, [role, rafraichirBoite]);
+  // Application ouverte PAR une notification (fenêtre neuve sur « /?page=… ») :
+  // on se rend sur l'écran une fois, puis on retire page/chantier de l'adresse
+  // (sans recharger) pour qu'un rafraîchissement ne ramène pas au même écran.
+  useEffect(() => {
+    if (role==="ouvrier") return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("page")) return;
+    naviguerRef.current(`/?${params.toString()}`);
+    params.delete("page"); params.delete("chantier");
+    const reste = params.toString();
+    try { window.history.replaceState(window.history.state, "", `${window.location.pathname}${reste ? `?${reste}` : ""}${window.location.hash}`); } catch { /* adresse laissée telle quelle */ }
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Page d'arrivée : l'app démarre sur "dashboard", mais un rôle restreint
   // (ex. une seule page autorisée) n'y a pas forcément accès et tomberait sur
@@ -887,6 +932,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         page={page} setPage={setPage} T={T} role={role} rolePages={rolePages} branch="renovation" onOuvrirDansNouvelOnglet={ouvrirOnglet}
         profil={profil} theme={theme} setTheme={setTheme}
         onLogout={onLogout} onOuvrirProfil={role!=="ouvrier"?()=>setProfilOuvert(true):null}
+        cloche={role!=="ouvrier"?<BoutonCloche boite={boite} variante="barre" T={T} onOuvrir={()=>setBoiteOuverte(true)}/>:null}
         peutChangerBranche={peutChangerBranche} onRetourPortail={onRetourPortail}
         syncing={syncing} connected={connected} lastSync={lastSync}
       /></div>
@@ -921,6 +967,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
               </button>
             )}
             <BoutonAide page={page} T={T} branch={branch}/>
+            {role!=="ouvrier"&&<BoutonCloche boite={boite} variante="haut" T={T} onOuvrir={()=>setBoiteOuverte(true)}/>}
             {role!=="ouvrier"&&(
               <button className="btn-g topbar-profil-btn" title="Mon profil · notifications sur ce téléphone" aria-label="Mon profil · notifications sur ce téléphone" onClick={()=>setProfilOuvert(true)} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 10px"}}>
                 <Icon as={Smartphone} size={16}/>
@@ -980,6 +1027,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       </div>
       <BottomNav page={page} setPage={setPage} T={T} role={role} rolePages={rolePages}/>
       {profilOuvert&&role!=="ouvrier"&&<PanneauProfil profil={profil} role={role} T={T} onClose={()=>setProfilOuvert(false)}/>}
+      {boiteOuverte&&role!=="ouvrier"&&<PanneauBoite boite={boite} T={T} onClose={()=>setBoiteOuverte(false)} onNaviguer={naviguerVersLien}/>}
       {/* Barre todo persistante : visible sur toutes les pages, chaque
           utilisateur n'y voit que les tâches qui lui sont assignées. */}
       <BulleTodo T={T} profil={profil} branch="renovation"

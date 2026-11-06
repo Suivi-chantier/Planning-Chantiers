@@ -36,13 +36,19 @@ export const TYPE_TEST = "test";
  * Catalogue décidé par Loris (cahier du projet). `roles` = destinataires par
  * défaut, modifiables dans Réglages › Notifications. `push: false` = boîte de
  * réception seulement (D4).
+ *
+ * C1 à C5 : conducteur + admin par défaut (décision de Loris du 06/11/2026,
+ * journal du projet « Pas de compte conducteur ») : aucun compte n'a le rôle
+ * conducteur aujourd'hui, et c'est un admin qui conduit les chantiers. Une
+ * personne ne reçoit jamais deux fois la même notification (voir
+ * destinataires() : un utilisateur = une ligne, même s'il apparaît deux fois).
  */
 export const CATALOGUE = Object.freeze([
-  { code: "C1", libelle: "Point comptes rendus de 18h30", roles: ["conducteur"], push: true },
-  { code: "C2", libelle: "Demandes de matériel des ouvriers", roles: ["conducteur"], push: true },
-  { code: "C3", libelle: "Matériaux à commander", roles: ["conducteur"], push: true },
-  { code: "C4", libelle: "Chantier passé en alerte critique", roles: ["conducteur"], push: true },
-  { code: "C5", libelle: "Chantier passé en alerte « à surveiller »", roles: ["conducteur"], push: true },
+  { code: "C1", libelle: "Point comptes rendus de 18h30", roles: ["conducteur", "admin"], push: true },
+  { code: "C2", libelle: "Demandes de matériel des ouvriers", roles: ["conducteur", "admin"], push: true },
+  { code: "C3", libelle: "Matériaux à commander", roles: ["conducteur", "admin"], push: true },
+  { code: "C4", libelle: "Chantier passé en alerte critique", roles: ["conducteur", "admin"], push: true },
+  { code: "C5", libelle: "Chantier passé en alerte « à surveiller »", roles: ["conducteur", "admin"], push: true },
   { code: "F1", libelle: "Facture de situation à émettre", roles: ["comptable"], push: true },
   { code: "F2", libelle: "Encours fournisseurs du vendredi", roles: ["comptable"], push: true },
   { code: "D1", libelle: "Marge à terminaison devenue négative", roles: ["admin"], push: true },
@@ -244,7 +250,8 @@ export function destinataires({ reglages, type, utilisateurs }) {
   const r = reglages?.types?.[type];
   const roles = (r?.roles || []).map(nettoyerRole).filter((x) => x && x !== ROLE_EXCLU);
   const liste = [];
-  const ignores = { ouvrier: 0, inactif: 0, sans_compte: 0, hors_renovation: 0 };
+  const vus = new Set();
+  const ignores = { ouvrier: 0, inactif: 0, sans_compte: 0, hors_renovation: 0, doublon: 0 };
   for (const u of utilisateurs || []) {
     const role = nettoyerRole(u.role);
     if (role === ROLE_EXCLU) { if ((r?.roles || []).map(nettoyerRole).includes(ROLE_EXCLU)) ignores.ouvrier++; continue; }
@@ -252,6 +259,10 @@ export function destinataires({ reglages, type, utilisateurs }) {
     if (u.actif !== true) { ignores.inactif++; continue; }
     if (!estRenovation(u)) { ignores.hors_renovation++; continue; }
     if (!u.auth_id) { ignores.sans_compte++; continue; }
+    // Une personne = une notification, même si son compte apparaît deux fois
+    // (deux fiches avec le même e-mail) ou cumule deux rôles cochés.
+    if (vus.has(u.auth_id)) { ignores.doublon++; continue; }
+    vus.add(u.auth_id);
     liste.push({ user_id: u.auth_id, role, nom: u.nom || u.email || "" });
   }
   return { roles, liste, ignores };
@@ -404,4 +415,120 @@ export function validerContenu(corps) {
 /** Charge utile Web Push d'une notification de la boîte. */
 export function chargeUtile({ type, titre, texte, lien }) {
   return { title: titre, body: texte, url: lien || "/", tag: `profero-${type}`, icon: "/pwa-192.png" };
+}
+
+// ─── Écrans (tâche 3) : préférences, Réglages › Notifications, liens ────────
+
+/**
+ * Rôles proposés dans Réglages › Notifications : la liste des rôles de la
+ * Rénovation (ROLES_DEFAULT_RENOVATION, passée en paramètre), SANS « ouvrier »
+ * (règle 1 : il n'apparaît jamais).
+ */
+export function rolesProposables(roles) {
+  return (Array.isArray(roles) ? roles : [])
+    .filter((r) => r && nettoyerRole(r.id) !== "" && nettoyerRole(r.id) !== ROLE_EXCLU);
+}
+
+/**
+ * Types qu'une personne peut recevoir, d'après son rôle et les réglages :
+ * type actif et rôle coché. Jamais rien pour « ouvrier ». C'est la liste des
+ * lignes affichées dans les préférences de « Mon profil ».
+ */
+export function typesRecevables({ reglages, role }) {
+  const r = nettoyerRole(role);
+  if (!r || r === ROLE_EXCLU) return [];
+  return CODES_TYPES.filter((code) => {
+    const t = reglages?.types?.[code];
+    return t?.actif === true && (t.roles || []).map(nettoyerRole).includes(r);
+  });
+}
+
+/**
+ * Forme écrite dans planning_config (clé notifications_push) par l'onglet
+ * Réglages › Notifications : réglages normalisés, sans « ouvrier », sans les
+ * champs de lecture (avertissements, source). Toujours écrite ENTIÈRE.
+ */
+export function reglagesAEnregistrer(reglages) {
+  const n = normaliserReglages(reglages);
+  return { actif: n.actif, types: n.types, silence: n.silence };
+}
+
+/**
+ * Suivi d'un envoi pour l'onglet Réglages : à partir des lignes de la boîte
+ * d'un même envoi (même type, même clé de regroupement), la date et le nombre
+ * de personnes touchées. Aucune ligne → null (« jamais envoyé ») : jamais un
+ * 0 présenté comme un envoi.
+ * @param {Array<{ user_id: string, created_at: string, push_statut: string }>} lignes
+ */
+export function resumeEnvoi(lignes) {
+  const l = Array.isArray(lignes) ? lignes : [];
+  if (!l.length) return null;
+  const date = l.map((x) => String(x.created_at || "")).sort().pop() || null;
+  return {
+    date,
+    destinataires: new Set(l.map((x) => x.user_id)).size,
+    push_envoyes: l.filter((x) => x.push_statut === "envoye").length,
+    reportes: l.filter((x) => x.push_statut === "reporte").length,
+  };
+}
+
+/**
+ * Nombre d'utilisateurs (actifs, rattachés à la Rénovation, avec un compte,
+ * jamais ouvrier) ayant au moins un appareil, par rôle. Une personne compte
+ * une fois, même avec plusieurs appareils ou deux fiches.
+ * @param {{ utilisateurs: Array<object>, idsAvecAppareil: string[] }} p
+ * @returns {Record<string, { utilisateurs: number, avec_appareil: number }>}
+ */
+export function appareilsParRole({ utilisateurs, idsAvecAppareil }) {
+  const avec = new Set(idsAvecAppareil || []);
+  const vus = new Set();
+  const parRole = {};
+  for (const u of utilisateurs || []) {
+    const role = nettoyerRole(u.role);
+    if (!role || role === ROLE_EXCLU || u.actif !== true || !estRenovation(u) || !u.auth_id) continue;
+    if (vus.has(u.auth_id)) continue;
+    vus.add(u.auth_id);
+    if (!parRole[role]) parRole[role] = { utilisateurs: 0, avec_appareil: 0 };
+    parRole[role].utilisateurs++;
+    if (avec.has(u.auth_id)) parRole[role].avec_appareil++;
+  }
+  return parRole;
+}
+
+/**
+ * Lien interne d'une notification → écran de l'application. L'application
+ * navigue par page (identifiants de src/access.js), pas par adresse : le lien
+ * s'écrit « /?page=<id> » (et « &chantier=<id> » pour une fiche chantier).
+ * La forme « /<id> » est aussi comprise. « / » ou un lien illisible → aucune
+ * page (on reste où l'on est). Jamais d'adresse externe.
+ * @returns {{ page: string|null, chantier: string|null }}
+ */
+export function lienVersNavigation(lien) {
+  const vide = { page: null, chantier: null };
+  const s = String(lien ?? "").trim();
+  if (!s.startsWith("/") || s.startsWith("//")) return vide;
+  const iQ = s.indexOf("?");
+  const cheminBrut = (iQ >= 0 ? s.slice(0, iQ) : s).split("#")[0];
+  const requete = iQ >= 0 ? s.slice(iQ + 1).split("#")[0] : "";
+  const params = {};
+  for (const morceau of requete.split("&")) {
+    if (!morceau) continue;
+    const [k, v = ""] = morceau.split("=");
+    try { params[decodeURIComponent(k)] = decodeURIComponent(v.replace(/\+/g, " ")); } catch { /* illisible : ignoré */ }
+  }
+  const segment = cheminBrut.replace(/^\/+|\/+$/g, "");
+  let page = String(params.page || (segment && !segment.includes("/") ? segment : "")).toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{0,60}$/.test(page)) page = null;
+  // Identifiant de chantier : texte libre (accents, « & », parenthèses…),
+  // encodé dans le lien par lienPage ; seuls les caractères de contrôle sont refusés.
+  const ch = params.chantier;
+  const chantier = page && ch && ch.length <= 120 && !/[\u0000-\u001f\u007f]/.test(ch) ? ch : null;
+  return { page, chantier };
+}
+
+/** Lien interne vers une page (et une fiche chantier) : « /?page=…&chantier=… ». */
+export function lienPage(page, { chantier } = {}) {
+  const p = String(page || "").trim();
+  if (!p) return "/";
+  return `/?page=${encodeURIComponent(p)}${chantier ? `&chantier=${encodeURIComponent(String(chantier))}` : ""}`;
 }

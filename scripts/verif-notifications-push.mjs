@@ -296,7 +296,7 @@ test("18. espace ouvrier : aucun bloc notifications, aucune demande d'autorisati
   assert.ok(fichiersOuvrier.includes("EspaceOuvrier.jsx"));
   for (const f of fichiersOuvrier) {
     const code = lire(`${dossier}/${f}`);
-    assert.ok(!/ProfilNotifications|BlocNotificationsTelephone|PanneauProfil/.test(code), `${f} : pas de bloc notifications`);
+    assert.ok(!/ProfilNotifications|BlocNotificationsTelephone|PanneauProfil|ClocheNotifications|BoutonCloche|PanneauBoite|notifications-boite/.test(code), `${f} : pas de bloc notifications ni de cloche`);
     assert.ok(!/requestPermission|pushManager|push-abonnement|send-push/.test(code), `${f} : aucune demande de notification`);
   }
 });
@@ -365,6 +365,8 @@ test("22. aucune clé privée VAPID écrite dans le dépôt", () => {
     "vite.config.js", "docs/projets/notifications-push.md",
     "supabase/functions/_partage/notificationsPushV1.mjs", "supabase/functions/notifications-boite/index.ts",
     "api/_cron/cron-push-reportes.js", ".github/workflows/cron-push-reportes.yml",
+    "supabase/functions/notifications-pilotage/index.ts", "supabase/functions/_partage/utilisateursPush.ts",
+    "src/Renovation/ClocheNotifications.jsx", "src/Renovation/ReglagesNotificationsAdmin.jsx",
   ];
   for (const f of fichiers) {
     const code = lire(f);
@@ -405,7 +407,8 @@ test("23. réglages : absents → défauts, interrupteur général COUPÉ, catal
   assert.equal(r.actif, false, "livré coupé");
   assert.equal(r.source, "defaut");
   assert.deepEqual(Object.keys(r.types), ["C1", "C2", "C3", "C4", "C5", "F1", "F2", "D1", "D2", "D3", "D4"]);
-  for (const c of ["C1", "C2", "C3", "C4", "C5"]) assert.deepEqual(r.types[c].roles, ["conducteur"], c);
+  // Décision de Loris du 06/11/2026 (aucun compte conducteur) : conducteur + admin.
+  for (const c of ["C1", "C2", "C3", "C4", "C5"]) assert.deepEqual(r.types[c].roles, ["conducteur", "admin"], c);
   for (const c of ["F1", "F2"]) assert.deepEqual(r.types[c].roles, ["comptable"], c);
   for (const c of ["D1", "D3", "D4"]) assert.deepEqual(r.types[c].roles, ["admin"], c);
   assert.deepEqual(r.types.D2.roles, ["admin", "conducteur"]);
@@ -437,7 +440,7 @@ test("25. destinataires : actifs des rôles cochés, avec compte, rattachés à 
   const p = plan({});
   assert.deepEqual(p.lignes.map((l) => l.user_id).sort(), ["a1", "a2", "c1"]);
   assert.deepEqual(p.resume.destinataires_par_role, { admin: 2, conducteur: 1 });
-  assert.deepEqual(p.resume.ignores, { ouvrier: 0, inactif: 1, sans_compte: 1, hors_renovation: 0 });
+  assert.deepEqual(p.resume.ignores, { ouvrier: 0, inactif: 1, sans_compte: 1, hors_renovation: 0, doublon: 0 });
   assert.equal(p.resume.a_envoyer, 3);
   assert.equal(p.resume.envoi_reel, true);
   const commercial = V.planifierEnvoi({
@@ -648,7 +651,13 @@ test("38. boîte de réception : appelant identifié, toujours limitée à ses p
   const iRefus = code.indexOf("if (!qui.ok) return qui.reponse");
   const iTable = code.indexOf('.from("notifications');
   assert.ok(iQui > 0 && iQui < iRefus && iRefus < iTable, "identification avant toute lecture");
-  const requetes = code.split(/admin\.from\(/).slice(1);
+  const toutes = code.split(/admin\.from\(/).slice(1);
+  // Seule exception (tâche 3) : le réglage COMMUN planning_config.notifications_push,
+  // lu pour savoir quels types le rôle reçoit. Jamais d'écriture dessus ici.
+  const reglage = toutes.filter((r) => r.startsWith('"planning_config"'));
+  assert.equal(reglage.length, 1, "une seule lecture du réglage commun");
+  assert.match(reglage[0].slice(0, 200), /^"planning_config"\)\s*\.select\("value"\)\.eq\("key", CLE_REGLAGES\)/);
+  const requetes = toutes.filter((r) => !r.startsWith('"planning_config"'));
   assert.ok(requetes.length >= 6);
   for (const r of requetes) {
     assert.match(r.slice(0, 400), /user_id(", userId\)|: userId)/, `requête limitée à l'appelant : ${r.slice(0, 60)}`);
@@ -676,6 +685,227 @@ test("39. rattrapage : job ?job=push_reportes, deux créneaux 7h05 (été / hive
   const fonctions = readdirSync(chemin("api")).filter((f) => !f.startsWith("_"));
   assert.ok(fonctions.length <= 12, `${fonctions.length} fonctions Vercel`);
   assert.ok(!fonctions.some((f) => /push|notif/i.test(f)), "aucune fonction Vercel pour les notifications");
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5. Écrans (tâche 3) : cloche, préférences, Réglages › Notifications.
+//    Données fictives.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Copie fictive de la forme de ROLES_DEFAULT_RENOVATION (src/access.js importe
+// le client Supabase : non chargeable ici). Le test 44 vérifie que l'écran
+// passe bien la vraie liste par rolesProposables.
+const ROLES_FICTIFS = [
+  { id: "admin", label: "Administrateur" }, { id: "conducteur", label: "Conducteur" },
+  { id: "commercial", label: "Commercial" }, { id: "comptable", label: "Comptable" },
+  { id: "ouvrier", label: "Ouvrier" }, { id: " Ouvrier ", label: "Ouvrier (casse)" },
+];
+
+test("40. rôle ouvrier : jamais proposé dans les réglages, jamais enregistré, jamais destinataire", () => {
+  const proposes = V.rolesProposables(ROLES_FICTIFS).map((r) => r.id);
+  assert.deepEqual(proposes, ["admin", "conducteur", "commercial", "comptable"]);
+  // Écriture : « ouvrier » retiré même s'il arrivait de l'écran.
+  const brut = V.reglagesParDefaut();
+  brut.types.C1.roles = ["admin", "ouvrier"];
+  const ecrit = V.reglagesAEnregistrer(brut);
+  assert.deepEqual(ecrit.types.C1.roles, ["admin"]);
+  assert.deepEqual(Object.keys(ecrit).sort(), ["actif", "silence", "types"], "aucun champ de lecture écrit en base");
+  assert.equal(ecrit.actif, false, "l'interrupteur général reste coupé tant qu'on ne l'allume pas");
+  for (const t of Object.values(ecrit.types)) assert.ok(!t.roles.includes("ouvrier"));
+  // Préférences : rien à proposer à un ouvrier.
+  const tout = V.normaliserReglages({ actif: true, types: Object.fromEntries(V.CODES_TYPES.map((c) => [c, { actif: true, roles: ["admin", "conducteur", "comptable", "commercial", "ouvrier"] }])) });
+  assert.deepEqual(V.typesRecevables({ reglages: tout, role: "ouvrier" }), []);
+  assert.deepEqual(V.typesRecevables({ reglages: tout, role: " OUVRIER " }), []);
+  // Envoi : tous les types, tous les rôles cochés → aucun ouvrier.
+  for (const type of V.CODES_TYPES) {
+    const p = V.planifierEnvoi({ reglages: tout, type, utilisateurs: UTILISATEURS, maintenantMs: MARDI_10H, vapidConfiguree: true });
+    assert.ok(p.lignes.every((l) => !["o1", "o2"].includes(l.user_id) && l.role !== "ouvrier"), type);
+  }
+  // Appareils par rôle : la ligne « ouvrier » n'existe jamais.
+  const parRole = V.appareilsParRole({ utilisateurs: UTILISATEURS, idsAvecAppareil: ["o1", "o2", "a1"] });
+  assert.ok(!("ouvrier" in parRole));
+});
+
+test("41. valeurs par défaut C1 à C5 : conducteur + admin (décision de Loris du 06/11)", () => {
+  const def = V.normaliserReglages(null);
+  for (const t of V.CATALOGUE.filter((x) => /^C[1-5]$/.test(x.code))) {
+    assert.deepEqual([...t.roles], ["conducteur", "admin"], t.code);
+    assert.deepEqual(def.types[t.code].roles, ["conducteur", "admin"], t.code);
+  }
+  // Les autres types ne bougent pas.
+  assert.deepEqual(def.types.F1.roles, ["comptable"]);
+  assert.deepEqual(def.types.D2.roles, ["admin", "conducteur"]);
+  // Un admin (seul « conducteur » réel aujourd'hui) reçoit C1 une fois allumé.
+  const p = V.planifierEnvoi({ reglages: ALLUME(), type: "C1", utilisateurs: UTILISATEURS, maintenantMs: MARDI_10H, vapidConfiguree: true });
+  assert.deepEqual(p.lignes.map((l) => l.user_id).sort(), ["a1", "a2", "c1"]);
+  assert.deepEqual(p.resume.destinataires_par_role, { admin: 2, conducteur: 1 });
+  // Préférences proposées par rôle, avec les défauts.
+  const allume = ALLUME();
+  assert.deepEqual(V.typesRecevables({ reglages: allume, role: "admin" }), ["C1", "C2", "C3", "C4", "C5", "D1", "D2", "D3", "D4"]);
+  assert.deepEqual(V.typesRecevables({ reglages: allume, role: "conducteur" }), ["C1", "C2", "C3", "C4", "C5", "D2"]);
+  assert.deepEqual(V.typesRecevables({ reglages: allume, role: "comptable" }), ["F1", "F2"]);
+  assert.deepEqual(V.typesRecevables({ reglages: allume, role: "commercial" }), []);
+  // Un type coupé dans les Réglages disparaît des préférences.
+  assert.ok(!V.typesRecevables({ reglages: ALLUME({ types: { C3: { actif: false, roles: ["admin"] } } }), role: "admin" }).includes("C3"));
+  // Décocher un rôle : il ne reçoit plus le type au prochain envoi.
+  const sansAdmin = ALLUME({ types: { C1: { actif: true, roles: ["conducteur"] } } });
+  const p2 = V.planifierEnvoi({ reglages: sansAdmin, type: "C1", utilisateurs: UTILISATEURS, maintenantMs: MARDI_10H, vapidConfiguree: true });
+  assert.deepEqual(p2.lignes.map((l) => l.user_id), ["c1"]);
+  // La phrase du profil d'un admin annonce aussi ce qui vient des conducteurs.
+  assert.match(N.phraseRole("admin"), /18h30/);
+});
+
+test("42. une personne ne reçoit jamais deux fois la même notification", () => {
+  // Même compte de connexion sur deux fiches (même e-mail), rôles différents
+  // tous deux cochés : une seule ligne.
+  const doubles = [
+    ...UTILISATEURS,
+    { auth_id: "a1", nom: "Admin Un (seconde fiche)", role: "conducteur", actif: true, branches: ["renovation"] },
+    { auth_id: "c1", nom: "Conducteur Un (doublon)", role: "conducteur", actif: true, branches: ["renovation"] },
+  ];
+  const d = V.destinataires({ reglages: ALLUME(), type: "C1", utilisateurs: doubles });
+  const ids = d.liste.map((u) => u.user_id);
+  assert.equal(new Set(ids).size, ids.length, "aucun doublon");
+  assert.deepEqual(ids.sort(), ["a1", "a2", "c1"]);
+  assert.equal(d.ignores.doublon, 2);
+  const p = V.planifierEnvoi({ reglages: ALLUME(), type: "C1", utilisateurs: doubles, maintenantMs: MARDI_10H, vapidConfiguree: true });
+  assert.equal(p.lignes.length, 3);
+  assert.equal(new Set(p.lignes.map((l) => l.user_id)).size, 3);
+  // Second passage du même créneau : personne ne la reçoit une seconde fois.
+  const p2 = V.planifierEnvoi({
+    reglages: ALLUME(), type: "C1", utilisateurs: doubles, maintenantMs: MARDI_10H + 3_600_000,
+    vapidConfiguree: true, dejaNotifies: p.lignes.map((l) => l.user_id),
+  });
+  assert.equal(p2.lignes.length, 0);
+  assert.equal(p2.resume.doublons, 3);
+  // Appareils par rôle : une personne compte une fois.
+  const parRole = V.appareilsParRole({ utilisateurs: doubles, idsAvecAppareil: ["a1", "a1", "c1"] });
+  assert.deepEqual(parRole.admin, { utilisateurs: 2, avec_appareil: 1 });
+  assert.deepEqual(parRole.conducteur, { utilisateurs: 1, avec_appareil: 1 });
+  assert.deepEqual(parRole.comptable, { utilisateurs: 1, avec_appareil: 0 });
+  assert.ok(!("commercial" in parRole), "compte Invest seul non compté");
+  // send-push s'appuie sur ce plan, et l'index unique (personne, type, clé) reste le dernier garde-fou.
+  assert.match(lire("supabase/functions/send-push/index.ts"), /onConflict: "user_id,type,cle_regroupement", ignoreDuplicates: true/);
+});
+
+test("43. suivi d'un envoi : jamais envoyé ≠ zéro destinataire", () => {
+  assert.equal(V.resumeEnvoi([]), null);
+  assert.equal(V.resumeEnvoi(null), null);
+  const r = V.resumeEnvoi([
+    { user_id: "a1", created_at: "2026-11-10T17:30:00Z", push_statut: "envoye" },
+    { user_id: "a2", created_at: "2026-11-10T17:30:01Z", push_statut: "aucun_appareil" },
+    { user_id: "c1", created_at: "2026-11-10T17:30:01Z", push_statut: "reporte" },
+  ]);
+  assert.deepEqual(r, { date: "2026-11-10T17:30:01Z", destinataires: 3, push_envoyes: 1, reportes: 1 });
+});
+
+test("44. liens des notifications : vers une page de l'application, jamais ailleurs", () => {
+  assert.deepEqual(V.lienVersNavigation("/"), { page: null, chantier: null });
+  assert.deepEqual(V.lienVersNavigation("/?page=alertes"), { page: "alertes", chantier: null });
+  assert.deepEqual(V.lienVersNavigation("/alertes"), { page: "alertes", chantier: null });
+  assert.deepEqual(V.lienVersNavigation("https://exemple.invalid/?page=admin"), { page: null, chantier: null });
+  assert.deepEqual(V.lienVersNavigation("//exemple.invalid/?page=admin"), { page: null, chantier: null });
+  assert.deepEqual(V.lienVersNavigation("/?page=<script>"), { page: null, chantier: null });
+  assert.deepEqual(V.lienVersNavigation(null), { page: null, chantier: null });
+  // Identifiant de chantier fictif avec accents et caractères spéciaux : aller-retour exact.
+  const lien = V.lienPage("chantiers", { chantier: "Villa (Été) & Co+" });
+  assert.match(lien, /^\/\?page=chantiers&chantier=/);
+  assert.ok(!/\s/.test(lien), "accepté par validerContenu (pas d'espace)");
+  assert.equal(V.validerContenu({ type: "C4", titre: "x", lien }).ok, true);
+  assert.deepEqual(V.lienVersNavigation(lien), { page: "chantiers", chantier: "Villa (Été) & Co+" });
+  assert.equal(V.lienPage(""), "/");
+  // Les liens d'une page ne contiennent jamais « rapport » (App.jsx l'envoie vers le rapport mobile).
+  assert.ok(!/rapport/i.test(V.lienPage("qualite-cr")));
+});
+
+test("45. cloche : navigation bureau seulement, erreur visible, sans rechargement ni Realtime", () => {
+  const app = lire("src/App.jsx");
+  assert.match(app, /useBoiteNotifications\(role!=="ouvrier"\)/);
+  assert.match(app, /cloche=\{role!=="ouvrier"\?<BoutonCloche /, "barre latérale (ordinateur)");
+  assert.match(app, /\{role!=="ouvrier"&&<BoutonCloche boite=\{boite\} variante="haut"/, "barre du haut (téléphone)");
+  assert.match(app, /\{boiteOuverte&&role!=="ouvrier"&&<PanneauBoite /);
+  assert.match(lire("src/Renovation/Navigation.jsx"), /\{cloche\}/);
+  // Message du service worker : navigation interne, jamais de rechargement.
+  assert.match(app, /ev\?\.data\?\.type !== "profero-notification"/);
+  assert.match(app, /lienVersNavigation\(lien\)/);
+  const blocNav = app.slice(app.indexOf("const naviguerVersLien"), app.indexOf("const naviguerRef"));
+  assert.match(blocNav, /canAccess\(role, cible\)/, "page non autorisée pour le rôle : on ne bouge pas");
+  const cloche = sansCommentaires(lire("src/Renovation/ClocheNotifications.jsx"));
+  for (const code of [cloche, blocNav]) {
+    assert.ok(!/location\.reload|location\.href\s*=|location\.assign|window\.open/.test(code), "jamais de rechargement");
+  }
+  assert.ok(!/\.channel\(|postgres_changes/.test(cloche), "pas de Realtime : tables fermées au navigateur");
+  assert.ok(!/from\(["'](notifications|push_subscriptions)/.test(cloche), "le navigateur ne lit jamais les tables");
+  assert.match(cloche, /notifications-boite/);
+  assert.match(cloche, /PERIODE_MS = 60_000/, "rafraîchi toutes les minutes");
+  assert.match(cloche, /visibilitychange/, "et au retour au premier plan");
+  // Erreur ≠ « aucune notification » : pastille « ! » et message dédié.
+  assert.match(cloche, /enErreur \? \(\s*<span[^>]*>!<\/span>/);
+  assert.match(cloche, /La boîte de réception ne répond pas\./);
+  assert.match(cloche, /liste && liste\.length === 0 && !enErreur/, "« aucune notification » seulement sans erreur");
+  assert.match(cloche, /Tout marquer comme lu/);
+  assert.match(cloche, /action: "marquer_lu"/);
+  assert.match(cloche, /action: "tout_marquer_lu"/);
+  // Service worker : l'onglet ouvert reçoit l'adresse, sans être rechargé.
+  const sw = sansCommentaires(lire("public/push-sw.js"));
+  assert.match(sw, /postMessage\(\{ type: 'profero-notification'/);
+  assert.ok(!/navigate\(|location\.reload/.test(sw));
+});
+
+test("46. préférences du profil : types du rôle seulement, via notifications-boite, erreur visible", () => {
+  const profil = sansCommentaires(lire("src/Renovation/ProfilNotifications.jsx"));
+  assert.match(profil, /<BlocPreferencesNotifications role=\{role\} T=\{T\}\/>/);
+  assert.match(profil, /\$\{FONCTION_BOITE\}\?vue=preferences/);
+  assert.match(profil, /action: "preferences"/);
+  assert.match(profil, /donnees\.recevables/);
+  assert.match(profil, /Préférences illisibles pour l'instant\./);
+  assert.ok(!/from\(["']notifications_preferences/.test(profil), "le navigateur ne lit jamais la table");
+  const boite = sansCommentaires(lire("supabase/functions/notifications-boite/index.ts"));
+  assert.match(boite, /recevables: typesRecevables\(\{ reglages, role \}\)/);
+  assert.match(boite, /const \{ admin, userId, role \} = qui/);
+});
+
+test("47. Réglages › Notifications : admin seulement, planning_config par saveConfig, rôles sans ouvrier", () => {
+  const admin = lire("src/Renovation/Admin.jsx");
+  assert.match(admin, /\.\.\.\(isAdmin \? \[\["notifications", "Notifications", Bell\]\] : \[\]\)/);
+  assert.match(admin, /\{adminTab==="notifications" && isAdmin && \(\s*<ReglagesNotificationsAdmin T=\{T\} saveConfig=\{saveConfig\}\/>/);
+  const ecran = sansCommentaires(lire("src/Renovation/ReglagesNotificationsAdmin.jsx"));
+  assert.match(ecran, /const ROLES = rolesProposables\(ROLES_DEFAULT_RENOVATION\);/);
+  assert.ok(!/ROLES_DEFAULT_RENOVATION\.map/.test(ecran), "jamais la liste brute (elle contient ouvrier)");
+  assert.match(ecran, /saveConfig\(CLE_REGLAGES, propre\)/);
+  assert.match(ecran, /reglagesAEnregistrer\(next\)/);
+  assert.ok(!/echeancier_facturation/.test(ecran), "le réglage mail « facture à émettre » reste séparé");
+  assert.ok(!/\.(upsert|insert|update|delete)\(/.test(ecran), "aucune écriture directe hors saveConfig");
+  assert.match(ecran, /Aucun rôle coché : cette notification ne sera envoyée à personne/);
+  assert.match(ecran, /type="time"/);
+  assert.match(ecran, /JOURS_AFFICHES\.map/);
+  assert.match(ecran, /notifications-pilotage/);
+  assert.match(ecran, /Jamais envoyée/);
+  assert.match(ecran, /Suivi des envois indisponible/, "une lecture impossible ne ressemble pas à « jamais envoyé »");
+  assert.match(ecran, /window\.confirm\("Activer les envois automatiques/, "allumer demande confirmation");
+  // Aucune migration n'écrit le réglage : la clé reste absente (interrupteur coupé).
+  for (const f of readdirSync(chemin("supabase/migrations"))) {
+    if (!/notification|push/i.test(f)) continue;
+    assert.ok(!/notifications_push/.test(sansCommentairesSql(lire(`supabase/migrations/${f}`))), f);
+  }
+});
+
+test("48. notifications-pilotage : JWT, admin vérifié avant toute lecture, lecture seule, des comptes seulement", () => {
+  assert.match(lire("supabase/config.toml"), /\[functions\.notifications-pilotage\]\s*\nverify_jwt = true/);
+  const code = sansCommentaires(lire("supabase/functions/notifications-pilotage/index.ts"));
+  const iQui = code.indexOf("identifierAppelant(req)");
+  const iRefus = code.indexOf("if (!qui.ok) return qui.reponse");
+  const iAdmin = code.indexOf('!== "admin"');
+  const i403 = code.indexOf("403");
+  const iTable = code.indexOf(".from(");
+  assert.ok(iQui > 0 && iQui < iRefus && iRefus < iAdmin && iAdmin < i403 && i403 < iTable, "admin vérifié avant toute lecture");
+  assert.ok(!/\.(insert|update|upsert|delete)\(/.test(code), "lecture seule");
+  assert.ok(!/webpush|send-push|sendNotification/.test(code), "aucun envoi");
+  assert.ok(!/endpoint|p256dh|\btexte\b|\btitre\b/.test(code), "ni appareil ni contenu renvoyé");
+  assert.match(code, /req\.method !== "GET"/);
+  // Même lecture des utilisateurs que send-push.
+  assert.match(code, /from "\.\.\/_partage\/utilisateursPush\.ts"/);
+  assert.match(lire("supabase/functions/send-push/index.ts"), /import \{ lireUtilisateurs \} from "\.\.\/_partage\/utilisateursPush\.ts"/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "nouveaute",
+    titre: "Cloche de notifications, préférences dans Mon profil, onglet Réglages › Notifications (envois automatiques encore coupés)",
+    pages: [{ id: "admin", label: "Réglages" }],
+    quoi: "Tout ce qui vous est envoyé par notification reste consultable dans l'application, même si le téléphone était éteint ou les notifications refusées : une cloche avec le nombre de notifications non lues. Chacun choisit, dans « Mon profil », les types qu'il veut recevoir sur son téléphone. La direction pilote tout depuis Réglages › Notifications : qui reçoit quoi, les heures de silence, et un suivi pour voir que ça tourne. Les envois automatiques ne sont pas encore mis en route : seule la notification de test part pour l'instant. Les ouvriers ne voient rien de nouveau. Les mails existants ne changent pas.",
+    comment: "La cloche est en bas de la barre de gauche (sur téléphone : en haut de l'écran, à côté de l'icône téléphone). Touchez-la pour voir la liste ; toucher une notification la marque comme lue et ouvre le bon écran ; « Tout marquer comme lu » vide le compteur. Si la boîte ne répond pas, la cloche porte un « ! » orange et la liste le dit (ce n'est pas « aucune notification »). Dans « Mon profil », la partie « Ce que je reçois » liste les types prévus pour votre rôle, chacun avec son interrupteur (tout est activé par défaut ; un type coupé reste visible dans la cloche). Réglages › Logistique › Notifications (administrateur) : interrupteur général (coupé), une ligne par type avec son interrupteur et les rôles qui la reçoivent (le rôle ouvrier n'est jamais proposé), la plage de silence (par défaut de 20h à 7h, et le week-end), la date du dernier envoi et le nombre de personnes touchées, et combien de personnes ont activé les notifications par rôle. Par défaut, ce qui concerne les conducteurs (point du soir, demandes de matériel, matériaux à commander, chantiers en alerte) va aussi aux administrateurs ; une personne ne reçoit jamais deux fois la même notification.",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
     titre: "Encours fournisseurs : nouvelle vue « Par mois d'achat » (ce qu'on a acheté chaque mois, par fournisseur et par chantier)",
     pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
     quoi: "L'encours range les montants au mois où on les paie (utile pour la trésorerie). La nouvelle vue range chaque achat au mois où il a été commandé ou acheté : on voit combien on a acheté en octobre, chez qui, et pour quel chantier — pour suivre les coûts et les marges et comparer avec l'avancement du mois. Exemple : les BL Rexel d'octobre restent en octobre même si la facture récapitulative n'est à payer qu'en novembre.",

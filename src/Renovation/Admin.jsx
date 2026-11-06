@@ -12,7 +12,7 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, Clock, Wrench,
   Download, ClipboardCheck, Activity, ChevronRight, Truck, Lock,
-  Boxes, Car, Eye, ListOrdered, Receipt, Home, Plug,
+  Boxes, Car, Eye, ListOrdered, Receipt, Home, Plug, Bell,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
@@ -29,6 +29,7 @@ import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
 import TauxFraisGenerauxAdmin from "./TauxFraisGenerauxAdmin.jsx";
 import SeuilsMargesAdmin from "./SeuilsMargesAdmin.jsx";
 import ReglagesRelancesAdmin from "./ReglagesRelancesAdmin.jsx";
+import ReglagesNotificationsAdmin from "./ReglagesNotificationsAdmin.jsx";
 import SeuilsAvancementIncoherentAdmin from "./SeuilsAvancementIncoherentAdmin.jsx";
 import ControleJournalAvancement from "./ControleJournalAvancement.jsx";
 // Échéancier de facturation client (bloc Facturation de la fiche chantier +
@@ -3934,6 +3935,8 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       ["situations",   "Facturation",   Receipt],
       ...(isAdmin ? [["relances", "Relances", Mail]] : []),
       ...(isAdmin ? [["mail-encours", "Mail encours", Send]] : []),
+      // Notifications sur téléphone (projet notifications-push, règle 7) : admin seulement.
+      ...(isAdmin ? [["notifications", "Notifications", Bell]] : []),
     ]},
     { id:"outils", label:"Outils", icon:Wrench, tabs:[
       ...(isAdmin ? [["historique", "Historique", RefreshCw]] : []),
@@ -4039,6 +4042,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       )}
       {adminTab==="mail-encours" && isAdmin && (
         <OngletMailEncours T={T} acc={acc}/>
+      )}
+      {adminTab==="notifications" && isAdmin && (
+        <ReglagesNotificationsAdmin T={T} saveConfig={saveConfig}/>
       )}
 
       {adminTab==="historique" && isAdmin && (
