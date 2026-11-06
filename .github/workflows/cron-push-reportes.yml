@@ -1,0 +1,75 @@
+name: Notifications reportées (7h05, jours ouvrés)
+
+# Projet docs/projets/notifications-push.md, tâche 2.
+# Une notification qui tombe dans la plage de silence (20h-7h, samedi-dimanche,
+# heure de Paris) est écrite tout de suite dans la boîte de réception ; son push
+# part au premier créneau autorisé. Ce créneau envoie ceux dont l'heure est venue.
+#
+# Heure d'été / heure d'hiver : un cron GitHub est en UTC. Plutôt qu'un seul
+# créneau à corriger deux fois par an, DEUX créneaux :
+#   05h05 UTC = 07h05 Paris en été  (06h05 en hiver : rien n'est encore dû,
+#                                     le premier créneau autorisé est 7h00)
+#   06h05 UTC = 07h05 Paris en hiver (08h05 en été : tout est déjà parti)
+# Le job est sans doublon (une notification envoyée quitte l'état « reporté »),
+# donc le passage « inutile » ne fait rien.
+#
+# Bouton « Run workflow » : sans type, rejoue le rattrapage ; avec un type
+# (ex. D2), lance une SIMULATION sans envoi ni écriture sur les vrais
+# utilisateurs (?job=push_simulation&type=…).
+#
+# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+
+on:
+  schedule:
+    - cron: '5 5 * * 1-5'      # Lun-Ven 05h05 UTC → 07h05 Paris (été)
+    - cron: '5 6 * * 1-5'      # Lun-Ven 06h05 UTC → 07h05 Paris (hiver)
+  workflow_dispatch:
+    inputs:
+      simulation_type:
+        description: "Type à simuler sans envoi (C1…D4). Vide = rattrapage des reportés."
+        required: false
+        default: ""
+
+jobs:
+  rattrapage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-dispatcher?job=push_reportes (ou push_simulation)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SIMULATION_TYPE: ${{ github.event.inputs.simulation_type }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          if [ -n "$SIMULATION_TYPE" ]; then
+            if ! echo "$SIMULATION_TYPE" | grep -qE '^[CFD][0-9]$'; then
+              echo "::error::Type inconnu : $SIMULATION_TYPE (attendu C1…D4)"
+              exit 1
+            fi
+            job="push_simulation&type=$SIMULATION_TYPE"
+          else
+            job="push_reportes"
+          fi
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://planning-chantiers.vercel.app/api/cron-dispatcher?job=$job")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
+          # Le dispatcher répond 200 même quand la tâche échoue : il range
+          # l'erreur dans son résumé. On la fait remonter, sinon un rattrapage
+          # qui ne part jamais resterait invisible.
+          if echo "$body" | grep -q '"error":'; then
+            echo "::error::Le rattrapage a échoué — voir le corps de la réponse"
+            exit 1
+          fi
+          if echo "$body" | grep -qE '"echecs":[1-9]'; then
+            echo "::warning::Au moins un envoi a échoué — voir le corps de la réponse"
+          fi
