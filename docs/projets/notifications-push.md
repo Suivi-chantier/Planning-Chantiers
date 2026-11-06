@@ -217,7 +217,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | à faire | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | — |
+| 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en cours | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | PR_A_REMPLIR |
 | 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | à faire | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | — |
 | 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | à faire | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | — |
 | 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
@@ -261,5 +261,59 @@ rattrapage du dispatcher (tâche 2).
 branche `claude/vigilant-bell-fp6fv0`, repartie de `main` après chaque
 fusion. Le fichier projet est mis à jour dans la demande de fusion de chaque
 tâche.
+
+**06/11/2026 — Tâche 1 : choix techniques.**
+- Clés VAPID générées (P-256, base64url). L'enregistrement des secrets par
+  l'outil Supabase est suspendu (« Storing keys is paused ») : les trois
+  secrets ne sont **pas** enregistrés. Les valeurs sont confiées à Loris hors
+  du dépôt (voir « À faire par Loris »). Tant qu'ils manquent, les fonctions
+  répondent 503 « Clés de notification non configurées sur le serveur » et le
+  profil affiche « Pas encore configurées sur le serveur » (jamais un faux
+  « activé »).
+- Bibliothèque Web Push : `npm:web-push@3.6.7` dans l'Edge Function. Vérifiée
+  après déploiement par un auto-contrôle (GET de `send-push`) qui chiffre un
+  message fictif avec des clés jetables, sans rien envoyer.
+- Deux Edge Functions, JWT exigé : `push-abonnement` (GET clé publique et état
+  de l'appareil, POST enregistrement, DELETE retrait) et `send-push` (POST
+  `mode: "test"` seulement ; `mode: "serveur"` répond 501 en attendant la
+  tâche 2). Code partagé dans `supabase/functions/_partage/` (décisions pures
+  dans `pushRegles.mjs`, testées par `verif-notifications-push.mjs`).
+  L'appelant doit être un collaborateur actif (même fonction
+  `est_collaborateur_actif()` que la policy restrictive, appelée avec son
+  jeton) avec un rôle bureau ; « ouvrier » refusé.
+- Table `push_subscriptions` (migration `20261106052100_push_subscriptions`) :
+  seule la policy `profero_collaborateurs_seulement`, aucun droit direct pour
+  le navigateur (`revoke all … from authenticated`), aucune fonction
+  SECURITY DEFINER.
+- Il n'existait pas d'écran profil dans l'espace bureau. « Mon profil » est un
+  **panneau** (pas une page, donc rien dans `src/access.js`) qui s'ouvre en
+  touchant son nom en bas de la barre latérale, ou l'icône téléphone de la
+  barre du haut sur mobile. Il contient le bloc « Notifications sur ce
+  téléphone ». Il n'est jamais rendu pour le rôle `ouvrier`, ni dans l'espace
+  ouvrier.
+- Service worker : `public/push-sw.js` importé par `workbox.importScripts`
+  (on reste en generateSW, `skipWaiting: false` inchangé). Au toucher d'une
+  notification, un onglet déjà ouvert est mis au premier plan **sans être
+  rechargé** (un rechargement interromprait une saisie, ce que `src/pwa.js`
+  interdit) ; l'adresse lui est transmise par message pour les liens vers un
+  écran précis des tâches suivantes. Sans onglet ouvert, une fenêtre s'ouvre
+  sur l'adresse.
+
+## À faire par Loris
+
+1. **Saisir les 3 secrets** dans Supabase › Edge Functions › Secrets :
+   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Les valeurs ont
+   été transmises par la session (fichier hors du dépôt) ; elles ne sont pas
+   recopiées ici. Sans eux, le profil affiche « Pas encore configurées sur le
+   serveur » et aucun envoi n'est possible.
+2. **Saisir `VITE_VAPID_PUBLIC_KEY`** dans Vercel (Settings › Environment
+   Variables, Production) avec la même valeur que `VAPID_PUBLIC_KEY` (clé
+   publique, sans risque). Facultatif : sans elle, l'application demande la
+   clé au serveur.
+3. **Tester sur son téléphone** (après les secrets) : ouvrir l'application
+   installée, toucher l'icône téléphone en haut › « Activer les
+   notifications » › accepter › « Envoyer une notification de test » ; la
+   notification doit arriver et ouvrir l'application. Sur iPhone,
+   l'application doit être installée sur l'écran d'accueil (iOS 16.4 minimum).
 
 ## Comptes rendus
