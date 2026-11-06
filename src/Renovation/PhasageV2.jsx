@@ -1230,18 +1230,21 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // le state React. Sans sub realtime en V2, le state local peut être
   // périmé si V1 a modifié plan_travaux entretemps — et écrire l'ancien
   // state wiperait tout le travail V1 (incident du 2026-06-03).
+  // Renvoie false si rien n'a pu être mis en file (pas de phasage, relecture
+  // en échec, sauvegarde en pause pour conflit), true sinon.
   const saveMeta = async (patch) => {
-    if (!chantierId) return;
+    if (!chantierId) return false;
     const p = await ensurePhasage();
-    if (!p?.id) return;
+    if (!p?.id) return false;
     const { data: fresh, error: fetchErr } = await supabase.from("phasages")
       .select("plan_travaux").eq("id", p.id).maybeSingle();
-    if (fetchErr) { console.warn("saveMeta fetch:", fetchErr.message); return; }
+    if (fetchErr) { console.warn("saveMeta fetch:", fetchErr.message); return false; }
     const currentPlan = fresh?.plan_travaux || {};
     const newMeta = { ...(currentPlan.meta || {}), ...patch };
     const newPlan = { ...currentPlan, meta: newMeta };
     setPhasage(prev => ({ ...prev, plan_travaux: newPlan }));
     enregistrer({ plan_travaux: newPlan });
+    return !fileRef.current.conflit;
   };
 
   // Saisie des champs « Suivi direction » : chaque frappe déclenchait un
@@ -4420,6 +4423,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       {preparationOuverte && (
         <PreparationChantier chantierNom={chantier?.nom || ""} meta={phasage?.plan_travaux?.meta || {}}
           ouvrages={ouvrages} auteur={profil?.nom || profil?.email || null}
+          heuresPointees={pointagesParTache} conflit={!!conflitInfo} etatSauvegarde={autoSaveStatus}
           onSaveMeta={saveMeta} onOuvragesChange={updateOuvrages}
           onFermer={() => setPreparationOuverte(false)} T={T}/>
       )}
