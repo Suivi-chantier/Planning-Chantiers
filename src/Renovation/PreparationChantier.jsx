@@ -1,34 +1,49 @@
 // Préparer le chantier — parcours guidé plein écran, lancé depuis Phasage V2.
-// Tranche 1a : étape « Les pièces » (les autres étapes arrivent ensuite).
+// Tranche 1 : étapes « Les pièces » et « Où se fait chaque ouvrage »
+// (PreparationRepartition.jsx). Les autres étapes arrivent ensuite.
 // Calculs : preparationChantierV1.mjs (module pur) et piecesPhasageV1.mjs.
 // AUCUNE écriture Supabase ici : on reçoit les fonctions d'écriture de
 // Phasage V2 (saveMeta, updateOuvrages), qui passent par sa file d'attente
 // avec révision (verrou optimiste) et son journal d'avancement.
-import React, { useState } from "react";
-import { ChevronUp, ChevronDown, Pencil, X, Check } from "lucide-react";
+// Phasage V2 transmet aussi l'état de sa sauvegarde (`etatSauvegarde`,
+// `conflit`) : « Enregistrer et quitter » ne ferme le parcours qu'une fois
+// l'écriture confirmée, et jamais en silence si la sauvegarde est en pause.
+import React, { useEffect, useRef, useState } from "react";
+import { ChevronUp, ChevronDown, Pencil, X, Check, AlertTriangle } from "lucide-react";
 import { THEMES, FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { ajouterPiece, renommerPiece, deplacerPiece, supprimerPiece, detacherPiece, piecesDuPhasage } from "./piecesPhasageV1";
-import { ETAPES, PIECES_RAPIDES, etapeReprise, majPreparation, piecesRetirees } from "./preparationChantierV1";
+import { ETAPES, PIECES_RAPIDES, etapeReprise, majPreparation, piecesRetirees, preparationDuPhasage, marquerOuvragePlace, remplacerOuvrage } from "./preparationChantierV1";
+import PreparationRepartition from "./PreparationRepartition";
 
 // Étapes déjà utilisables dans cette version du parcours.
-const ETAPES_DISPONIBLES = ["pieces"];
+const ETAPES_DISPONIBLES = ["pieces", "repartition"];
 const rid = () => Math.random().toString(36).slice(2, 10);
 const memeNom = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
 const TOUCHE = 44; // taille minimale d'un bouton (tablette au chantier)
+const DELAI_MIN_FERMETURE = 1200; // > 800 ms d'attente de la sauvegarde des ouvrages dans Phasage V2
+const DELAI_MAX_FERMETURE = 20000;
+const MSG_CONFLIT = "Enregistrement en pause : le phasage a été modifié ailleurs (autre poste ou autre personne). "
+  + "Pour protéger ces modifications, plus rien n'est enregistré depuis ce parcours. Le parcours reste ouvert. "
+  + "Pour reprendre : « Quitter sans enregistrer », puis « Recharger la version récente » dans Phasage V2, et rouvrez « Préparer le chantier ».";
 
-export default function PreparationChantier({ chantierNom, meta, ouvrages = [], auteur = null, onSaveMeta, onOuvragesChange, onFermer, T: theme }) {
+export default function PreparationChantier({ chantierNom, meta, ouvrages = [], auteur = null, heuresPointees = null, conflit = false, etatSauvegarde = "saved", onSaveMeta, onOuvragesChange, onFermer, T: theme }) {
   const T = theme || THEMES.dark;
   const accent = T.accent;
   // Texte sur fond d'accent : foncé sur le jaune (sombre), blanc sur le bleu (clair).
   const surAccent = T.bg === THEMES.light.bg ? "#fff" : "#111318";
-  const piecesInitiales = piecesDuPhasage(meta);
-  const [etape] = useState(() => etapeReprise(meta, ETAPES_DISPONIBLES));
+  const piecesInitiales = piecesDuPhasage(meta);   // dernière liste enregistrée
+  const [etape, setEtape] = useState(() => etapeReprise(meta, ETAPES_DISPONIBLES));
   const [pieces, setPieces] = useState(piecesInitiales);
+  const [prep, setPrep] = useState(() => preparationDuPhasage(meta));
   const [modifie, setModifie] = useState(false);
   const [autre, setAutre] = useState(null);           // texte de « + Autre pièce » (null = fermé)
   const [renommage, setRenommage] = useState(null);   // { id, nom } en cours
   const [enregistrement, setEnregistrement] = useState(false);
+  const [message, setMessage] = useState("");         // bandeau d'alerte (conflit, échec)
+  const [attenteFermeture, setAttenteFermeture] = useState(null); // horodatage de la demande de fermeture
+  const onFermerRef = useRef(onFermer);
+  onFermerRef.current = onFermer;
 
   const changer = (next) => { setPieces(next); setModifie(true); };
   const ajouter = (nom) => changer(ajouterPiece(pieces, nom, rid()));
@@ -51,33 +66,98 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
     setAutre(null);
   };
 
+  // Sauvegarde en pause dans Phasage V2 : on le dit, on n'écrit rien, on reste ouvert.
+  const bloqueParConflit = () => { if (!conflit) return false; setMessage(MSG_CONFLIT); return true; };
+
+  // Écriture unique de meta (pièces + préparation) : deux saveMeta successifs
+  // se perdraient un patch. Les tâches des pièces retirées redeviennent
+  // « sans pièce » (detacherPiece). Renvoie la préparation enregistrée, ou
+  // null si Phasage V2 n'a pas pu écrire.
+  const ecrire = async ({ etape: e, base = prep, ouvragesBase = ouvrages }) => {
+    let ouvs = ouvragesBase;
+    let detache = false;
+    piecesRetirees(piecesInitiales, pieces).forEach(id => {
+      if (ouvs.some(o => (o.taches || []).some(t => t.piece_id === id))) { ouvs = detacherPiece(ouvs, id); detache = true; }
+    });
+    const nouvelle = majPreparation(base, { etape: e, maj_le: new Date().toISOString(), par: auteur });
+    const r = await onSaveMeta({ pieces, preparation: nouvelle });
+    if (r === false) return null;
+    if (detache) onOuvragesChange(ouvs);
+    setPrep(nouvelle);
+    setModifie(false);
+    return nouvelle;
+  };
+
   const enregistrerEtQuitter = async () => {
     if (enregistrement) return;
+    if (bloqueParConflit()) return;
+    setMessage("");
     setEnregistrement(true);
     try {
-      // Pièces retirées : leurs tâches redeviennent « sans pièce » (detacherPiece).
-      let ouvs = ouvrages;
-      let detache = false;
-      piecesRetirees(piecesInitiales, pieces).forEach(id => {
-        if (ouvs.some(o => (o.taches || []).some(t => t.piece_id === id))) { ouvs = detacherPiece(ouvs, id); detache = true; }
-      });
-      // Une seule écriture de meta (pièces + préparation) : deux saveMeta
-      // successifs se perdraient un patch.
-      await onSaveMeta({
-        pieces,
-        preparation: majPreparation(meta?.preparation, { etape, maj_le: new Date().toISOString(), par: auteur }),
-      });
-      if (detache) onOuvragesChange(ouvs);
-      onFermer();
-    } catch (e) {
-      console.warn("Préparer le chantier — enregistrement :", e);
-      alert("L'enregistrement n'a pas abouti. Réessayez.");
+      const ok = await ecrire({ etape });
+      if (!ok) { setMessage("L'enregistrement n'a pas abouti. Le parcours reste ouvert : réessayez."); setEnregistrement(false); return; }
+      setAttenteFermeture(Date.now());   // fermeture quand Phasage V2 confirme (effet ci-dessous)
+    } catch (err) {
+      console.warn("Préparer le chantier — enregistrement :", err);
+      setMessage("L'enregistrement n'a pas abouti. Le parcours reste ouvert : réessayez.");
       setEnregistrement(false);
     }
   };
+
+  // Fermeture seulement quand la sauvegarde de Phasage V2 est confirmée.
+  useEffect(() => {
+    if (!attenteFermeture) return undefined;
+    const arreter = (msg) => { setAttenteFermeture(null); setEnregistrement(false); setMessage(msg); };
+    if (conflit || etatSauvegarde === "conflit") { arreter(MSG_CONFLIT); return undefined; }
+    if (etatSauvegarde === "error") { arreter("L'enregistrement n'a pas abouti. Le parcours reste ouvert : réessayez."); return undefined; }
+    const ecoule = Date.now() - attenteFermeture;
+    if (etatSauvegarde === "saved") {
+      const t = setTimeout(() => onFermerRef.current(), Math.max(0, DELAI_MIN_FERMETURE - ecoule));
+      return () => clearTimeout(t);
+    }
+    const t = setTimeout(() => arreter("L'enregistrement n'est pas encore confirmé (connexion lente ?). Le parcours reste ouvert : réessayez dans un instant."), Math.max(0, DELAI_MAX_FERMETURE - ecoule));
+    return () => clearTimeout(t);
+  }, [attenteFermeture, etatSauvegarde, conflit]);
+
   const fermerSansEnregistrer = () => {
     if (modifie && !window.confirm("Quitter sans enregistrer ? Les pièces ajoutées ou modifiées seront perdues.")) return;
     onFermer();
+  };
+
+  // « Les pièces » → « Où se fait chaque ouvrage » : les pièces sont
+  // enregistrées d'abord (les tâches ne peuvent viser que des pièces connues).
+  const continuerVersRepartition = async () => {
+    if (enregistrement || bloqueParConflit()) return;
+    setMessage("");
+    setEnregistrement(true);
+    try {
+      const ok = await ecrire({ etape: "repartition" });
+      if (!ok) { setMessage("Les pièces n'ont pas pu être enregistrées. Réessayez."); return; }
+      setEtape("repartition");
+    } catch (err) {
+      console.warn("Préparer le chantier — pièces :", err);
+      setMessage("Les pièces n'ont pas pu être enregistrées. Réessayez.");
+    } finally {
+      setEnregistrement(false);
+    }
+  };
+
+  // Validation d'un ouvrage (étape répartition) : tâches par updateOuvrages,
+  // puis ouvrage marqué « placé » dans meta.preparation.
+  const validerOuvrage = async (ouvrageId, ouvrageModifie) => {
+    if (bloqueParConflit()) return { ok: false };
+    setMessage("");
+    try {
+      let ouvs = ouvrages;
+      if (ouvrageModifie) { ouvs = remplacerOuvrage(ouvrages, ouvrageModifie); onOuvragesChange(ouvs); }
+      const nouvelle = await ecrire({ etape: "repartition", base: marquerOuvragePlace(prep, ouvrageId), ouvragesBase: ouvs });
+      if (!nouvelle) { setMessage("L'ouvrage n'a pas pu être marqué « placé ». Réessayez."); return { ok: false }; }
+      return { ok: true, preparation: nouvelle };
+    } catch (err) {
+      console.warn("Préparer le chantier — répartition :", err);
+      setMessage("L'enregistrement n'a pas abouti. Réessayez.");
+      return { ok: false };
+    }
   };
 
   const btn = (plein = false) => ({
@@ -127,9 +207,21 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
         })}
       </nav>
 
-      {/* Étape « Les pièces » */}
+      {message && (
+        <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 20px", background: "#e15a5a18", borderBottom: "1px solid #e15a5a55", color: T.text, fontSize: FONT.sm.size + 2, lineHeight: 1.5 }}>
+          <Icon as={AlertTriangle} size={18} style={{ color: "#e15a5a", flexShrink: 0, marginTop: 2 }}/>
+          <span style={{ flex: 1 }}>{message}</span>
+          <button onClick={() => setMessage("")} aria-label="Masquer le message" style={btnIcone}><Icon as={X} size={18}/></button>
+        </div>
+      )}
+
       <main style={{ flex: 1, overflowY: "auto" }}>
-        <div style={{ width: "100%", maxWidth: 860, margin: "0 auto", padding: "28px 20px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 24 }}>
+        {etape === "repartition" && (
+          <PreparationRepartition ouvrages={ouvrages} pieces={pieces} preparation={prep} heuresPointees={heuresPointees}
+            onValider={validerOuvrage} onRetourPieces={() => setEtape("pieces")} T={T} accent={accent} surAccent={surAccent}/>
+        )}
+        {/* Étape « Les pièces » */}
+        {etape === "pieces" && <div style={{ width: "100%", maxWidth: 860, margin: "0 auto", padding: "28px 20px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 24 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800 }}>Quelles pièces dans ce logement ?</h1>
             <p style={{ margin: 0, color: T.textSub, fontSize: FONT.sm.size + 2, lineHeight: 1.5 }}>
@@ -201,12 +293,25 @@ export default function PreparationChantier({ chantierNom, meta, ouvrages = [], 
             </ol>
           </section>
 
-          <p style={{ margin: 0, color: T.textSub, fontSize: FONT.sm.size, lineHeight: 1.5, padding: "12px 16px", background: T.card, borderRadius: RADIUS.md, border: `1px solid ${T.border}` }}>
-            Prochaine étape, « Où se fait chaque ouvrage » (répartir chaque ouvrage du devis par pièce et par mur) : bientôt disponible.
-            Pour l'instant, « Enregistrer et quitter » garde la liste des pièces ; on reprendra ici à la prochaine ouverture.
-          </p>
-        </div>
+        </div>}
       </main>
+
+      {/* Pied : navigation entre les étapes */}
+      <footer style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, padding: "12px 20px", borderTop: `1px solid ${T.border}`, background: T.surface }}>
+        {etape === "repartition"
+          ? <button onClick={() => setEtape("pieces")} style={btn()}>Retour aux pièces</button>
+          : <span/>}
+        {etape === "pieces" && (
+          <button onClick={continuerVersRepartition} disabled={enregistrement || pieces.length === 0}
+            title={pieces.length === 0 ? "Ajoute au moins une pièce" : undefined}
+            style={{ ...btn(true), opacity: enregistrement || pieces.length === 0 ? 0.5 : 1 }}>
+            Continuer : où se fait chaque ouvrage
+          </button>
+        )}
+        {etape === "repartition" && (
+          <span style={{ color: T.textSub, fontSize: FONT.sm.size, alignSelf: "center" }}>Étape suivante, « Consignes & plans » : bientôt disponible.</span>
+        )}
+      </footer>
     </div>
   );
 }

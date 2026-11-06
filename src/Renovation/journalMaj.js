@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-11-06",
+    type: "nouveaute",
+    titre: "Phasage : « Préparer le chantier », pour dire aux ouvriers dans quelle pièce et sur quel mur travailler",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "Un ouvrage du devis (par exemple « Doublage de mur, 50 m² ») couvre souvent plusieurs murs dans plusieurs pièces, mais ses tâches ne disaient pas où travailler. Le conducteur de travaux peut maintenant, une fois par logement, définir les pièces puis répartir chaque ouvrage par pièce et, si besoin, par mur, en m². Les tâches portent alors un libellé clair, par exemple « Pose ossature métallique doublage — Chambre, mur extérieur ». Les heures sont réparties au prorata des m² : le total des heures estimées, des heures vendues et des % de chaque ouvrage ne change pas, ni les chiffres du chantier.",
+    comment: "Phasage → bouton « Préparer le chantier » en haut de l'écran. Étape 1 « Les pièces » : on touche les pièces du logement (Entrée, Séjour / cuisine, Chambre…) et on les met dans l'ordre de visite. Étape 2 « Où se fait chaque ouvrage » : pour chaque ouvrage, « Une seule pièce », « Tout le logement » ou « Plusieurs pièces / murs » (une ligne par pièce ou par mur avec ses m² ; « Reste X m² à placer » doit tomber à 0, « Mettre le reste dans… » complète d'un geste). Les bandes, passes, enduits, ponçage, impression et peinture sont proposés en une tâche par pièce, le reste en une tâche par mur ; modifiable tâche par tâche. L'aperçu « Ce que verront les ouvriers » montre le résultat avant de valider ; l'ouvrage suivant s'ouvre ensuite. Une tâche déjà commencée (avancement, quantité terminée ou heures pointées) n'est jamais découpée. « Enregistrer et quitter » reprend plus tard à la même étape ; si le phasage a été modifié ailleurs entre-temps, le parcours le dit et reste ouvert au lieu de se fermer.",
+  },
+  {
     date: "2026-10-29",
     type: "correctif",
     titre: "Espace ouvrier : l'avancement d'un ouvrage est le même qu'au bureau",

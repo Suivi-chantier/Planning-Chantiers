@@ -6,7 +6,7 @@ import {
   decouperOuvrage, compterIdsNecessaires, placerDansUnePiece, placerToutLeLogement,
   apercuDecoupage, etatOuvrage, compteurPlaces, marquerOuvragePlace, retirerOuvragePlace,
   majPreparation, etapeReprise, preparationDuPhasage, piecesRetirees, remplacerOuvrage,
-  PIECES_RAPIDES,
+  PIECES_RAPIDES, ouvrageDejaDecoupe, repartitionActuelle, mettreLeResteDans, apercuPlacement, ouvrageSuivant,
 } from "../src/Renovation/preparationChantierV1.mjs";
 
 let nbOk = 0;
@@ -154,5 +154,37 @@ eq(preparationDuPhasage({}).ouvrages_places, [], "préparation absente : aucun o
 eq(piecesRetirees(pieces, pieces.slice(1)), ["sej"], "pièces retirées repérées pour détacher leurs tâches");
 eq(remplacerOuvrage([{ id: "o1" }, { id: "o9" }], { id: "o1", x: 1 }), [{ id: "o1", x: 1 }, { id: "o9" }], "remplacement d'un ouvrage dans la liste");
 eq(PIECES_RAPIDES.length, 9, "ajout rapide : neuf pièces proposées");
+
+// ── Tranche 1b : étape « Où se fait chaque ouvrage » ──
+// Ouvrage déjà découpé : reconnu, « Placé », répartition actuelle lisible.
+ok(!ouvrageDejaDecoupe(doublage), "ouvrage neuf : pas encore découpé");
+ok(!ouvrageDejaDecoupe({ taches: [{ id: "a", nom_perso: "Libellé saisi à la main" }] }), "un simple libellé personnalisé ne vaut pas découpage");
+ok(ouvrageDejaDecoupe(res.ouvrage), "ouvrage découpé reconnu (parts avec m² / mur)");
+eq(etatOuvrage(res.ouvrage, { preparation: {} }), "place", "ouvrage déjà découpé : Placé même hors de la liste des placés");
+eq(repartitionActuelle(res.ouvrage, pieces), [
+  { piece: "Séjour / cuisine", mur: "Mur côté rue", quantite: 14 },
+  { piece: "Séjour / cuisine", mur: "Mur côté palier", quantite: 14 },
+  { piece: "Chambre", mur: "", quantite: 14 },
+], "répartition actuelle lue sur la tâche la plus finement découpée");
+eq(repartitionActuelle(doublage, pieces), [], "pas de répartition actuelle sur un ouvrage neuf");
+
+// « Mettre le reste dans… »
+eq(mettreLeResteDans(doublage, lignes.slice(0, 2), "ch"), [...lignes.slice(0, 2), { piece_id: "ch", mur: "", quantite: 14 }], "reste mis dans une nouvelle ligne de la pièce");
+eq(mettreLeResteDans(doublage, [{ piece_id: "ch", mur: "", quantite: "10,5" }], "ch"), [{ piece_id: "ch", mur: "", quantite: 42 }], "reste ajouté à la ligne sans mur existante");
+eq(mettreLeResteDans(doublage, lignes, "ch"), lignes, "reste nul : rien ne change");
+eq(mettreLeResteDans({ quantite: null }, [], "ch"), [], "reste inconnu : rien ne change");
+
+// Aperçu des deux autres modes
+const apUne = apercuPlacement(doublage, "piece", { pieces, pieceId: "sde" });
+eq(apUne.taches.map(t => [t.piece, t.dejaCommencee]), [["Salle d'eau", false], ["Salle d'eau", false], ["", true]], "aperçu une seule pièce : pièce affichée, tâche commencée signalée");
+ok(!apercuPlacement(doublage, "piece", { pieces }).ok, "aperçu une seule pièce : refus sans pièce choisie");
+eq(apercuPlacement(doublage, "logement", { pieces }).taches.length, 3, "aperçu tout le logement : tâches inchangées");
+eq(apercuPlacement(doublage, "plusieurs", { pieces, lignes }).taches.length, 6, "aperçu plusieurs pièces : même résultat que le découpage");
+
+// Ouvrage suivant
+const suite = [{ id: "a", taches: [{ id: "a1" }] }, { id: "b", taches: [{ id: "b1", avancement: 50 }] }, { id: "c", taches: [{ id: "c1" }] }, { id: "d", taches: [{ id: "d1" }] }];
+eq(ouvrageSuivant(suite, "a", { preparation: { ouvrages_places: ["a", "c"] } })?.id, "d", "suivant : on saute les commencés et les placés");
+eq(ouvrageSuivant(suite, "d", { preparation: { ouvrages_places: ["d"] } })?.id, "a", "suivant : on repart du début");
+eq(ouvrageSuivant(suite, "d", { preparation: { ouvrages_places: ["a", "c", "d"] } }), null, "suivant : tout est placé");
 
 console.log(`verif-preparer-le-chantier : ${nbOk} contrôles OK (données fictives)`);

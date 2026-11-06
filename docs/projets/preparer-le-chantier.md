@@ -225,6 +225,48 @@ depuis la session de travail, son ouverture n'a pas pu être contrôlée
 directement. Limite reportée en tâche 2 : « Enregistrer et quitter » ferme
 le parcours même si Phasage V2 est en pause pour conflit de révision.
 
+**06/11/2026 — Tâche 2 : choix techniques.**
+
+- *Ouvrage déjà découpé* (une tâche porte déjà `quantite_part` ou `mur`) :
+  affiché « Placé » avec sa répartition actuelle, en lecture seule. Le
+  parcours ne propose ni de le redécouper ni de le remettre « Tout le
+  logement » : redécouper des parts qui ont déjà leurs heures multiplierait
+  les tâches et brouillerait les heures. Un changement se fait dans Phasage
+  V2, tâche par tâche. Un simple `nom_perso` ne compte pas comme découpage
+  (il peut avoir été saisi à la main). Solution la plus sûre retenue.
+- *Ouvrage placé mais pas découpé* (« Une seule pièce » ou « Tout le
+  logement ») : peut être revalidé ; la nouvelle répartition remplace
+  l'ancienne (les tâches n'ont pas été copiées, rien ne se multiplie).
+- *Pièces enregistrées avant la répartition* : « Continuer : où se fait
+  chaque ouvrage » enregistre d'abord les pièces (une tâche ne doit viser
+  qu'une pièce connue en base). Chaque validation d'ouvrage réécrit pièces
+  et préparation en un seul `saveMeta` (liste complète, jamais un patch
+  partiel), puis l'ouvrage suivant à traiter s'ouvre.
+- *Heures pointées* : Phasage V2 transmet son index des pointages par
+  tâche ; une tâche pointée est « déjà commencée, non découpée ».
+- *Nouvelles fonctions du module pur* : `ouvrageDejaDecoupe`,
+  `repartitionActuelle`, `mettreLeResteDans`, `apercuPlacement` (aperçu des
+  modes « Une seule pièce » et « Tout le logement »), `ouvrageSuivant` ;
+  `etatOuvrage` rend « Placé » pour un ouvrage déjà découpé. Vérification
+  complétée (84 contrôles, données fictives).
+- *Limite de la tâche 1 corrigée* (« Enregistrer et quitter » pendant un
+  conflit de révision) : Phasage V2 passe au parcours `conflit` et l'état de
+  sa sauvegarde ; `saveMeta` renvoie maintenant `false` quand rien n'a pu
+  être mis en file (dont la pause pour conflit). Le parcours refuse alors
+  d'écrire, affiche un message et reste ouvert ; sinon il attend que Phasage
+  V2 confirme « Sauvegardé » (au moins 1,2 s, pour couvrir l'attente de 800
+  ms de la sauvegarde des ouvrages) avant de se fermer. Sans confirmation au
+  bout de 20 s, message et parcours ouvert. Le chemin d'écriture n'est pas
+  modifié.
+- *Sous-composant* : l'étape est dans `PreparationRepartition.jsx` pour ne
+  pas alourdir `PreparationChantier.jsx`.
+- *Heures pointées sur LOUISON APPT 2 (T2)* : vérifiées (registre
+  `pointages`, requête du 06/11/2026) : aucun pointage sur le chantier,
+  aucune tâche commencée dans le phasage.
+- *Constat sur les vraies données* : les 6 tâches de MU-001 totalisent
+  107 % de ratios et 31,93 h estimées pour 30 h prévues sur l'ouvrage. Le
+  découpage conserve ces totaux sans les corriger (hors périmètre).
+
 ## Comptes rendus
 
 **Tâche 1 — Tranche 1a (06/11/2026, demande de fusion ouverte, pas encore en ligne).**
@@ -256,3 +298,130 @@ contrôles, données fictives) — totaux d'heures estimées, vendues et ratios
 identiques au centième, tâche commencée jamais découpée, fusion par pièce
 des bandes / enduits / peintures, arrondi (10 h sur 3 parts = 3,33 + 3,33
 + 3,34). Aucune migration, aucun changement de droits d'accès.
+
+**Tâche 2 — Tranche 1b (06/11/2026, demande de fusion ouverte, pas encore en ligne — en attente de l'accord de Loris sur la démonstration).**
+
+Ce qui change pour le conducteur de travaux :
+
+- Dans « Préparer le chantier », après « Les pièces », le bouton
+  **« Continuer : où se fait chaque ouvrage »** enregistre les pièces et
+  ouvre l'étape 2.
+- À gauche, la liste des ouvrages du devis avec leur état (À placer, En
+  cours, Placé, Déjà commencé) et la barre « X / N placés ».
+- À droite, trois choix pour l'ouvrage ouvert : **Une seule pièce**,
+  **Plusieurs pièces / murs**, **Tout le logement**. En « Plusieurs pièces
+  / murs », une ligne par pièce (et par mur si on veut) avec ses m², « +
+  Autre mur dans la même pièce », le compteur « Reste X m² à placer » et
+  le raccourci « Mettre le reste dans… ». On ne peut valider qu'à 0.
+- Pour chaque tâche : « Par mur » ou « Par pièce » (bandes, passes,
+  enduits, ponçage, impression et peinture sont proposés par pièce).
+- L'aperçu **« Ce que verront les ouvriers »** montre les tâches obtenues
+  avant de valider ; après validation, l'ouvrage suivant s'ouvre.
+- Une tâche déjà commencée n'est jamais découpée ; un ouvrage déjà découpé
+  s'affiche « Placé » avec sa répartition, sans proposer de le redécouper.
+- « Enregistrer et quitter » marche aussi à cette étape et on y revient à
+  la réouverture. Si le phasage a été modifié ailleurs entre-temps, le
+  parcours l'explique et reste ouvert, au lieu de se fermer sans rien dire.
+- Nouvelle entrée dans le journal des mises à jour (Phasage).
+
+Vérifications : vérification automatique du découpage complétée (84
+contrôles, données fictives). Aucune migration, aucun changement de droits
+d'accès. L'écran n'a pas pu être essayé dans un navigateur depuis la
+session de travail (pas de dépendances installées) : la construction est
+contrôlée par GitHub.
+
+**Démonstration sur LOUISON APPT 2 (T2)** — source : requête en lecture
+seule sur la base du 06/11/2026 ; rien n'a été enregistré. Les pièces,
+murs et m² par mur sont une hypothèse de démonstration ; les tâches, heures
+et ratios sont réels.
+
+#### Démonstration — découpage du doublage MU-001, LOUISON APPT 2 (T2)
+
+**Source** : requête en lecture seule sur la base (table `phasages`, phasage `b75ab2bf…`, révision 10), le 06/11/2026. Rien n'a été écrit en base.
+Contrôle de l'extraction : 91 tâches, somme des heures estimées 224,02 h, des heures vendues 230,5 h et des ratios 1 887,5 — identiques entre le fichier extrait et la base (requête de contrôle du même jour).
+Les tâches, heures estimées, heures vendues et ratios sont **réels**. Les pièces, murs et m² par mur sont une **hypothèse de démonstration**, à la place de la répartition réelle que fera le conducteur.
+
+Ouvrage : MU-001 :Fourniture et pose d'un doublage de mur (2,5ml haute… — 50 m², heures prévues de l'ouvrage 30 h, prix 3 841 € HT.
+
+Heures pointées : 0 pointage sur tout le chantier dans le registre `pointages`, aucune tâche avec avancement, quantité terminée ou ancien champ d'heures réelles → aucune tâche de MU-001 n'est commencée, toutes sont découpables.
+
+##### Répartition utilisée (hypothèse de démonstration)
+
+| Pièce | Mur | m² |
+|---|---|---:|
+| Séjour / cuisine | Mur côté rue | 14 |
+| Séjour / cuisine | Mur côté palier | 12 |
+| Chambre | Mur extérieur | 16 |
+| Salle d'eau | Mur extérieur | 8 |
+| **Total** | | **50** |
+
+##### (a) Tâches d'origine de MU-001 (réelles)
+
+| Tâche | Heures estimées | Heures vendues | Ratio (%) | Découpage par défaut | Commencée |
+|---|---:|---:|---:|---|---|
+| Pose ossature métallique doublage | 7,5 | 7,5 | 25 | par mur | non |
+| Isolation laine de verre 120mm doublage | 6 | 6 | 20 | par mur | non |
+| Plaquage BA13 doublage | 9 | 9 | 30 | par mur | non |
+| Bandes et 1ère passe doublage | 4,2 | 4,2 | 14 | par pièce | non |
+| 2ème passe doublage | 3,3 | 3,3 | 11 | par pièce | non |
+| Passe de finition doublage | 1,93 | 2,8 | 7 | par pièce | non |
+
+##### (b) Tâches après découpage
+
+| Libellé vu par les ouvriers (nom_perso) | Pièce | Mur | m² (quantite_part) | Heures estimées | Heures vendues | Ratio (%) |
+|---|---|---|---:|---:|---:|---:|
+| Pose ossature métallique doublage — Séjour / cuisine, Mur côté rue | Séjour / cuisine | Mur côté rue | 14 | 2,1 | 2,1 | 7 |
+| Pose ossature métallique doublage — Séjour / cuisine, Mur côté palier | Séjour / cuisine | Mur côté palier | 12 | 1,8 | 1,8 | 6 |
+| Pose ossature métallique doublage — Chambre, Mur extérieur | Chambre | Mur extérieur | 16 | 2,4 | 2,4 | 8 |
+| Pose ossature métallique doublage — Salle d'eau, Mur extérieur | Salle d'eau | Mur extérieur | 8 | 1,2 | 1,2 | 4 |
+| Isolation laine de verre 120mm doublage — Séjour / cuisine, Mur côté rue | Séjour / cuisine | Mur côté rue | 14 | 1,68 | 1,68 | 5,6 |
+| Isolation laine de verre 120mm doublage — Séjour / cuisine, Mur côté palier | Séjour / cuisine | Mur côté palier | 12 | 1,44 | 1,44 | 4,8 |
+| Isolation laine de verre 120mm doublage — Chambre, Mur extérieur | Chambre | Mur extérieur | 16 | 1,92 | 1,92 | 6,4 |
+| Isolation laine de verre 120mm doublage — Salle d'eau, Mur extérieur | Salle d'eau | Mur extérieur | 8 | 0,96 | 0,96 | 3,2 |
+| Plaquage BA13 doublage — Séjour / cuisine, Mur côté rue | Séjour / cuisine | Mur côté rue | 14 | 2,52 | 2,52 | 8,4 |
+| Plaquage BA13 doublage — Séjour / cuisine, Mur côté palier | Séjour / cuisine | Mur côté palier | 12 | 2,16 | 2,16 | 7,2 |
+| Plaquage BA13 doublage — Chambre, Mur extérieur | Chambre | Mur extérieur | 16 | 2,88 | 2,88 | 9,6 |
+| Plaquage BA13 doublage — Salle d'eau, Mur extérieur | Salle d'eau | Mur extérieur | 8 | 1,44 | 1,44 | 4,8 |
+| Bandes et 1ère passe doublage — Séjour / cuisine | Séjour / cuisine | — | 26 | 2,18 | 2,18 | 7,27 |
+| Bandes et 1ère passe doublage — Chambre | Chambre | — | 16 | 1,34 | 1,34 | 4,47 |
+| Bandes et 1ère passe doublage — Salle d'eau | Salle d'eau | — | 8 | 0,68 | 0,68 | 2,26 |
+| 2ème passe doublage — Séjour / cuisine | Séjour / cuisine | — | 26 | 1,72 | 1,72 | 5,73 |
+| 2ème passe doublage — Chambre | Chambre | — | 16 | 1,06 | 1,06 | 3,53 |
+| 2ème passe doublage — Salle d'eau | Salle d'eau | — | 8 | 0,52 | 0,52 | 1,74 |
+| Passe de finition doublage — Séjour / cuisine | Séjour / cuisine | — | 26 | 1 | 1,45 | 3,63 |
+| Passe de finition doublage — Chambre | Chambre | — | 16 | 0,62 | 0,9 | 2,25 |
+| Passe de finition doublage — Salle d'eau | Salle d'eau | — | 8 | 0,31 | 0,45 | 1,12 |
+
+6 tâches avant → 21 tâches après (15 nouvelles). Le nom de bibliothèque (`nom`) de chaque tâche est inchangé.
+
+##### (c) Totaux de l'ouvrage avant / après
+
+| Total MU-001 | Avant | Après | Écart |
+|---|---:|---:|---:|
+| Heures estimées des tâches | 31,93 | 31,93 | 0 |
+| Heures vendues des tâches | 32,8 | 32,8 | 0 |
+| Somme des ratios (%) | 107 | 107 | 0 |
+
+##### (d) Contrôle financier (simulation en mémoire, fonctions de `src/chantierFinance.mjs`)
+
+| Indicateur | Avant | Après | Écart |
+|---|---:|---:|---:|
+| MU-001 — heures prévues (somme des heures prévues des tâches) | 30 | 30 | 0 |
+| MU-001 — heures restantes | 30 | 30 | 0 |
+| MU-001 — heures vendues de l'ouvrage | 30 | 30 | 0 |
+| MU-001 — prix HT (€) | 3 841 | 3 841 | 0 |
+| MU-001 — avancement (%) | 0 | 0 | 0 |
+| Chantier — heures prévues (toutes tâches) | 222,44 | 222,44 | 0 |
+| Chantier — avancement (%) | 0 | 0 | 0 |
+| Chantier — brut.prixHTChantier (computeChantierFinance) | 29 430,58 | 29 430,58 | 0 |
+| Chantier — brut.heuresVenduesChantier (computeChantierFinance) | 226,44 | 226,44 | 0 |
+| Chantier — brut.heuresReellesChantier (computeChantierFinance) | 0 | 0 | 0 |
+| Chantier — brut.coutMOChantier (computeChantierFinance) | 0 | 0 | 0 |
+
+Comparaison complète du résultat de `computeChantierFinance` (sans pointages, sans commandes : il n'y a aucun pointage sur ce chantier) : 140 valeurs numériques comparées, 0 écart(s).
+
+Phasage d'origine non modifié en mémoire : oui.
+
+###### À savoir sur cet ouvrage (constaté sur les vraies données, sans lien avec le découpage)
+
+Les tâches de MU-001 totalisent 107 % de ratios, 31,93 h estimées et 32,8 h vendues, pour 30 h prévues sur l'ouvrage (la « Passe de finition doublage » a 1,93 h estimées pour 2,8 h vendues). Le découpage conserve ces totaux tels quels ; il ne corrige pas cet écart, qui se règle par le bouton « % » de Phasage V2.

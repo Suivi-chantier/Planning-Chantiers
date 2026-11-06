@@ -117,9 +117,20 @@ const memesTotaux = (a, b) => ["heures_estimees", "heures_vendues", "ratio"].eve
 //   en_cours       : ouvert à l'écran, ou une partie de ses tâches a déjà une pièce ;
 //   a_placer       : le reste.
 export const ETATS_OUVRAGE = { a_placer: "À placer", en_cours: "En cours", place: "Placé", deja_commence: "Déjà commencé" };
+
+// Ouvrage déjà découpé par un passage précédent : au moins une tâche porte
+// une part de quantité (quantite_part) ou un mur. Il est considéré « Placé »
+// et n'est jamais redécoupé part par part (les parts ont déjà leurs heures).
+// Un simple libellé personnalisé (nom_perso) ne suffit pas : il peut avoir
+// été saisi à la main dans Phasage V2.
+export function ouvrageDejaDecoupe(ouvrage) {
+  return liste(ouvrage?.taches).some(t => present(t?.quantite_part) || net(t?.mur));
+}
+
 export function etatOuvrage(ouvrage, { preparation, heuresPointees, enCoursId } = {}) {
   const places = preparationDuPhasage({ preparation }).ouvrages_places;
   if (places.includes(String(ouvrage?.id))) return "place";
+  if (ouvrageDejaDecoupe(ouvrage)) return "place";
   const taches = liste(ouvrage?.taches);
   const libres = taches.filter(t => !tacheCommencee(t, heuresPointees));
   if (taches.length > 0 && libres.length === 0) return "deja_commence";
@@ -294,6 +305,73 @@ export function apercuDecoupage(ouvrage, lignes, opts = {}) {
       dejaCommencee: commencees.has(String(t.id)),
     })),
   };
+}
+
+// Aperçu pour les deux autres modes, même forme que apercuDecoupage.
+//   mode "piece"    : opts.pieceId (toutes les tâches non commencées dans la pièce) ;
+//   mode "logement" : rien ne change.
+export const MODES = { piece: "Une seule pièce", logement: "Tout le logement", plusieurs: "Plusieurs pièces / murs" };
+export function apercuPlacement(ouvrage, mode, opts = {}) {
+  if (mode === "plusieurs") return apercuDecoupage(ouvrage, opts.lignes, opts);
+  const res = mode === "piece" ? placerDansUnePiece(ouvrage, opts.pieceId, opts) : placerToutLeLogement(ouvrage, opts);
+  if (!res.ok) return { ok: false, erreur: res.erreur, taches: [] };
+  const commencees = new Set(res.nonDecoupees.map(x => String(x.id)));
+  return {
+    ok: true,
+    nonDecoupees: res.nonDecoupees,
+    taches: liste(res.ouvrage?.taches).map(t => ({
+      nom: nomAffiche(t),
+      piece: mode === "piece" ? nomPiece(opts.pieces, t.piece_id) : "",
+      mur: "",
+      quantite_part: null,
+      heures: r2(num(t.heures_estimees)),
+      nouvelle: false,
+      dejaCommencee: commencees.has(String(t.id)),
+    })),
+  };
+}
+
+// Répartition actuelle d'un ouvrage déjà découpé (lecture seule) : on lit
+// les parts de la tâche la plus finement découpée (celle qui a le plus de
+// parts, à nom de bibliothèque identique) → [{ piece, mur, quantite }].
+export function repartitionActuelle(ouvrage, pieces) {
+  const groupes = new Map();
+  liste(ouvrage?.taches).forEach(t => {
+    if (!present(t?.quantite_part)) return;
+    const k = net(t.nom);
+    if (!groupes.has(k)) groupes.set(k, []);
+    groupes.get(k).push(t);
+  });
+  let meilleur = [];
+  groupes.forEach(g => { if (g.length > meilleur.length) meilleur = g; });
+  return meilleur.map(t => ({ piece: nomPiece(pieces, t.piece_id) || "Pièce retirée", mur: net(t.mur), quantite: r2(num(t.quantite_part)) }));
+}
+
+// Raccourci « Mettre le reste dans… » : ajoute le reste à placer à la ligne
+// sans mur de cette pièce (ou crée la ligne). Rien si le reste est nul,
+// négatif ou inconnu.
+export function mettreLeResteDans(ouvrage, lignes, pieceId) {
+  const L = liste(lignes);
+  const { reste } = resteAPlacer(ouvrage, L);
+  if (reste == null || reste <= 0 || !net(pieceId)) return L;
+  const i = L.findIndex(l => String(l.piece_id) === String(pieceId) && !net(l.mur));
+  if (i < 0) return [...L, { piece_id: String(pieceId), mur: "", quantite: reste }];
+  return L.map((l, j) => (j === i ? { ...l, quantite: r2(num(l.quantite) + reste) } : l));
+}
+
+// Ouvrage suivant à ouvrir après une validation : le premier après le
+// courant (en boucle) qui reste à traiter (ni placé, ni entièrement commencé).
+// null quand tout est placé.
+export function ouvrageSuivant(ouvrages, courantId, opts = {}) {
+  const L = liste(ouvrages);
+  const i = L.findIndex(o => String(o.id) === String(courantId));
+  for (let k = 1; k <= L.length; k++) {
+    const o = L[(i + k + L.length) % L.length];
+    if (String(o.id) === String(courantId)) continue;
+    const e = etatOuvrage(o, { ...opts, enCoursId: null });
+    if (e === "a_placer" || e === "en_cours") return o;
+  }
+  return null;
 }
 
 // Remplace un ouvrage dans la liste (après découpage / placement).
