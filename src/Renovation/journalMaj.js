@@ -33,6 +33,22 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "nouveaute",
+    titre: "Nouveau rôle « Chargé d'affaires » : opérations, chantiers, clients, chiffrage et devis, sans les finances globales ni les réglages",
+    pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Fiche chantier" }, { id: "info-client", label: "Chiffrage" }, { id: "admin", label: "Réglages" }],
+    quoi: "Un nouveau rôle peut être attribué aux personnes qui portent les affaires, de la première visite à la signature. Le chargé d'affaires voit Opérations, la fiche chantier, le Chiffrage et le Journal des MAJ. Il crée les opérations, les chantiers et les clients, fait le chiffrage, crée les devis dans ProGBat et valide les étapes des phases Étude et Contrat du cycle de vie (visite avant chiffrage, devis envoyé, devis signé, acompte, autorisation). Les phases Préparation, Travaux et Réception lui sont en lecture seule, comme le choix de la phase en cours : l'écran l'indique, et la base de données refuse aussi l'enregistrement. Il ne voit ni les États financiers, ni le Bilan, ni les encours et factures fournisseurs, ni les heures des salariés, ni les Réglages. Il apparaît dans la liste des chargés d'affaires des opérations et des chantiers. Aucun compte n'a encore ce rôle : rien ne change pour personne tant qu'un administrateur ne l'attribue pas.",
+    comment: "Administrateur : Réglages → Utilisateurs, modifier la personne et choisir le rôle « Chargé d'affaires ». Les pages de ce rôle se règlent comme les autres dans Réglages → Accès. Chargé d'affaires : menu → Opérations, puis une opération et un chantier ; dans « Cycle de vie du chantier », les étapes Étude et Contrat se valident comme d'habitude ; sur les autres phases, les étapes sont affichées sans boutons, avec la mention « Lecture seule ». Un nouveau chiffrage se lance depuis Chiffrage → « Nouveau projet ».",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
+    titre: "Opérations devient la porte d'entrée : onglets À l'étude, En cours, Terminées, Perdues, et la fiche chantier s'ouvre depuis son opération",
+    pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Fiche chantier" }],
+    quoi: "On retrouve ses chantiers en partant de l'opération (l'immeuble), puis du logement. La page Opérations est rangée en onglets selon le statut de l'opération, calculé à partir de ses chantiers : À l'étude, En cours, Terminées, Perdues, et un onglet « Sans chantier » pour les opérations encore vides, pour qu'aucune ne disparaisse. La fiche d'une opération montre son client, la liste de ses chantiers avec la mini-frise d'avancement de chacun (devis envoyé, signé, autorisation, préparé, réceptionné), puis les onglets habituels (synthèse financière, chemin de fer, planifier). La page Chantiers (la liste) n'est plus dans le menu : la fiche chantier, elle, ne change pas. Tous ceux qui voyaient la page Chantiers voient maintenant Opérations. L'espace ouvrier ne change pas : les ouvriers gardent leur accès direct à leurs chantiers.",
+    comment: "Menu → Opérations (juste sous le tableau de bord) : choisissez un onglet, puis cliquez sur une opération. Dans « Chantiers et cycle de vie », cliquez sur un chantier : sa fiche s'ouvre, avec en haut « Opérations › nom de l'opération › chantier ». Cliquez sur le nom de l'opération (ou sur « Retour à l'opération ») pour revenir à l'opération, ou sur « Opérations » pour revenir à la liste. Les liens « ouvrir le chantier » des Alertes et des Notes des ouvriers ouvrent toujours la fiche directement.",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
     titre: "Encours fournisseurs : nouvelle vue « Par mois d'achat » (ce qu'on a acheté chaque mois, par fournisseur et par chantier)",
     pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
     quoi: "L'encours range les montants au mois où on les paie (utile pour la trésorerie). La nouvelle vue range chaque achat au mois où il a été commandé ou acheté : on voit combien on a acheté en octobre, chez qui, et pour quel chantier — pour suivre les coûts et les marges et comparer avec l'avancement du mois. Exemple : les BL Rexel d'octobre restent en octobre même si la facture récapitulative n'est à payer qu'en novembre.",

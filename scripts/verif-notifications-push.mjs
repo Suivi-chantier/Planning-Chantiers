@@ -830,6 +830,10 @@ test("45. cloche : navigation bureau seulement, erreur visible, sans rechargemen
   assert.match(app, /lienVersNavigation\(lien\)/);
   const blocNav = app.slice(app.indexOf("const naviguerVersLien"), app.indexOf("const naviguerRef"));
   assert.match(blocNav, /canAccess\(role, cible\)/, "page non autorisée pour le rôle : on ne bouge pas");
+  // Forme « /#page » (lien C3 de la tâche 5 : « /#planning-commandes ») aussi comprise.
+  assert.match(app, /const cibleDuLien = \(lien\) =>/);
+  assert.match(blocNav, /cibleDuLien\(lien\)/);
+  assert.equal(V.lienVersNavigation("/planning-commandes").page, "planning-commandes");
   const cloche = sansCommentaires(lire("src/Renovation/ClocheNotifications.jsx"));
   for (const code of [cloche, blocNav]) {
     assert.ok(!/location\.reload|location\.href\s*=|location\.assign|window\.open/.test(code), "jamais de rechargement");

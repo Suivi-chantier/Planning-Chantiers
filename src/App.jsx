@@ -140,6 +140,8 @@ const EspaceOuvrier          = lazy(() => import("./Renovation/EspaceOuvrier"));
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
 // Centralisé dans src/access.js. App.jsx charge la config au mount et propage.
 import { loadAccessConfig, canAccess as _canAccess, ROLE_PAGES_DEFAULT_RENOVATION, PAGES_RENOVATION } from "./access";
+// Lot 5 (Refonte Opérations) : Opérations porte d'entrée, liste Chantiers hors menu.
+import { estPageDuMenu, pageDestination } from "./Renovation/navigationOperations.js";
 
 // ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
 if (typeof window !== "undefined") {
@@ -442,7 +444,7 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
   const branches    = profil?.branches || ["renovation"];
   const hasReno     = branches.includes("renovation");
   const hasInvest   = branches.includes("invest");
-  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
+  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable", charge_affaires:"Chargé d'affaires" };
 
   return (
     <div style={{ minHeight:"100vh", background:FOND_MARQUE, display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
@@ -575,12 +577,22 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const peutChangerBranche=(profil?.branches||["renovation"]).length>1;
   const branch="renovation";
 
-  // ID du chantier à pré-sélectionner dans PageChantiers — utilisé quand on
-  // clique sur une ligne du Dashboard Analyse. Reset après navigation.
+  // ID du chantier à pré-sélectionner dans PageChantiers. SEUL chemin pour
+  // ouvrir une fiche chantier (Opérations, Alertes, Notes des ouvriers) :
+  // depuis le lot 5, la liste Chantiers n'est plus dans le menu, la fiche
+  // garde l'identifiant de page « chantiers ». Reset après navigation.
   const [chantierToOpen, setChantierToOpen] = useState(null);
   const ouvrirFicheChantier = (chantierId) => {
     setChantierToOpen(chantierId);
     setPage("chantiers");
+  };
+  // Fil d'Ariane de la fiche chantier (« Opérations › Opération › Chantier ») :
+  // retour à la fiche de l'opération ({ id }) ou à la liste ({ id: null }).
+  // Reset après consommation.
+  const [operationToOpen, setOperationToOpen] = useState(null);
+  const ouvrirOperation = (operationId) => {
+    setOperationToOpen({ id: operationId || null });
+    setPage("operations");
   };
 
   // Navigation depuis « Heures des salariés » vers la Validation, préréglée sur
@@ -641,8 +653,15 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   // interromprait une saisie, cf. src/pwa.js). Page non autorisée pour le
   // rôle ou lien « / » : on reste où l'on est.
   const boite = useBoiteNotifications(role!=="ouvrier");
+  // Forme « /#page » aussi comprise (lien de la tâche 5 : « /#planning-commandes »).
+  const cibleDuLien = (lien) => {
+    const n = lienVersNavigation(lien);
+    if (n.page) return n;
+    const ancre = String(lien || "").split("#")[1] || "";
+    return ancre ? lienVersNavigation(`/${ancre.replace(/^\/+/, "")}`) : n;
+  };
   const naviguerVersLien = (lien) => {
-    const { page: cible, chantier } = lienVersNavigation(lien);
+    const { page: cible, chantier } = cibleDuLien(lien);
     if (!cible || !canAccess(role, cible)) return;
     if (cible === "chantiers" && chantier) ouvrirFicheChantier(chantier);
     else setPage(cible);
@@ -668,6 +687,15 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   useEffect(() => {
     if (role==="ouvrier") return;
     const params = new URLSearchParams(window.location.search);
+    // « /#planning-commandes » : une ancre qui est un identifiant de page connu
+    // de l'accès (jamais un jeton de connexion « #access_token=… », refusé par
+    // lienVersNavigation), puis l'ancre est retirée de l'adresse.
+    const ancre = window.location.hash.replace(/^#\/?/, "");
+    if (!params.has("page") && ancre && lienVersNavigation(`/${ancre}`).page && PAGES_RENOVATION.some(p => p.id === ancre.toLowerCase())) {
+      naviguerRef.current(`/#${ancre}`);
+      try { window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`); } catch { /* adresse laissée telle quelle */ }
+      return;
+    }
     if (!params.has("page")) return;
     naviguerRef.current(`/?${params.toString()}`);
     params.delete("page"); params.delete("chantier");
@@ -681,7 +709,8 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   // première page autorisée du rôle, dans l'ordre de référence de la branche.
   useEffect(() => {
     if (canAccess(role, page)) return;
-    const premiere = PAGES_RENOVATION.map(p => p.id).find(id => canAccess(role, id));
+    // Lot 5 : jamais la liste Chantiers comme page d'arrivée (hors menu).
+    const premiere = PAGES_RENOVATION.map(p => p.id).filter(estPageDuMenu).find(id => canAccess(role, id));
     if (premiere) setPage(premiere);
   }, [rolePages, role, page]);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -774,7 +803,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     }
   };
 
-  const ROLE_LABELS={admin:"Administrateur",conducteur:"Conducteur de travaux",commercial:"Commercial",comptable:"Comptable"};
+  const ROLE_LABELS={admin:"Administrateur",conducteur:"Conducteur de travaux",commercial:"Commercial",comptable:"Comptable",charge_affaires:"Chargé d'affaires"};
 
   const css=`
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
@@ -989,11 +1018,11 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
             const p=o.page, actif=o.id===ongletActif;
             return (
               <div key={o.id} style={{flex:1,display:actif?"flex":"none",minWidth:0,minHeight:0,overflow:"hidden"}}>
-          {p==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} tauxFG={tauxFG} T={T} profil={profil} initialSelectedId={actif?chantierToOpen:null} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
+          {p==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} tauxFG={tauxFG} T={T} profil={profil} initialSelectedId={actif?chantierToOpen:null} onSelectionConsumed={() => setChantierToOpen(null)} onOuvrirOperation={canAccess(role,"operations") ? ouvrirOperation : null}/> : <AccesRefuse T={T} page="chantiers"/>)}
           {p==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiersExploitation} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
           {p==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiersExploitation} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} vehicules={vehicules} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
           {p==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiersExploitation}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}
-          {p==="notes-ouvriers"     && (canAccess(role,"notes-ouvriers")     ? <PageNotesOuvriers T={T} branch={branch} chantiers={chantiersExploitation} onOuvrirChantier={(id)=>{ setChantierToOpen(id); setPage("chantiers"); }}/> : <AccesRefuse T={T} page="notes-ouvriers"/>)}
+          {p==="notes-ouvriers"     && (canAccess(role,"notes-ouvriers")     ? <PageNotesOuvriers T={T} branch={branch} chantiers={chantiersExploitation} onOuvrirChantier={(id)=>ouvrirFicheChantier(id)}/> : <AccesRefuse T={T} page="notes-ouvriers"/>)}
           {p==="notes-todo"         && (canAccess(role,"notes-todo")         ? <PageNotesEtTodo T={T} profil={profil} chantiers={chantiersExploitation}/> : <AccesRefuse T={T} page="notes-todo"/>)}
           {p==="commandes"          && (canAccess(role,"commandes")          ? <PageCommandes chantiers={chantiersExploitation} T={T}/> : <AccesRefuse T={T} page="commandes"/>)}
           {p==="capture-cmd"        && (canAccess(role,"capture-cmd")        ? <PageCaptureCommandeMobile chantiers={chantiersExploitation} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="capture-cmd"/>)}
@@ -1004,20 +1033,20 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="qualite-cr"         && (canAccess(role,"qualite-cr")         ? <PageQualiteComptesRendus T={T} branch={branch}/> : <AccesRefuse T={T} page="qualite-cr"/>)}
           {p==="inventaire-equipes" && (canAccess(role,"inventaire-equipes") ? <PageInventaireEquipes T={T} branch={branch} ouvriers={ouvriers} profil={profil}/> : <AccesRefuse T={T} page="inventaire-equipes"/>)}
           {p==="bilan-semaine"      && (canAccess(role,"bilan-semaine")      ? <PageBilanPeriode chantiers={chantiersExploitation} T={T}/> : <AccesRefuse T={T} page="bilan-semaine"/>)}
-          {p==="alertes"            && (canAccess(role,"alertes")            ? <PageAlertes T={T} referentielChantiers={chantiers} onOuvrirChantier={(a)=>{ setChantierToOpen(a.chantierId); setPage("chantiers"); }}/> : <AccesRefuse T={T} page="alertes"/>)}
+          {p==="alertes"            && (canAccess(role,"alertes")            ? <PageAlertes T={T} referentielChantiers={chantiers} onOuvrirChantier={(a)=>ouvrirFicheChantier(a.chantierId)}/> : <AccesRefuse T={T} page="alertes"/>)}
           {p==="retours-terrain"    && (canAccess(role,"retours-terrain")    ? <PageRetoursTerrain T={T} branch={branch}/> : <AccesRefuse T={T} page="retours-terrain"/>)}
           {p==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiersExploitation} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil} initialDate={actif?validationDate:null} onInitialDateConsumed={() => setValidationDate(null)}/> : <AccesRefuse T={T} page="validation"/>)}
           {p==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiersExploitation} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
           {p==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiersExploitation} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
           {p==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiersExploitation} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} tauxFG={tauxFG} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
-          {p==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} profil={profil} T={T} branch={branch} onOpenChantier={ouvrirFicheChantier} onOuvrirAdmin={()=>setPage("admin")} peutPlanifier={canAccess(role,"planning")}/> : <AccesRefuse T={T} page="operations"/>)}
+          {p==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} profil={profil} T={T} branch={branch} onOpenChantier={canAccess(role,"chantiers") ? ouvrirFicheChantier : null} onOuvrirAdmin={canAccess(role,"admin") ? ()=>setPage("admin") : null} peutPlanifier={canAccess(role,"planning")} operationDemandee={actif?operationToOpen:null} onOperationConsumed={()=>setOperationToOpen(null)}/> : <AccesRefuse T={T} page="operations"/>)}
           {p==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch} initialOuvrageId={actif?biblioOuvrageToOpen:null} onOuvrageConsumed={()=>setBiblioOuvrageToOpen(null)} onRetourChiffrage={allerBiblio ? revenirAuChiffrage : null}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
           {p==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
           {p==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} profil={profil} onModifierMateriaux={canAccess(role,"bibliotheque") ? ouvrirOuvrageBiblio : null} retourBiblio={actif?retourChiffrage:null} onRetourBiblioConsomme={()=>setRetourChiffrage(null)}/> : <AccesRefuse T={T} page="info-client"/>)}
           {p==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
           {p==="suggestions-mat"    && (canAccess(role,"suggestions-mat")    ? <PageSuggestionsMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="suggestions-mat"/>)}
           {p==="guide-ouvrages"     && (canAccess(role,"guide-ouvrages")     ? <PageGuideOuvrages T={T}/> : <AccesRefuse T={T} page="guide-ouvrages"/>)}
-          {p==="journal-maj"        && (canAccess(role,"journal-maj")        ? <PageJournalMaj T={T} branch={branch} onOuvrirPage={setPage} peutOuvrir={(id)=>canAccess(role,id)}/> : <AccesRefuse T={T} page="journal-maj"/>)}
+          {p==="journal-maj"        && (canAccess(role,"journal-maj")        ? <PageJournalMaj T={T} branch={branch} onOuvrirPage={(id)=>setPage(pageDestination(id,(p)=>canAccess(role,p)))} peutOuvrir={(id)=>canAccess(role,id)}/> : <AccesRefuse T={T} page="journal-maj"/>)}
           {p==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} tauxMOPrev={tauxMOPrev} setTauxMOPrev={setTauxMOPrev} tauxFG={tauxFG} setTauxFG={setTauxFG} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
               </div>
             );
