@@ -173,6 +173,79 @@ branche `claude/hopeful-thompson-3jxtxn`, repartie de `main` après chaque
 fusion. Le fichier projet est mis à jour dans la demande de fusion de chaque
 tâche.
 
+**06/11/2026 — Tâche 1 : choix techniques.**
+
+- *Nom du script de vérification.* Le fichier projet prévoit
+  `scripts/verif-preparation-chantier.mjs`, mais ce nom est déjà pris par
+  la vérification de l'écran « préparation » des ouvriers (module
+  `preparationChantier.mjs`, sans rapport, lancé par deux workflows).
+  Pour ne pas l'écraser, la vérification du découpage s'appelle
+  `scripts/verif-preparer-le-chantier.mjs` (workflow
+  `verify-fondations-finance.yml`, juste après celle des pièces). Le contenu
+  vérifié est celui demandé (totaux conservés, tâche commencée refusée,
+  fusion par pièce, arrondi).
+- *Format de `meta.preparation`* : `{ etape, maj_le, par, ouvrages_places }`.
+  `etape` ∈ `depart` / `pieces` / `repartition` / `consignes` ; `maj_le`
+  (horodatage ISO) et `par` (nom ou e-mail du conducteur) sont fournis par
+  l'écran, jamais par le module de calcul ; `ouvrages_places` = liste des
+  identifiants d'ouvrages marqués « placés ». Les champs inconnus sont
+  conservés à chaque enregistrement.
+- *Reprise* : on rouvre l'étape enregistrée si elle est déjà disponible,
+  sinon « Les pièces » (seule étape disponible dans la tâche 1).
+- *État d'un ouvrage* : « Placé » s'il est dans `ouvrages_places` ;
+  « Déjà commencé » si TOUTES ses tâches sont commencées (rien à découper) ;
+  « En cours » s'il est ouvert à l'écran ou si une partie de ses tâches non
+  commencées a déjà une pièce ; sinon « À placer ». Le compteur « X / N
+  placés » ne compte pas les ouvrages entièrement commencés.
+- *Tâche commencée* : avancement > 0, `quantite_terminee` renseigné, ou
+  heures pointées (registre de pointage passé en paramètre, sinon ancien
+  champ `heures_reelles`, même lecture que `chantierFinance`).
+- *Ouvrage sans quantité au devis* : le découpage par m² est refusé (le
+  reste à placer est « inconnu », jamais « 0 ») ; restent « Une seule
+  pièce » et « Tout le logement ».
+- *Tâche sans heures estimées* (heures portées par le ratio de l'ouvrage) :
+  `dupliquerTacheParPieces` partage alors ratio et heures vendues à parts
+  égales ; le module les reporte ensuite au prorata des m², avec le même
+  arrondi. Les totaux restent identiques (vérifié).
+- *Mode « Une seule pièce »* : les tâches non commencées reçoivent la pièce,
+  sans libellé `nom_perso` ajouté (inutile quand tout est dans une pièce).
+- *Écriture* : le parcours ne parle jamais à la base. Il reçoit `saveMeta`
+  et `updateOuvrages` de Phasage V2 (file d'attente avec révision, journal
+  d'avancement). Pièces et préparation partent en UN seul `saveMeta` ; les
+  tâches d'une pièce retirée sont détachées (`detacherPiece`) via
+  `updateOuvrages`, comme dans le panneau « Pièces » existant.
+- *Pas d'entrée `journalMaj.js`* dans la tâche 1 : le bouton indique
+  clairement que l'étape suivante arrive bientôt ; l'entrée viendra avec la
+  tâche 2.
+
 ## Comptes rendus
 
-(Aucune tâche commencée.)
+**Tâche 1 — Tranche 1a (06/11/2026, demande de fusion ouverte, pas encore en ligne).**
+
+Ce qui change pour le conducteur de travaux :
+
+- Dans Phasage V2, un nouveau bouton **« Préparer le chantier »** apparaît
+  en haut de l'écran, à côté du bouton PDF.
+- Il ouvre un parcours en plein écran, avec les quatre étapes de la
+  maquette. Seule l'étape **« Les pièces »** fonctionne pour l'instant ; les
+  trois autres sont marquées « bientôt ».
+- Étape « Les pièces » : on touche une pièce pour l'ajouter (Entrée, Séjour /
+  cuisine, Chambre, Chambre 2, Salle d'eau, WC, Dégagement, Placard,
+  Cellier, ou « + Autre pièce… »). On peut renommer, monter / descendre
+  (l'ordre sera l'ordre de visite sur le téléphone des ouvriers) et retirer
+  une pièce. Les boutons sont assez gros pour une tablette.
+- **« Enregistrer et quitter »** garde la liste des pièces (la même que
+  celle du bouton « Pièces » de la colonne Tâches) et note où on s'est
+  arrêté, quand et par qui. À la réouverture, on revient à cette étape.
+  « Quitter sans enregistrer » demande confirmation si on a modifié quelque
+  chose. Retirer une pièce qui avait des tâches les remet « sans pièce »,
+  après confirmation.
+- Le moteur qui découpera un ouvrage par pièce et par mur (étape suivante)
+  est livré et vérifié, mais pas encore utilisable à l'écran : rien ne
+  change dans le phasage tant que la tâche 2 n'est pas en ligne.
+
+Vérifications : nouvelle vérification automatique du découpage (67
+contrôles, données fictives) — totaux d'heures estimées, vendues et ratios
+identiques au centième, tâche commencée jamais découpée, fusion par pièce
+des bandes / enduits / peintures, arrondi (10 h sur 3 parts = 3,33 + 3,33
++ 3,34). Aucune migration, aucun changement de droits d'accès.

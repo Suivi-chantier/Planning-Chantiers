@@ -47,6 +47,8 @@ jobs:
         run: node scripts/verif-libelles-phasage.mjs
       - name: CR-2 - Pieces du chantier, duplication par piece qui conserve les heures (donnees fictives)
         run: node scripts/verif-pieces-phasage.mjs
+      - name: Preparer le chantier - Decoupage par piece et par mur, totaux conserves, taches commencees intouchees (donnees fictives)
+        run: node scripts/verif-preparer-le-chantier.mjs
       - name: CR-3 - Nouveau parcours du compte rendu ouvrier (donnees fictives)
         run: node scripts/verif-compte-rendu-v3.mjs
       - name: CR-6A - Parcours unique du compte rendu (etat choisi par l ouvrier, prevu memorise, donnees fictives)
