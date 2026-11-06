@@ -219,12 +219,33 @@ export function methodeBilanV3() {
   ];
 }
 
+// Cascade affichée seulement pour les chantiers qui décrochent (projet « Bilan
+// détaillé », étape 6, 06/11/2026) : marge probable en baisse de plus du seuil
+// sur la période, ou pastille rouge. Sinon une ligne, calculée ici :
+//   - |évolution| ≤ seuil      → « Marge probable stable (±X €) » ;
+//   - hausse de plus du seuil  → « Marge probable en hausse (+X €) » ;
+//   - évolution inconnue (pas de relevé de départ) → la cascade reste affichée :
+//     on ne peut pas affirmer que la marge est stable.
+// X = valeur absolue de l'évolution, arrondie à l'euro, au format du PDF.
+const fmtEurFiche = v => `${Math.round(v).toLocaleString("fr-FR")}\u202f€`; // même espace insécable fine que les euros du PDF
+export function affichageCascadeV3({ evolutionMargeProbable, couleurPastille, seuilBaisse = 500 } = {}) {
+  const seuil = num(seuilBaisse) ?? 500;
+  const evo = num(evolutionMargeProbable);
+  if (couleurPastille === "rouge") return { afficherCascade: true, motif: "pastille rouge", texte: null };
+  if (evo == null) return { afficherCascade: true, motif: "évolution inconnue", texte: null };
+  if (evo < -seuil) return { afficherCascade: true, motif: "marge probable en baisse", texte: null };
+  if (evo > seuil) return { afficherCascade: false, motif: "marge probable en hausse", texte: `Marge probable en hausse (+${fmtEurFiche(evo)})` };
+  return { afficherCascade: false, motif: "marge probable stable", texte: `Marge probable stable (±${fmtEurFiche(Math.abs(evo))})` };
+}
+
 /** Assemble la fiche d'un chantier pour le PDF détaillé. */
 // En tête de fiche (choix de Loris du 26/10/2026) : « du devis au probable »
 // (cascadeMargeDevisReleve, lue dans le relevé de fin), puis le constat à date
 // et la période, lus dans la synthèse du Bilan (mêmes chiffres que la page 1).
-export function margesFicheV3(synthese, releveFin, baremeFG = null) {
+export function margesFicheV3(synthese, releveFin, baremeFG = null, seuilBaisse = 500) {
   return {
+    affichage: affichageCascadeV3({ evolutionMargeProbable: synthese?.evolutionMargeProbable,
+      couleurPastille: synthese?.pastille?.couleur, seuilBaisse }),
     cascade: cascadeMargeDevisReleve(releveFin, baremeFG),
     constat: { margeAvancement: synthese?.margeAvancement ?? null, materiauxEnAvance: synthese?.materiauxEnAvance ?? null },
     periode: { production: synthese?.production ?? null, margePeriode: synthese?.margePeriode ?? null },
@@ -233,7 +254,7 @@ export function margesFicheV3(synthese, releveFin, baremeFG = null) {
 
 export function ficheChantierV3({ synthese, releveFin, ouvrages, journal, pointages, periode, bornes,
   photosChoisies = [], commentairesCoches = [], syntheseRelue = "", seuilSansLotPct = 10,
-  baremeFG = null, journalComplet = undefined, commandeLignes = undefined, achatsTermines = [], lotsConfig = [] }) {
+  baremeFG = null, journalComplet = undefined, commandeLignes = undefined, achatsTermines = [], lotsConfig = [], seuilBaisse = 500 }) {
   const { lots, aVenir, sansLotAlerte } = lotsFicheV3(releveFin, { seuilSansLotPct });
   const lotsLabels = Object.fromEntries(listeSure(releveFin?.lots).map(l => [l.id, l.label]));
   const detailMat = materiauxParLotALaDateV3({ ouvrages, journalComplet, commandeLignes, achatsTermines, lots: lotsConfig, dateFin: bornes.dateFin });
@@ -241,7 +262,7 @@ export function ficheChantierV3({ synthese, releveFin, ouvrages, journal, pointa
     chantierId: synthese.chantierId, nom: synthese.nom,
     synthese: str(syntheseRelue) || null,
     presences: presencesV3({ pointages, chantierId: synthese.chantierId, debut: periode.debut, fin: periode.fin }),
-    marges: margesFicheV3(synthese, releveFin, baremeFG),
+    marges: margesFicheV3(synthese, releveFin, baremeFG, seuilBaisse),
     lots, aVenir, sansLotAlerte,
     materiaux: materiauxFicheV3(releveFin, detailMat),
     tachesParLot: tachesParLotV3({ ouvrages, journal, dateDepart: bornes.dateDepart, dateFin: bornes.dateFin, lotsLabels }),
