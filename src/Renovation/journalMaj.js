@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
+    type: "nouveaute",
+    titre: "Point du soir des conducteurs à 18h30 sur téléphone (activé quand Loris allumera les notifications)",
+    pages: [{ id: "validation", label: "Validation fin de journée" }, { id: "planning-commandes", label: "Planning commandes (5 sem.)" }],
+    quoi: "Chaque jour ouvré à 18h30, une seule notification résume la journée : combien de comptes rendus sont arrivés, quels ouvriers attendus n'ont pas encore rendu le leur (par leur prénom), et les demandes de matériel des ouvriers qui attendent une réponse (chantier et articles). Si des ouvriers étaient attendus et qu'aucun compte rendu n'est arrivé, la notification part quand même : un silence ne doit jamais passer pour « tout va bien ». S'il n'y a vraiment rien à dire, rien n'est envoyé. Les ouvriers ne reçoivent rien et leur mail de rappel ne change pas.",
+    comment: "Rien à faire : la notification partira d'elle-même dès que l'interrupteur général de Réglages › Notifications sera allumé (il est encore coupé). Elle va par défaut aux conducteurs et aux administrateurs. « Ouvriers attendus » veut dire ceux qui avaient une tâche au planning ce jour-là, exactement comme pour le mail de rappel. Chacun peut couper, dans « Mon profil », la partie « comptes rendus » ou la partie « demandes de matériel » : il ne reçoit alors que l'autre partie, toujours en une seule notification. Toucher la notification ouvre la Validation fin de journée (ou le Planning commandes s'il n'y a que des demandes). Tout reste aussi dans la cloche.",
+  },
+  {
+    date: "2026-11-06",
     type: "amelioration",
     titre: "Bilan de semaine et Alertes s'ouvrent plus vite",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }, { id: "alertes", label: "Alertes" }],

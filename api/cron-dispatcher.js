@@ -37,6 +37,11 @@
 //   Lun-Ven 06h05 et 07h05 UTC → matériaux à commander (?job=push_materiaux) :
 //     celui qui tombe avant 8h Paris ne fait rien, l'autre envoie vers 8h05
 //     (cron-push-materiaux.yml)
+//   Lun-Ven 16h30 et 17h30 UTC → point du soir des conducteurs, C1 + C2
+//     (?job=point_conducteurs&pas_avant=18:30) : avant 18h30 Paris l'appel est
+//     ignoré, donc il part à 18h30 Paris en hiver comme en été ; le second
+//     passage d'été (19h30) voit le point déjà écrit et ne renvoie rien
+//     (cron-point-conducteurs.yml)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");
@@ -51,6 +56,7 @@ const { runRelancesCycleVie }  = require("./_cron/cron-relances-cycle-vie.js");
 const { runPushReportes, runPushSimulation } = require("./_cron/cron-push-reportes.js");
 const { runFacturesAEmettre } = require("./_cron/cron-factures-a-emettre.js");
 const { runPushMateriaux }     = require("./_cron/cron-push-materiaux.js");
+const { runPointConducteurs }  = require("./_cron/cron-point-conducteurs.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -126,6 +132,14 @@ const TACHES = {
   push_materiaux: {
     fenetre: null,
     run: (req, supabase, t) => runPushMateriaux(req, supabase, t),
+  },
+  // Point du soir des conducteurs à 18h30 (C1 comptes rendus + C2 demandes de
+  // matériel), une seule notification par personne. Même règle « ouvriers
+  // attendus » que le rappel du compte rendu. `&simulation=1` : sans envoi ni
+  // écriture ; `&date=` en simulation seulement. Par `?job=` seulement.
+  point_conducteurs: {
+    fenetre: null,
+    run: (req, supabase, t) => runPointConducteurs(req, supabase, t),
   },
 };
 
