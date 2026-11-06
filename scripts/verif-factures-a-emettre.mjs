@@ -299,9 +299,10 @@ test("19. dispatcher et créneau GitHub (été / hiver, simulation à la main)",
   const wf = lire(".github/workflows/cron-factures-a-emettre.yml");
   assert.match(wf, /cron: '15 6 \* \* 1-5'/);
   assert.match(wf, /cron: '15 7 \* \* 1-5'/);
-  assert.match(wf, /job=factures_a_emettre&pas_avant=8/);
+  assert.match(wf, /job="factures_a_emettre&pas_avant=8"/, "le créneau planifié ignore les appels avant 8h");
   assert.match(wf, /workflow_dispatch:/);
-  assert.match(wf, /job=factures_a_emettre&simulation=1/);
+  assert.match(wf, /job="factures_a_emettre&simulation=1"/, "lancement à la main : simulation");
+  assert.match(wf, /cron-dispatcher\?job=\$job/);
   const verif = lire(".github/workflows/verify-factures-a-emettre.yml");
   assert.match(verif, /node scripts\/verif-factures-a-emettre\.mjs/);
 });
