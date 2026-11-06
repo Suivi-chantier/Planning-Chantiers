@@ -639,7 +639,7 @@ test("37. migration boîte : deux tables, seule la policy restrictive, aucune fo
   assert.ok(!/alter table (?!public\.notifications(_preferences)? enable row level security)/.test(sql), "aucune table existante modifiée");
   assert.ok(!/planning_config/.test(sql), "les réglages ne sont pas écrits par la migration (absents = interrupteur coupé)");
   for (const s of V.PUSH_STATUTS) assert.match(sql, new RegExp(`'${s}'`), `statut ${s} accepté par la base`);
-  for (const c of [...V.CODES_TYPES, "test"]) assert.match(sql, new RegExp(`'${c}'`), `type ${c} accepté par la base`);
+  for (const c of [...V.CODES_TYPES, "test"]) assert.match(sql, new RegExp(`'${c.toLowerCase()}'`), `type ${c} accepté par la base (SQL comparé en minuscules)`);
 });
 
 test("38. boîte de réception : appelant identifié, toujours limitée à ses propres lignes", () => {
