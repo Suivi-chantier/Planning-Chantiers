@@ -743,8 +743,8 @@ plus haut). Retour arrière : `sql/202611_refonte_operations_lot4_rollback.sql`.
   **activer l'interrupteur** (Réglages → Logistique → Relances, compte
   administrateur). Avant d'activer : vérifier la facture d'acompte du
   25/08/2025 signalée non réglée (voir « Données migrées »).
-- Lot 3 : la facture d'acompte se crée encore à la main dans ProGBat après la
-  signature (automatisation au lot 4).
+- Lot 3 : la facture d'acompte se crée désormais depuis la fiche chantier
+  après la signature (lot 4), sous réserve des droits ProGBat ci-dessous.
 - Lot 5 : rien d'obligatoire. Si les commerciaux ou le comptable ne doivent
   pas voir les marges agrégées par opération, ou ne doivent pas pouvoir
   « Marquer perdu », le dire : Réglages → Accès, ou rôle chargé d'affaires
