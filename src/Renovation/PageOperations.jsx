@@ -46,6 +46,8 @@ import { estChantierActif } from "./chantierActif.js";
 import { BadgeStatut } from "./ComposantsCommerciaux.jsx";
 import OperationCommercial from "./OperationCommercial.jsx";
 import SyntheseCycleVieOperation from "./SyntheseCycleVieOperation.jsx";
+// Lot 5 : Opérations porte d'entrée — onglets par statut calculé.
+import { ONGLETS_OPERATIONS, repartirOperationsParOnglet, ongletInitialOperations } from "./navigationOperations.js";
 import { useReglagesMarges } from "./reglagesMarges";
 import { detailKpiOperation, carteDeriveOperation } from "./operationKpiDetail";
 import {
@@ -195,11 +197,22 @@ function KpiOperationModal({ detail, pres, opNom, T, onClose }) {
   );
 }
 
-export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin, peutPlanifier = false, setChantiers = null, saveConfig = null, profil = null }) {
+export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin, peutPlanifier = false, setChantiers = null, saveConfig = null, profil = null, operationDemandee = null, onOperationConsumed = null }) {
   const acc = getBranchAccent(branch);
   const [operations, setOperations] = useState(null); // null = chargement
   const [etat, setEtat] = useState({ charge: false, phasages: [], phasagesParChantier: {}, ptsByChantier: {}, clByChantier: {}, cfg: {}, refsParChantier: {}, erreurs: [] });
-  const [opId, setOpId] = useState(() => localStorage.getItem("operations_selected") || null);
+  // Lot 5 : une demande venue du fil d'Ariane de la fiche chantier
+  // ({ id } = cette opération, { id: null } = la liste) prime sur la
+  // dernière opération ouverte.
+  const [opId, setOpId] = useState(() => {
+    if (operationDemandee) return operationDemandee.id || null;
+    try { return localStorage.getItem("operations_selected") || null; } catch { return null; }
+  });
+  // Lot 5 : onglet de la liste (À l'étude · En cours · Terminées · Perdues ·
+  // Sans chantier). null = choisi d'après les compteurs (En cours par défaut).
+  const [ongletStatut, setOngletStatut] = useState(() => {
+    try { return localStorage.getItem("operations_onglet") || null; } catch { return null; }
+  });
   const [periode, setPeriode] = useState("12");
   const [masques, setMasques] = useState({});
   const [onglet, setOnglet] = useState("synthese"); // "synthese" | "chemin-de-fer" | "planifier"
@@ -306,7 +319,24 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
 
   const ouvrirOp = (id) => {
     setOpId(id);
-    localStorage.setItem("operations_selected", id || "");
+    try { localStorage.setItem("operations_selected", id || ""); } catch { /* mémoire du navigateur indisponible */ }
+  };
+
+  // Lot 5 : demande venue du fil d'Ariane (page déjà ouverte ou non).
+  useEffect(() => {
+    if (!operationDemandee) return;
+    ouvrirOp(operationDemandee.id || null);
+    onOperationConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operationDemandee]);
+
+  // Lot 5 : répartition par statut CALCULÉ (statutOperation), une opération
+  // dans un seul onglet ; « Sans chantier » a son onglet, toujours affiché.
+  const repartition = useMemo(() => repartirOperationsParOnglet(operations || [], chantiers), [operations, chantiers]);
+  const ongletActif = ongletInitialOperations(repartition.compteurs, ongletStatut);
+  const choisirOnglet = (id) => {
+    setOngletStatut(id);
+    try { localStorage.setItem("operations_onglet", id); } catch { /* idem */ }
   };
 
   const bg = T.bg, text = T.text, textSub = T.textSub, textMuted = T.textMuted, border = T.border;
@@ -378,8 +408,34 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
               ]}/>
             </div>
 
+            {/* ── Lot 5 : onglets par statut calculé de l'opération ── */}
+            <div role="tablist" aria-label="Statut des opérations" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+              {ONGLETS_OPERATIONS.map((o) => {
+                const active = ongletActif === o.id;
+                const n = repartition.compteurs[o.id] || 0;
+                return (
+                  <button key={o.id} role="tab" aria-selected={active} onClick={() => choisirOnglet(o.id)} style={{
+                    display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 16px", borderRadius: RADIUS.pill,
+                    border: `1px solid ${active ? acc.accent : border}`, background: active ? acc.bg10 : "transparent",
+                    color: active ? acc.accent : textSub, fontSize: FONT.sm.size, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}>
+                    {o.label}
+                    <span style={{ fontSize: 11, fontWeight: 800, padding: "1px 7px", borderRadius: RADIUS.pill,
+                      background: active ? acc.accent : "rgba(128,128,128,0.18)", color: active ? "#1a1f2e" : textSub }}>{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {(repartition.compteurs[ongletActif] || 0) === 0 && (
+              <div style={{ textAlign: "center", padding: 40, color: textMuted, fontSize: FONT.sm.size }}>
+                {(ONGLETS_OPERATIONS.find((o) => o.id === ongletActif) || ONGLETS_OPERATIONS[1]).vide}
+              </div>
+            )}
+
             <div className="operations-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
-              {parOperation.map(({ op, chantiersOp, agg }) => (
+              {parOperation.filter(({ op }) => (repartition.statutParOperation[op.id]?.statut || "vide") === ongletActif).map(({ op, chantiersOp, agg }) => (
                 <div key={op.id} className="operation-card" onClick={() => ouvrirOp(op.id)} style={{
                   background: T.surface, border: `1px solid ${border}`, borderRadius: 16,
                   boxShadow: CARD_SHADOW, overflow: "hidden",
@@ -773,7 +829,9 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         onOperationModifiee={(maj) => setOperations((l) => (l || []).map((o) => (o.id === maj.id ? { ...o, ...maj } : o)))}/>
 
       {/* Lot 3 : synthèse en lecture seule du cycle de vie de ses chantiers. */}
-      <SyntheseCycleVieOperation T={T} chantiersOp={chantiersOp} phasagesParChantier={etat.phasagesParChantier}/>
+      {/* Lot 5 : c'est aussi la liste des chantiers de l'opération, chacun
+          avec sa mini-frise ; un clic ouvre la fiche chantier. */}
+      <SyntheseCycleVieOperation T={T} chantiersOp={chantiersOp} phasagesParChantier={etat.phasagesParChantier} onOpenChantier={onOpenChantier}/>
 
       {chantiersOp.length === 0 ? (
         <div style={{ textAlign: "center", padding: 60, color: textMuted }}>

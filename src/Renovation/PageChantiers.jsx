@@ -82,6 +82,7 @@ const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierCha
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
+import { filArianeChantier } from "./navigationOperations.js";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
@@ -1804,7 +1805,7 @@ function NotesChantier({ chantierId, T, accent }) {
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, tauxFG = null, T, profil = null, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
+export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, tauxFG = null, T, profil = null, branch = "renovation", initialSelectedId = null, onSelectionConsumed, onOuvrirOperation = null }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages]         = useState([]);
   // P9 : pointages globaux (tous chantiers) pour dériver heures réelles + coût MO
@@ -3055,7 +3056,13 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         background: surface, borderBottom: `1px solid ${border}`,
         padding: "14px 28px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
       }}>
-        <button onClick={() => { setSelected(null); setCompteRendus([]); }} style={{
+        {/* Lot 5 : « Retour » ramène à l'opération du chantier (la liste
+            Chantiers n'est plus dans le menu) ; sans accès à Opérations ou
+            sans opération, retour à la liste comme avant. */}
+        <button onClick={() => {
+          if (onOuvrirOperation && selectedChantier?.operation_id) { onOuvrirOperation(selectedChantier.operation_id); return; }
+          setSelected(null); setCompteRendus([]);
+        }} style={{
           display: "inline-flex", alignItems: "center", gap: 6,
           background: "transparent", border: `1px solid ${border}`,
           borderRadius: RADIUS.md, padding: "6px 12px",
@@ -3066,9 +3073,25 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = textSub; }}>
           <Icon as={ArrowLeft} size={14}/>
-          Retour
+          {onOuvrirOperation && selectedChantier?.operation_id ? "Retour à l'opération" : "Retour"}
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Lot 5 : fil d'Ariane Opérations › Opération › Chantier. */}
+          {(() => {
+            const fa = filArianeChantier(selectedChantier, cvD.operations || []);
+            const lien = (libelle, cible) => onOuvrirOperation
+              ? <button onClick={() => onOuvrirOperation(cible)} style={{ border: "none", background: "none", padding: 0, color: acc.accent, fontFamily: "inherit", fontSize: "inherit", fontWeight: 700, cursor: "pointer" }}>{libelle}</button>
+              : <span>{libelle}</span>;
+            return (
+              <nav aria-label="Fil d'Ariane" style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginBottom: 2, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {lien("Opérations", null)}<span>›</span>
+                {!cvD.charge ? <span>…</span>
+                  : fa.operationConnue ? lien(fa.operationNom, fa.operationId)
+                  : <span style={{ color: "#e15a5a", fontWeight: 700 }}>{fa.operationNom}</span>}
+                <span>›</span><span style={{ color: textSub, fontWeight: 600 }}>{fa.chantierNom}</span>
+              </nav>
+            );
+          })()}
           <h1 style={{ fontSize: FONT.xl.size, fontWeight: 800, color: text, margin: 0, letterSpacing: -0.3 }}>{selectedChantier?.nom || "Chantier"}</h1>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
             {/* Sélecteur de statut — toujours présent (même sans phasage) */}

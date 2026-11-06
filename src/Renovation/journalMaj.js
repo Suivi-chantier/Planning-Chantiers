@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "nouveaute",
+    titre: "Opérations devient la porte d'entrée : onglets À l'étude, En cours, Terminées, Perdues, et la fiche chantier s'ouvre depuis son opération",
+    pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Fiche chantier" }],
+    quoi: "On retrouve ses chantiers en partant de l'opération (l'immeuble), puis du logement. La page Opérations est rangée en onglets selon le statut de l'opération, calculé à partir de ses chantiers : À l'étude, En cours, Terminées, Perdues, et un onglet « Sans chantier » pour les opérations encore vides, pour qu'aucune ne disparaisse. La fiche d'une opération montre son client, la liste de ses chantiers avec la mini-frise d'avancement de chacun (devis envoyé, signé, autorisation, préparé, réceptionné), puis les onglets habituels (synthèse financière, chemin de fer, planifier). La page Chantiers (la liste) n'est plus dans le menu : la fiche chantier, elle, ne change pas. Tous ceux qui voyaient la page Chantiers voient maintenant Opérations. L'espace ouvrier ne change pas : les ouvriers gardent leur accès direct à leurs chantiers.",
+    comment: "Menu → Opérations (juste sous le tableau de bord) : choisissez un onglet, puis cliquez sur une opération. Dans « Chantiers et cycle de vie », cliquez sur un chantier : sa fiche s'ouvre, avec en haut « Opérations › nom de l'opération › chantier ». Cliquez sur le nom de l'opération (ou sur « Retour à l'opération ») pour revenir à l'opération, ou sur « Opérations » pour revenir à la liste. Les liens « ouvrir le chantier » des Alertes et des Notes des ouvriers ouvrent toujours la fiche directement.",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
     titre: "Encours fournisseurs : nouvelle vue « Par mois d'achat » (ce qu'on a acheté chaque mois, par fournisseur et par chantier)",
     pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
     quoi: "L'encours range les montants au mois où on les paie (utile pour la trésorerie). La nouvelle vue range chaque achat au mois où il a été commandé ou acheté : on voit combien on a acheté en octobre, chez qui, et pour quel chantier — pour suivre les coûts et les marges et comparer avec l'avancement du mois. Exemple : les BL Rexel d'octobre restent en octobre même si la facture récapitulative n'est à payer qu'en novembre.",
