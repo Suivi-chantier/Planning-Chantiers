@@ -26,6 +26,7 @@
 //   Lun-Ven 02h UTC        → veille échéances Invest        (fenêtre)
 //   Lun-Ven 05h UTC        → tableau de bord Invest par mail (?job=)
 //   Tous les jours 21h30 UTC → contrôle du journal d'avancement (?job=)
+//   Lun-Ven 06h15 UTC      → relances devis / acompte         (?job=)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");
@@ -36,6 +37,7 @@ const { runRecapCommandes }    = require("./_cron/cron-recap-commandes.js");
 const { runInvestEcheances }   = require("./_cron/cron-invest-echeances.js");
 const { runInvestTableauBord } = require("./_cron/cron-invest-tableau-bord.js");
 const { runJournalAvancement } = require("./_cron/cron-journal-avancement.js");
+const { runRelancesCycleVie }  = require("./_cron/cron-relances-cycle-vie.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -76,6 +78,13 @@ const TACHES = {
   journal_avancement: {
     fenetre: null,
     run: (req, supabase) => runJournalAvancement(req, supabase),
+  },
+  // Relances e-mail du cycle de vie (Refonte Opérations, lot 3) : devis non
+  // signé, facture d'acompte non réglée. Par `?job=` seulement. Interrupteur
+  // dans Réglages → Relances, ÉTEINT par défaut : éteint, rien ne part.
+  relances_cycle_vie: {
+    fenetre: null,
+    run: (req, supabase, t) => runRelancesCycleVie(req, supabase, t, envoyerMail),
   },
 };
 

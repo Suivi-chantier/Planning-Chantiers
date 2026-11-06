@@ -140,6 +140,8 @@ export async function chargerDonneesExportOperation({
     phasagesRes, pointagesRes, reglesConfigRes,
     // Lots « achats terminés » (reste à commander à 0).
     achatsRes,
+    // Cycle de vie (lot 3) : états des étapes, une ligne par chantier et étape.
+    cycleVieRes,
   ] = await Promise.all([
     supabase.from("planning_config").select("key,value").in("key", ["chantier_adresses", "bloc_todos"]),
     loadGroupesTypes().catch((e) => { noter("groupes types", e); return []; }),
@@ -185,6 +187,7 @@ export async function chargerDonneesExportOperation({
     supabase.from("planning_config").select("key,value")
       .in("key", ["taux_horaires", "taux_mo_previsionnel", "lots_travaux", "fg_taux_horaires"]),
     parIds("achats_lots_termines", "id, chantier_id, lot_id, termine_le, termine_par"),
+    parIds("chantier_cycle_vie", "chantier_id, etape_id, etat"),
   ]);
 
   [
@@ -208,6 +211,7 @@ export async function chargerDonneesExportOperation({
     ["phasages (relecture au moment de l'export)", phasagesRes],
     ["pointages (relecture au moment de l'export)", pointagesRes],
     ["réglages de calcul (taux, lots)", reglesConfigRes],
+    ["étapes du cycle de vie", cycleVieRes],
   ].forEach(([nom, res]) => noter(nom, res?.error));
 
   // Suggestions de matériaux : distinguer la PANNE de la RESTRICTION de rôle.
@@ -316,6 +320,7 @@ export async function chargerDonneesExportOperation({
     // celles de l'opération. Le filtre de sécurité, lui, est côté serveur.
     suggestions: grouper(suggestions.filter((s) => ids.includes(s?.chantier_id))),
     reglements: grouper(reglements, "facture_id"),
+    cycleVie: grouper(cycleVieRes?.data),
   };
   const todosParChantier = grouper(todosTous.filter((t) => t && t.chantier_id));
 
@@ -385,6 +390,7 @@ export async function chargerDonneesExportOperation({
       avancement: parChantier.avancement[c.id] || [],
       suggestions: parChantier.suggestions[c.id] || [],
       todos: todosParChantier[c.id] || [],
+      cycleVie: parChantier.cycleVie[c.id] || [],
       projets: (projetParChantier[c.id] || []).map((pid) => ({
         projet: projetsById[pid] || null,
         lignes: lignesChiffrageParProjet[pid] || [],

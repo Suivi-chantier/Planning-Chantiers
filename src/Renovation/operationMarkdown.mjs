@@ -1224,7 +1224,7 @@ function ficheChantier(c, rang, m) {
     ...tableau(
       [{ t: "Phase" }, { t: "Étape" }, { t: "État" }, { t: "Date" }, { t: "Auteur" }, { t: "Données saisies" }],
       (c.cycleVie?.etapes || []).map((e) => [
-        cellule(e.phaseNom), cellule(e.nom), cellule(e.fait ? "Validée" : "À faire"),
+        cellule(e.phaseNom), cellule(e.nom), cellule(e.fait ? "Validée" : e.fait === null ? "Automatique (voir la fiche chantier)" : "À faire"),
         cellule(dateFR(e.date)), cellule(e.auteur), cellule(donneesEtape(e.donnees)),
       ]),
     ),

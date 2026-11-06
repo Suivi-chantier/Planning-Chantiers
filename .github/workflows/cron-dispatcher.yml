@@ -4,6 +4,9 @@ name: Cron dispatcher (récap commandes + rappel rapport + veille Invest)
 #   - Vendredi 06h UTC (= 08h Paris été / 07h hiver)  →  récap commandes
 #   - Lun-Ven 14h50 UTC (= 16h50 Paris été / 15h50 hiver) →  rappel rapport
 #   - Lun-Ven 02h UTC (= 04h Paris été / 03h hiver)   →  veille échéances Invest
+#   - Lun-Ven 06h15 UTC (= 08h15 Paris été / 07h15 hiver) → relances devis /
+#     acompte (?job=relances_cycle_vie ; interrupteur Réglages → Relances,
+#     ÉTEINT par défaut : la tâche ne fait alors rien)
 #
 # Remplace les crons Vercel natifs, désactivés sur le plan Hobby depuis fin 2024.
 # Le dispatcher route ensuite vers la bonne fonction métier selon l'heure/jour Paris.
@@ -20,6 +23,9 @@ on:
     # deux dans la fenêtre 3h-5h que teste le dispatcher, donc aucun ajustement
     # saisonnier à faire. Le mail arrive avant la prise de poste.
     - cron: '0 2 * * 1-5'      # Lun-Ven 02h UTC → veille échéances Invest
+    # Relances du cycle de vie : appel EXPLICITE ?job= (étape séparée plus bas),
+    # pour ne pas tomber dans la fenêtre du récap commandes du vendredi matin.
+    - cron: '15 6 * * 1-5'     # Lun-Ven 06h15 UTC → relances devis / acompte
   workflow_dispatch:           # Bouton "Run workflow" dans l'UI GitHub pour tester
 
 jobs:
@@ -27,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Call /api/cron-dispatcher
+        if: github.event.schedule != '15 6 * * 1-5'
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -38,6 +45,27 @@ jobs:
           response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
             -H "Authorization: Bearer $CRON_SECRET" \
             https://planning-chantiers.vercel.app/api/cron-dispatcher)
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
+
+      - name: Call /api/cron-dispatcher?job=relances_cycle_vie
+        if: github.event.schedule == '15 6 * * 1-5'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://planning-chantiers.vercel.app/api/cron-dispatcher?job=relances_cycle_vie")
           status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
           body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
           echo "Status: $status"
