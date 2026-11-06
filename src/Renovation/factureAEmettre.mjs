@@ -20,9 +20,10 @@
 // fiche après un envoi réussi, par écriture versionnée
 // (conducteur_sauvegarder_phasage_v2). Voir cleDrapeauMail().
 //
-// LE PUSH F1 a son propre anti-doublon, côté send-push : une ligne de la boîte
-// de réception par (personne, type F1, clé F1-<phasage>-<échéance>), garantie
-// par un index unique. Voir cleRegroupementF1() et decisionPushF1().
+// LE PUSH F1 a son propre anti-doublon : une seule notification par jour
+// (clé F1-<date Paris>, index unique de la boîte de réception) et, par
+// échéance, la table public.notifications_etat (type F1, cle_objet
+// « <phasage>-<échéance> »). Voir contenuPushRegroupeF1() et decisionPushF1().
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { lireEcheancierChantier, lireMontantReference, etatFacturation } from "./facturationClient.mjs";
@@ -127,32 +128,45 @@ export function echeancesAPrevenir({ chantier, phasage, etatFact } = {}) {
 //
 // Le mail reste envoyé par la fiche, comme aujourd'hui (règle 8) ; le job
 // n'envoie QUE le push et n'écrit JAMAIS le drapeau du mail (sinon la fiche
-// ne l'enverrait plus). Le push a son propre anti-doublon (send-push : index
-// unique personne × F1 × clé), donc « exactement une fois par échéance et par
-// personne », que l'échéance soit vue d'abord par la fiche ou par le job.
+// ne l'enverrait plus).
 //
-// Quelles échéances « prêtes » méritent un push ?
+// REGROUPEMENT (règle 5) : au plus UNE notification F1 par jour, « N factures
+// à émettre », qui liste les échéances nouvelles du jour ; clé de regroupement
+// F1-<date Paris> (send-push : une seule ligne par personne et par clé).
+//
+// EXACTEMENT UNE FOIS PAR ÉCHÉANCE : table public.notifications_etat (type
+// F1, cle_objet « <phasage>-<échéance> »). Le job n'inscrit une échéance
+// qu'après une écriture réussie en boîte de réception ; une échéance inscrite
+// n'est plus jamais reprise. Interrupteur coupé, type désactivé ou rien
+// d'écrit : rien n'est inscrit (l'échéance n'est pas « consommée »).
+//
+// Quelles échéances « prêtes » entrent dans la notification ?
+//   - déjà inscrite dans notifications_etat → non ;
 //   - drapeau mail absent  → l'échéance vient d'atteindre son déclencheur
-//     (le mail partira à la prochaine ouverture de la fiche) : push ;
+//     (le mail partira à la prochaine ouverture de la fiche) : oui ;
 //   - drapeau mail posé APRÈS la mise en service du push F1 → la fiche a vu
-//     l'échéance en premier ce jour-là : le job la rattrape au passage
-//     suivant (le navigateur ne peut pas appeler send-push en mode serveur) ;
+//     l'échéance en premier : le job la reprend au passage suivant (le
+//     navigateur ne peut pas appeler send-push en mode serveur) : oui ;
 //   - drapeau mail posé AVANT la mise en service → échéance déjà connue
-//     depuis longtemps : pas de push (on notifie un changement d'état, pas un
-//     état qui dure — règle 2).
+//     depuis longtemps : non (on notifie un changement d'état, pas un état
+//     qui dure — règle 2).
 // Une échéance facturée n'est plus « prête » : elle sort d'elle-même.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Date de mise en service du push F1 (ISO). Drapeaux plus anciens : aucun push. */
 export const F1_MISE_EN_SERVICE = "2026-11-06T00:00:00.000Z";
 
-export const cleRegroupementF1 = (phasageId, ligneId) => `F1-${phasageId}-${ligneId}`;
+/** Identifiant d'une échéance dans notifications_etat (cle_objet). */
+export const cleObjetF1 = (phasageId, ligneId) => `${phasageId}-${ligneId}`;
+/** Clé de regroupement de la notification du jour (date de Paris AAAA-MM-JJ). */
+export const cleRegroupementF1 = (dateParis) => `F1-${dateParis}`;
 
 /**
- * Faut-il pousser F1 pour cette échéance prête ?
+ * Faut-il notifier cette échéance prête ?
  * → { pousser, raison }
  */
-export function decisionPushF1({ drapeauMail = null, miseEnServiceIso = F1_MISE_EN_SERVICE } = {}) {
+export function decisionPushF1({ drapeauMail = null, dejaNotifiee = false, miseEnServiceIso = F1_MISE_EN_SERVICE } = {}) {
+  if (dejaNotifiee) return { pousser: false, raison: "deja_notifiee_par_push" };
   if (!drapeauMail) return { pousser: true, raison: "nouvelle" };
   const le = String(drapeauMail);
   if (le >= miseEnServiceIso) return { pousser: true, raison: "mail_deja_parti_depuis_la_fiche" };
@@ -160,19 +174,45 @@ export function decisionPushF1({ drapeauMail = null, miseEnServiceIso = F1_MISE_
 }
 
 /**
- * Lien du push F1 : la fiche du chantier (format des liens des notifications,
- * `/?page=<id de page>&chantier=<id du chantier>`).
+ * Lien du push F1 (format des liens des notifications) : la page Chantiers,
+ * et la fiche du chantier quand une seule échéance est concernée.
  */
-export const lienPushF1 = (chantierId) =>
+export const lienPushF1 = (chantierId = null) =>
   chantierId ? `/?page=chantiers&chantier=${encodeURIComponent(chantierId)}` : "/?page=chantiers";
 
-/** Contenu du push F1 (titre court, texte d'une ligne, lien vers la fiche chantier). */
-export function contenuPushF1({ chantierId = null, chantierNom, ligne }) {
-  const montant = Math.round(ligne?.montantAttendu || 0).toLocaleString("fr-FR");
+const LIMITE_TEXTE = 1000; // send-push refuse au-delà
+
+/**
+ * Contenu de LA notification F1 du jour, qui regroupe toutes les échéances.
+ * lignes : éléments du plan à notifier ({ chantierId, chantierNom, ligne, montant }).
+ * → { titre, texte, lien, cle_regroupement } ; null si rien à notifier.
+ */
+export function contenuPushRegroupeF1({ lignes = [], dateParis } = {}) {
+  if (!lignes.length) return null;
+  const n = lignes.length;
+  const ligneTexte = (p) =>
+    `${p.chantierNom} · ${p.ligne?.nom || "Échéance"} · ${Math.round(p.montant || 0).toLocaleString("fr-FR")} € HT`;
+  // Troncature propre : des lignes entières, puis « … et K autres ».
+  const sortie = [];
+  let taille = 0;
+  for (let i = 0; i < n; i++) {
+    const l = ligneTexte(lignes[i]);
+    const ajout = (sortie.length ? 1 : 0) + l.length;
+    // Garder la place de la mention finale (« … et K autres ») si d'autres lignes suivent.
+    if (taille + ajout + (i < n - 1 ? 20 : 0) > LIMITE_TEXTE) {
+      const restants = n - i;
+      sortie.push(`… et ${restants} autre${restants > 1 ? "s" : ""}`);
+      break;
+    }
+    sortie.push(l);
+    taille += ajout;
+  }
+  const chantiersDistincts = new Set(lignes.map((p) => p.chantierId));
   return {
-    titre: `Facture à émettre — ${chantierNom || "chantier"}`.slice(0, 120),
-    texte: `${ligne?.nom || "Échéance"} (${ligne?.pct ?? "?"} %, ${montant} € HT) : à émettre ${ligne?.declencheurLibelle || ""}.`.replace(/\s+\./, ".").slice(0, 1000),
-    lien: lienPushF1(chantierId),
+    titre: n === 1 ? "1 facture à émettre" : `${n} factures à émettre`,
+    texte: sortie.join("\n").slice(0, LIMITE_TEXTE),
+    lien: n === 1 || chantiersDistincts.size === 1 ? lienPushF1(lignes[0].chantierId) : lienPushF1(),
+    cle_regroupement: cleRegroupementF1(dateParis),
   };
 }
 
@@ -180,18 +220,20 @@ export function contenuPushF1({ chantierId = null, chantierNom, ligne }) {
  * Plan du job serveur, chantier par chantier, avec les MÊMES fonctions que la
  * fiche. Données brutes en paramètres :
  *   chantiers        : lignes de public.chantiers (id, nom, statut…)
- *   phasages         : lignes de public.phasages (id, chantier_id, chantier_nom, ouvrages, plan_travaux, prix_vendu…)
+ *   phasages         : lignes de public.phasages (id, chantier_id, chantier_nom, ouvrages, plan_travaux…)
  *   lignesCycleVie   : lignes de public.chantier_cycle_vie (chantier_id, etape_id, etat…)
  *   factures         : chantier_factures_client, source « manuel » (comme la fiche)
- *   echeancierDefaut : réglage Admin (planning_config.echeancier_facturation.lignes) normalisé, ou défaut
+ *   echeancierDefaut : lignes du réglage Admin (planning_config.echeancier_facturation), ou défaut
  *   phaseIds         : ids des phases (Admin → Phases), ou défaut
+ *   dejaNotifiees    : cle_objet déjà inscrites dans notifications_etat (type F1)
  * → [{ chantierId, chantierNom, phasageId, ligne, montant, drapeauMail,
- *      aPrevenirParMail, pousser, raison, cle }] : toutes les échéances PRÊTES.
+ *      aPrevenirParMail, pousser, raison, cleObjet }] : toutes les échéances PRÊTES.
  */
 export function planFacturesAEmettre({
   chantiers = [], phasages = [], lignesCycleVie = [], factures = [],
-  echeancierDefaut, phaseIds, miseEnServiceIso = F1_MISE_EN_SERVICE,
+  echeancierDefaut, phaseIds, dejaNotifiees = [], miseEnServiceIso = F1_MISE_EN_SERVICE,
 } = {}) {
+  const deja = new Set(dejaNotifiees);
   const lignesParChantier = {};
   for (const l of lignesCycleVie) (lignesParChantier[l.chantier_id] ??= []).push(l);
   const facturesParChantier = {};
@@ -215,13 +257,14 @@ export function planFacturesAEmettre({
     for (const ligne of etatFact.lignes) {
       if (!ligne.prete) continue;
       const drapeauMail = meta[cleDrapeauMail(ligne.id)] || null;
-      const d = termine ? { pousser: false, raison: "chantier_termine" } : decisionPushF1({ drapeauMail, miseEnServiceIso });
+      const cleObjet = cleObjetF1(phasage.id, ligne.id);
+      const d = termine ? { pousser: false, raison: "chantier_termine" }
+        : decisionPushF1({ drapeauMail, dejaNotifiee: deja.has(cleObjet), miseEnServiceIso });
       sortie.push({
         chantierId: chantier.id, chantierNom: chantier.nom || chantier.id, phasageId: phasage.id,
         ligne, montant: ligne.montantAttendu, drapeauMail,
         aPrevenirParMail: aPrevenir.has(ligne.id),
-        pousser: d.pousser, raison: d.raison,
-        cle: cleRegroupementF1(phasage.id, ligne.id),
+        pousser: d.pousser, raison: d.raison, cleObjet,
       });
     }
   }

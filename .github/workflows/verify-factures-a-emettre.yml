@@ -14,6 +14,7 @@ on:
       - 'src/phasesDefaut.mjs'
       - 'src/constants.js'
       - 'supabase/functions/_partage/notificationsPushV1.mjs'
+      - 'supabase/migrations/*_notifications_etat.sql'
       - 'api/cron-dispatcher.js'
       - 'api/_cron/cron-factures-a-emettre.js'
       - 'api/_cron/cron-push-reportes.js'
@@ -32,5 +33,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Facture à émettre — détection partagée fiche / serveur, push F1 sans doublon, aucun mail ni drapeau écrit par le job (données fictives)
+      - name: Facture à émettre — détection partagée fiche / serveur, une notification F1 regroupée par jour, chaque échéance notifiée une fois (table d'état), aucun mail ni drapeau écrit par le job, migration additive (données fictives)
         run: node scripts/verif-factures-a-emettre.mjs

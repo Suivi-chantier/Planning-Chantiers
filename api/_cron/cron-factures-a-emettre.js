@@ -4,39 +4,38 @@
 // CE QUE FAIT LE JOB : chaque jour ouvré vers 8h15 Paris, il relit chantiers,
 // phasages, cycle de vie et factures, appelle la détection partagée avec la
 // fiche chantier (src/Renovation/factureAEmettre.mjs, mêmes fonctions) et
-// envoie le PUSH F1 pour chaque échéance prête qui le mérite (voir
-// decisionPushF1 dans le module), via l'Edge Function send-push en mode
-// « serveur », clé de regroupement F1-<phasage>-<échéance>.
+// envoie AU PLUS UNE notification F1 par jour (règle 5 : regroupement),
+// « N factures à émettre », qui liste les échéances nouvelles (chantier ·
+// échéance · montant). send-push en mode « serveur », clé F1-<date Paris>.
 //
 // CE QU'IL NE FAIT PAS : il n'envoie PAS le mail et n'écrit PAS le drapeau
 // facture_mail_<échéance> (phasages.plan_travaux.meta). Le mail « facture à
 // émettre » reste envoyé par la fiche chantier, à son ouverture, exactement
-// comme avant (règle 8 : les mails continuent comme aujourd'hui). Si le job
-// posait ce drapeau, la fiche n'enverrait plus le mail.
+// comme avant (règle 8). Si le job posait ce drapeau, la fiche n'enverrait
+// plus le mail.
 //
-// EXACTEMENT UNE FOIS :
+// EXACTEMENT UNE FOIS PAR ÉCHÉANCE :
 //   - mail : inchangé, drapeau posé par la fiche après envoi réussi ;
-//   - push : send-push écrit d'abord la notification en boîte, avec un index
-//     unique (personne, type, clé de regroupement) ; seules les lignes
-//     réellement créées partent en push. Rejouer le job, ou deux passages
-//     qui se croisent, ne renvoient rien. Si la fiche a vu l'échéance la
-//     première (mail parti, drapeau posé après la mise en service du F1), le
-//     job envoie le push au passage suivant : le navigateur ne peut pas
-//     appeler send-push en mode serveur (secret serveur exigé).
-//   - interrupteur général coupé (livré coupé) ou type F1 désactivé :
-//     send-push n'écrit et n'envoie rien ; l'échéance sera poussée une fois,
-//     au premier passage après activation, si elle est toujours à émettre.
+//   - push : table public.notifications_etat (type F1, cle_objet
+//     « <phasage>-<échéance> »). Une échéance inscrite n'est plus reprise.
+//     Le job ne l'inscrit qu'APRÈS une écriture réussie en boîte de réception
+//     (send-push → ecrites_en_boite > 0). Interrupteur général coupé, type F1
+//     désactivé, ou notification du jour déjà écrite : rien n'est écrit,
+//     donc rien n'est inscrit ; l'échéance partira au prochain passage utile.
+//   - si la fiche a vu l'échéance la première (mail parti, drapeau posé après
+//     la mise en service du F1), le job la reprend au passage suivant : le
+//     navigateur ne peut pas appeler send-push en mode serveur.
 //
 // `?job=factures_a_emettre&simulation=1` : liste ce qui serait envoyé,
-// échéance par échéance, sans rien envoyer ni écrire (send-push n'est pas
-// appelé).
+// échéance par échéance, et la notification du jour, sans rien envoyer ni
+// écrire (send-push n'est pas appelé, notifications_etat n'est pas touchée).
 //
 // Appelé par le dispatcher (?job=factures_a_emettre), créneau
 // .github/workflows/cron-factures-a-emettre.yml. Aucune fonction Vercel ajoutée.
 
 const { appelerSendPush } = require("./cron-push-reportes.js");
 
-const PLAFOND_PAR_PASSAGE = 30; // garde-fou : au-delà, le reste part au passage suivant
+const TABLE_ETAT = "notifications_etat";
 
 let _module = null;
 async function module_() {
@@ -72,13 +71,14 @@ function idsPhases(valeur) {
 /** Lit les données et calcule le plan (aucune écriture). */
 async function calculerPlan(supabase) {
   const M = await module_();
-  const [chantiers, phasages, lignesCycleVie, factures, cfgEcheancier, cfgPhases] = await Promise.all([
+  const [chantiers, phasages, lignesCycleVie, factures, etat, cfgEcheancier, cfgPhases] = await Promise.all([
     lireTout(supabase, "chantiers", "*"),
     lireTout(supabase, "phasages", "*"),
     lireTout(supabase, "chantier_cycle_vie", "chantier_id, etape_id, etat, maj_par, updated_at"),
     // source='manuel', comme la fiche : l'échéancier raisonne en HT, une
     // facture ProGBat (montant_ht NULL) n'entre pas dans ce calcul.
     lireTout(supabase, "chantier_factures_client", "*", (q) => q.eq("source", "manuel")),
+    lireTout(supabase, TABLE_ETAT, "cle_objet", (q) => q.eq("type", "F1")),
     lireConfig(supabase, "echeancier_facturation"),
     lireConfig(supabase, "phases_travaux"),
   ]);
@@ -87,6 +87,7 @@ async function calculerPlan(supabase) {
   const plan = M.planFacturesAEmettre({
     chantiers, phasages, lignesCycleVie, factures,
     echeancierDefaut: lignesDefaut, phaseIds: idsPhases(cfgPhases),
+    dejaNotifiees: etat.map((e) => e.cle_objet),
   });
   return { M, plan };
 }
@@ -99,9 +100,9 @@ function ligneResume(p) {
     montant_ht: Math.round(p.montant || 0),
     declencheur: p.ligne.declencheurLibelle,
     mail_deja_parti_le: p.drapeauMail,
-    push: p.pousser ? "oui" : "non",
+    dans_la_notification: p.pousser ? "oui" : "non",
     raison: p.raison,
-    cle: p.cle,
+    cle_objet: p.cleObjet,
   };
 }
 
@@ -117,36 +118,39 @@ async function runFacturesAEmettre(req, supabase, t) {
   if (!simulation && Number.isFinite(pasAvant) && typeof t?.hour === "number" && t.hour < pasAvant) {
     return { ok: true, ignore: `Il est ${t.hour}h à Paris : passage réservé à ${pasAvant}h ou plus (l'autre créneau du jour s'en charge).` };
   }
+  if (!t?.dateIso) throw new Error("Date de Paris inconnue : clé de regroupement impossible.");
   const { M, plan } = await calculerPlan(supabase);
-  const aPousser = plan.filter((p) => p.pousser);
+  const aNotifier = plan.filter((p) => p.pousser);
+  const contenu = M.contenuPushRegroupeF1({ lignes: aNotifier, dateParis: t.dateIso });
   const resultat = {
     ok: true, simulation,
     echeances_pretes: plan.length,
-    a_pousser: aPousser.length,
+    echeances_a_notifier: aNotifier.length,
+    notifications: contenu ? 1 : 0,
     mise_en_service_f1: M.F1_MISE_EN_SERVICE,
   };
-  if (simulation) return { ...resultat, detail: plan.map(ligneResume) };
+  if (simulation) return { ...resultat, notification: contenu, detail: plan.map(ligneResume) };
+  if (!contenu) return { ...resultat, inscrites: 0 };
 
-  let appels = 0, ecrites = 0, envoyes = 0, echecs = 0, reportees = 0;
-  const erreurs = [];
-  for (const p of aPousser) {
-    if (appels >= PLAFOND_PAR_PASSAGE) { reportees++; continue; }
-    appels++;
-    const contenu = M.contenuPushF1({ chantierId: p.chantierId, chantierNom: p.chantierNom, ligne: p.ligne });
-    try {
-      const r = await appelerSendPush({ mode: "serveur", type: "F1", ...contenu, cle_regroupement: p.cle });
-      ecrites += r?.ecrites_en_boite || 0;
-      envoyes += r?.envoyes || 0;
-      echecs += r?.echecs || 0;
-    } catch (e) {
-      erreurs.push(`${p.cle} : ${e.message}`);
-    }
+  // UN appel send-push pour toute la journée.
+  const r = await appelerSendPush({ mode: "serveur", type: "F1", ...contenu });
+  const ecrites = r?.ecrites_en_boite || 0;
+  if (ecrites <= 0) {
+    // Interrupteur coupé, type désactivé, aucun destinataire ou notification du
+    // jour déjà écrite : rien n'a été notifié, rien n'est inscrit.
+    return { ...resultat, ecrites_en_boite: 0, envoyes: r?.envoyes || 0, echecs: r?.echecs || 0, inscrites: 0,
+      raison: "Rien d'écrit en boîte de réception : aucune échéance marquée comme notifiée." };
   }
-  // Une erreur d'appel remonte dans le résumé (le créneau GitHub la signale).
+  const maintenant = new Date().toISOString();
+  const { error } = await supabase.from(TABLE_ETAT).upsert(
+    aNotifier.map((p) => ({ type: "F1", cle_objet: p.cleObjet, etat: "notifiee", notifie_le: maintenant, maj_le: maintenant })),
+    { onConflict: "type,cle_objet", ignoreDuplicates: true },
+  );
   return {
-    ...resultat, appels, ecrites_en_boite: ecrites, envoyes, echecs, reportees,
-    ...(erreurs.length ? { error: erreurs.slice(0, 5).join(" | ") } : {}),
+    ...resultat, ecrites_en_boite: ecrites, envoyes: r?.envoyes || 0, echecs: r?.echecs || 0,
+    inscrites: error ? 0 : aNotifier.length,
+    ...(error ? { error: `${TABLE_ETAT} : ${error.message} (notification écrite, échéances non inscrites : elles seront reprises dans la notification d'un prochain jour)` } : {}),
   };
 }
 
-module.exports = { runFacturesAEmettre, calculerPlan, PLAFOND_PAR_PASSAGE };
+module.exports = { runFacturesAEmettre, calculerPlan };
