@@ -105,7 +105,7 @@ Règle par défaut de `CLAUDE.md`.
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Calculs sans changement d'affichage : `fiabiliteMargeProbableV3`, tendance 6 semaines, fourchette (fonctions pures dans `bilanPeriodeV3.mjs`), seuils de fiabilité dans `normaliserSeuilsMarges` + `SeuilsMargesAdmin`, tests dans `scripts/verif-bilan-periode.mjs` (ou nouveau `verif-*` branché) | en cours | Auto (contrôles verts) | Les 4 cas de fiabilité demandés + cas de tendance et de fourchette verts sur GitHub ; aucune formule de `chantierFinance.mjs` modifiée | — |
+| 1 | Calculs sans changement d'affichage : `fiabiliteMargeProbableV3`, tendance 6 semaines, fourchette (fonctions pures dans `bilanPeriodeV3.mjs`), seuils de fiabilité dans `normaliserSeuilsMarges` + `SeuilsMargesAdmin`, tests dans `scripts/verif-bilan-periode.mjs` (ou nouveau `verif-*` branché) | en cours | Auto (contrôles verts) | Les 4 cas de fiabilité demandés + cas de tendance et de fourchette verts sur GitHub ; aucune formule de `chantierFinance.mjs` modifiée | [#206](https://github.com/Suivi-chantier/Planning-Chantiers/pull/206) (ouverte, contrôles en cours) |
 | 2 | Haut du PDF détaillé : nouveau tableau de synthèse (ligne TOTAL, fourchette, fiabilité, tendance) + détail des marges complété (budget restant, €/h avec repère devis, une phrase par marge) ; chargement des relevés sur 6 semaines dans `BilanPeriode.jsx` + entrée `journalMaj.js` | à faire | Auto | Contrôles verts ; version direction inchangée | — |
 | 3 | Fiches et annexe : cascade seulement si baisse > seuil ou pastille rouge, sinon « Marge probable stable (±X €) » ; méthode retirée, case « Joindre la méthode de calcul » décochée par défaut + entrée `journalMaj.js` | à faire | Auto | Contrôles verts ; méthode absente par défaut, présente si cochée | — |
 | 4 | PDF d'exemple : ancien et nouveau PDF détaillé de la dernière semaine réelle, construits depuis la base | à faire | Livrable à Loris | Deux PDF sur les vrais chantiers, chiffres de marge identiques entre ancien et nouveau | — |
@@ -125,5 +125,22 @@ Règle par défaut de `CLAUDE.md`.
   3. Passage en mode projet, découpage en 4 tâches : oui.
 - 06/11/2026 — Pas de migration prévue : les seuils sont stockés avec les
   autres réglages de marges.
+- 06/11/2026 — Tâche 1 livrée en #206. Choix retenus par le pilote :
+  avancement inconnu → fiabilité « inconnue » (niveau vide), jamais « faible » ;
+  `releveAuPlusTardV3` reprend le dernier relevé connu, donc pour respecter
+  « Semaine sans relevé : « · » » la tâche 2 affichera « · » quand
+  `releveDansLaSemaine` est faux ; le dernier point de la tendance sera
+  `bornes.dateFin` pour coïncider avec la marge probable de la synthèse.
 
 ## Comptes rendus
+
+### Tâche 1 — calculs (06/11/2026)
+
+Ajouts sans effet visible dans le PDF : calcul de la fiabilité de la marge
+probable (bonne / moyenne / faible, ou inconnue si l'avancement l'est), de la
+tendance sur 6 semaines et de la fourchette. Quatre nouveaux seuils réglables
+dans l'écran Admin des seuils de marges (25 / 60 % d'avancement, 30 / 70 % de
+couverture). Aucun calcul de marge modifié : dans `chantierFinance.mjs`, seules
+les 4 valeurs par défaut ont été ajoutées. Script de vérification local :
+154 contrôles OK (exemples issus des tests, données fictives).
+
