@@ -1,0 +1,32 @@
+name: Verify Matériaux à commander (récap + notification C3)
+
+on:
+  pull_request:
+    paths:
+      - 'src/Renovation/materiauxACommanderV1.mjs'
+      - 'src/Renovation/materiauxACommanderV1.js'
+      - 'api/cron-dispatcher.js'
+      - 'api/_cron/cron-recap-commandes.js'
+      - 'api/_cron/cron-push-materiaux.js'
+      - 'api/_cron/cron-push-reportes.js'
+      - 'api/_lib/autorisationServeur.js'
+      - '.github/workflows/cron-push-materiaux.yml'
+      - 'scripts/verif-materiaux-a-commander.mjs'
+      - '.github/workflows/verify-materiaux-a-commander.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dépendances (supabase-js, chargé par le récap exécuté sur une base simulée)
+        run: npm ci
+      - name: Matériaux à commander — même liste que l'ancien récap, récap branché sur le module, notification C3 regroupée (données fictives)
+        run: node scripts/verif-materiaux-a-commander.mjs

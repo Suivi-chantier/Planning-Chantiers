@@ -153,6 +153,15 @@ function buildRecapHtml({ dateFr, commandesPrevues, demandesOuvriers, baseUrl })
   </div>`;
 }
 
+// Calcul « matériaux prévisionnels à commander » : module pur partagé avec la
+// notification C3 (projet notifications-push, tâche 5). Chargé à la demande,
+// comme les autres modules .mjs appelés depuis api/_cron/.
+let _moduleMateriaux = null;
+async function moduleMateriaux() {
+  if (!_moduleMateriaux) _moduleMateriaux = await import("../../src/Renovation/materiauxACommanderV1.mjs");
+  return _moduleMateriaux;
+}
+
 // ─── LOGIQUE MÉTIER (réutilisable par le dispatcher) ─────────────────────────
 async function runRecapCommandes(req, supabase, t) {
   // 1) Idempotence : skip si déjà envoyé aujourd'hui
@@ -180,54 +189,18 @@ async function runRecapCommandes(req, supabase, t) {
   const chantiers   = Array.isArray(cfg.chantiers) ? cfg.chantiers : [];
   const phasesArr   = (cfg.phases_travaux && Array.isArray(cfg.phases_travaux.items))
                         ? cfg.phases_travaux.items : [];
-  const phasesById  = phasesArr.reduce((acc, ph) => { acc[ph.id] = ph; return acc; }, {});
   const chantById   = chantiers.reduce((acc, c) => { acc[c.id] = c; return acc; }, {});
   const demandes    = demandesQ.data || [];
   // Exclut les comptes sans email (adresse synthétique @profero.local, non routable).
   const dests       = (usersQ.data || []).map(u => u.email)
     .filter(e => e && !String(e).toLowerCase().endsWith("@profero.local"));
 
-  // 3) Extraire les "phases à commander aujourd'hui"
-  const commandesPrevues = [];
-  for (const p of phasages) {
-    const plan = p.plan_travaux || {};
-    for (const key of Object.keys(plan)) {
-      if (!key.endsWith("__materiaux_prevus")) continue;
-      const mats = plan[key];
-      if (!Array.isArray(mats) || mats.length === 0) continue;
-      const phaseId  = key.slice(0, -"__materiaux_prevus".length);
-      const dateCmd  = plan[phaseId + "__date_commande"]; // YYYY-MM-DD attendu
-      if (!dateCmd || dateCmd !== t.dateIso) continue;
-      // Pas encore commandé ? On affiche quand même si __cout_commandes > 0
-      // pour traçabilité, mais on note le statut.
-      const dejaCommande = (parseFloat(plan[phaseId + "__cout_commandes"]) || 0) > 0;
-      if (dejaCommande) continue; // Skip : déjà passé
-
-      const phaseInfo = phasesById[phaseId] || { label: phaseId, emoji: "", couleur: "#888" };
-      const chantInfo = chantById[p.chantier_id] || null;
-      const materiauxFmt = mats.map(m => ({
-        libelle:        m.libelle || "",
-        quantite:       m.quantite || 0,
-        unite:          m.unite || "",
-        prix_ht:        parseFloat(m.prix_ht) || 0,
-        fournisseur_nom: m.fournisseur_nom || "",
-        total:          (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0),
-      }));
-      const totalHt = materiauxFmt.reduce((s, m) => s + m.total, 0);
-
-      commandesPrevues.push({
-        phasageId:       p.id,
-        chantierId:      p.chantier_id,
-        chantierNom:     chantInfo?.nom || p.chantier_nom || "(sans chantier)",
-        chantierCouleur: chantInfo?.couleur || phaseInfo.couleur,
-        phaseId,
-        phaseLabel:      phaseInfo.label || phaseId,
-        phaseEmoji:      phaseInfo.emoji || "",
-        materiaux:       materiauxFmt,
-        totalHt,
-      });
-    }
-  }
+  // 3) Extraire les "phases à commander aujourd'hui" — calcul partagé avec la
+  //    notification C3 (src/Renovation/materiauxACommanderV1.mjs, module pur).
+  const { materiauxACommander } = await moduleMateriaux();
+  const commandesPrevues = materiauxACommander({
+    phasages, chantiers, phases: phasesArr, dateIso: t.dateIso,
+  });
 
   // 4) Enrichir les demandes ouvriers avec chantier_nom (besoins.chantier_id direct)
   const demandesEnrichies = demandes.map(d => ({
