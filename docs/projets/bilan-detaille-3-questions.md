@@ -107,8 +107,8 @@ Règle par défaut de `CLAUDE.md`.
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Calculs sans changement d'affichage : `fiabiliteMargeProbableV3`, tendance 6 semaines, fourchette (fonctions pures dans `bilanPeriodeV3.mjs`), seuils de fiabilité dans `normaliserSeuilsMarges` + `SeuilsMargesAdmin`, tests dans `scripts/verif-bilan-periode.mjs` (ou nouveau `verif-*` branché) | en ligne | Auto (contrôles verts) | Les 4 cas de fiabilité demandés + cas de tendance et de fourchette verts sur GitHub ; aucune formule de `chantierFinance.mjs` modifiée | [#206](https://github.com/Suivi-chantier/Planning-Chantiers/pull/206) (fusionnée) |
 | 2 | Haut du PDF détaillé : nouveau tableau de synthèse (ligne TOTAL, fourchette, fiabilité, tendance) + détail des marges complété (budget restant, €/h avec repère devis, une phrase par marge) ; chargement des relevés sur 6 semaines dans `BilanPeriode.jsx` + entrée `journalMaj.js` | en ligne | Auto | Contrôles verts ; version direction inchangée | [#208](https://github.com/Suivi-chantier/Planning-Chantiers/pull/208) (fusionnée) |
-| 3 | Fiches et annexe : cascade seulement si baisse > seuil ou pastille rouge, sinon « Marge probable stable (±X €) » ; méthode retirée, case « Joindre la méthode de calcul » décochée par défaut + entrée `journalMaj.js` | en cours | Auto | Contrôles verts ; méthode absente par défaut, présente si cochée | — |
-| 4 | PDF d'exemple : ancien et nouveau PDF détaillé de la dernière semaine réelle, construits depuis la base | à faire | Livrable à Loris | Deux PDF sur les vrais chantiers, chiffres de marge identiques entre ancien et nouveau | — |
+| 3 | Fiches et annexe : cascade seulement si baisse > seuil ou pastille rouge, sinon « Marge probable stable (±X €) » ; méthode retirée, case « Joindre la méthode de calcul » décochée par défaut + entrée `journalMaj.js` | en ligne | Auto | Contrôles verts ; méthode absente par défaut, présente si cochée | [#209](https://github.com/Suivi-chantier/Planning-Chantiers/pull/209) (fusionnée) |
+| 4 | PDF d'exemple : ancien et nouveau PDF détaillé de la dernière semaine réelle, construits depuis la base | en cours | Livrable à Loris | Deux PDF sur les vrais chantiers, chiffres de marge identiques entre ancien et nouveau | — |
 
 ## Journal des décisions
 
@@ -144,6 +144,13 @@ Règle par défaut de `CLAUDE.md`.
   les 6 semaines.
 - 06/11/2026 — #208 fusionnée, contrôles tous verts, prévisualisation Vercel
   « Ready ». Tâche 3 lancée.
+- 06/11/2026 — Tâche 3 livrée en #209, fusionnée (contrôles verts). Règle
+  retenue pour la cascade : pastille rouge, évolution inconnue (pas de relevé
+  de départ) ou baisse > seuil → cascade ; hausse > seuil → « Marge probable
+  en hausse (+X €) » ; sinon « Marge probable stable (±X €) ». Une baisse
+  exactement égale au seuil compte comme stable (même règle que la pastille).
+  Tâche 4 lancée : PDF construits hors navigateur depuis la base ; ils ne
+  sont pas versionnés dans le dépôt (données financières réelles).
 
 ## Comptes rendus
 
@@ -170,3 +177,16 @@ d'explication par marge. La version direction est inchangée (HTML identique
 avant / après sur le même jeu d'essai). Aucun calcul de marge modifié.
 Scripts : 171, 44 et 63 contrôles OK (exemples issus des tests, données
 fictives). Entrée ajoutée dans `journalMaj.js`.
+
+### Tâche 3 — fiches et méthode (06/11/2026)
+
+Dans les fiches chantier du PDF détaillé, l'explication « du devis au
+probable » n'apparaît plus que pour les chantiers dont la pastille est rouge,
+dont la marge probable a baissé de plus du seuil (500 € par défaut) sur la
+période, ou dont l'évolution est inconnue faute de relevé de départ. Les autres
+fiches portent une ligne « Marge probable stable (±X €) » ou « Marge probable
+en hausse (+X €) ». La méthode de calcul n'est plus dans le PDF par défaut :
+case « Joindre la méthode de calcul » (décochée) à côté de « Version
+détaillée ». Le bilan archivé est exactement le PDF téléchargé. Scripts : 63,
+173 et 63 contrôles OK (exemples issus des tests, données fictives). Entrée
+ajoutée dans `journalMaj.js`.
