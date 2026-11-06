@@ -33,7 +33,7 @@
 // declencheur = quand la ligne passe « à émettre » (signalé, jamais bloquant) :
 //   { type: "signature" }                 → devis signé (étape devis_signe)
 //   { type: "avancement", seuil: 40 }     → avancement des travaux ≥ 40 %
-//   { type: "reception" }                 → PV de réception (ou 100 %)
+//   { type: "reception" }                 → PV de réception, étape reception_pv (ou 100 %)
 // etape_cycle_vie = étape EXISTANTE du cycle de vie validée par l'ENCAISSEMENT
 // de cette ligne (aujourd'hui seul l'acompte en a une). Les autres lignes
 // produisent leur propre étape dans la phase Travaux (etapesFacturationTravaux).
@@ -160,7 +160,9 @@ export function declencheurAtteint(ligne, { avancement = null, etatsEtapes = {} 
     }
     case "reception":
       return {
-        atteint: !!etatsEtapes?.visite_reception?.fait || (av !== null && av >= 100),
+        // reception_pv = « Réception + PV » (lot 3) ; visite_reception = ancien
+        // identifiant, si l'appelant passe encore des états non repris.
+        atteint: !!(etatsEtapes?.reception_pv?.fait || etatsEtapes?.visite_reception?.fait) || (av !== null && av >= 100),
         libelle: "à la réception des travaux",
       };
     default:

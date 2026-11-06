@@ -26,6 +26,7 @@
 //   Lun-Ven 02h UTC        → veille échéances Invest        (fenêtre)
 //   Lun-Ven 05h UTC        → tableau de bord Invest par mail (?job=)
 //   Tous les jours 21h30 UTC → contrôle du journal d'avancement (?job=)
+//   Lun-Ven 06h15 UTC      → relances devis / acompte         (?job=)
 //   Lun-Ven 05h05 et 06h05 UTC → push reportés (?job=push_reportes) : l'un des
 //     deux tombe à 7h05 Paris selon la saison, l'autre ne trouve rien à faire
 //     (cron-push-reportes.yml)
@@ -39,6 +40,7 @@ const { runRecapCommandes }    = require("./_cron/cron-recap-commandes.js");
 const { runInvestEcheances }   = require("./_cron/cron-invest-echeances.js");
 const { runInvestTableauBord } = require("./_cron/cron-invest-tableau-bord.js");
 const { runJournalAvancement } = require("./_cron/cron-journal-avancement.js");
+const { runRelancesCycleVie }  = require("./_cron/cron-relances-cycle-vie.js");
 const { runPushReportes, runPushSimulation } = require("./_cron/cron-push-reportes.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
@@ -80,6 +82,13 @@ const TACHES = {
   journal_avancement: {
     fenetre: null,
     run: (req, supabase) => runJournalAvancement(req, supabase),
+  },
+  // Relances e-mail du cycle de vie (Refonte Opérations, lot 3) : devis non
+  // signé, facture d'acompte non réglée. Par `?job=` seulement. Interrupteur
+  // dans Réglages → Relances, ÉTEINT par défaut : éteint, rien ne part.
+  relances_cycle_vie: {
+    fenetre: null,
+    run: (req, supabase, t) => runRelancesCycleVie(req, supabase, t, envoyerMail),
   },
   // Notifications sur téléphone (projet notifications-push) : envoie les push
   // reportés par la plage de silence dont l'heure est venue. Par `?job=`

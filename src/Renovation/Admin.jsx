@@ -28,6 +28,7 @@ import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
 import TauxFraisGenerauxAdmin from "./TauxFraisGenerauxAdmin.jsx";
 import SeuilsMargesAdmin from "./SeuilsMargesAdmin.jsx";
+import ReglagesRelancesAdmin from "./ReglagesRelancesAdmin.jsx";
 import SeuilsAvancementIncoherentAdmin from "./SeuilsAvancementIncoherentAdmin.jsx";
 import ControleJournalAvancement from "./ControleJournalAvancement.jsx";
 // Échéancier de facturation client (bloc Facturation de la fiche chantier +
@@ -3931,6 +3932,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       ["vehicules",    "Véhicules",    Car],
       ["emails",       "Emails",       Mail],
       ["situations",   "Facturation",   Receipt],
+      ...(isAdmin ? [["relances", "Relances", Mail]] : []),
       ...(isAdmin ? [["mail-encours", "Mail encours", Send]] : []),
     ]},
     { id:"outils", label:"Outils", icon:Wrench, tabs:[
@@ -4032,6 +4034,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         <OngletVehicules T={T} acc={acc}/>
       )}
 
+      {adminTab==="relances" && isAdmin && (
+        <ReglagesRelancesAdmin T={T} profil={profil}/>
+      )}
       {adminTab==="mail-encours" && isAdmin && (
         <OngletMailEncours T={T} acc={acc}/>
       )}
