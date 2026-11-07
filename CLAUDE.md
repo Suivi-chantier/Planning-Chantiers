@@ -1,6 +1,6 @@
 # CLAUDE.md — règles de travail sur ce dépôt
 
-Application Profero (Planning-Chantiers). Loris n'est pas développeur : les
+Application Profero (Planning-Chantiers). François n'est pas développeur : les
 comptes rendus doivent être compréhensibles sans lire le code, et ne jamais
 l'orienter vers GitHub.
 
@@ -8,7 +8,7 @@ l'orienter vers GitHub.
 
 > Ne jamais présenter une sortie de jeu de test comme une sortie réelle. Quand un
 > exemple vient des tests, l'écrire explicitement : "exemple issu des tests,
-> données fictives". Loris ne lit pas le code : un exemple inventé présenté comme
+> données fictives". François ne lit pas le code : un exemple inventé présenté comme
 > vérifié lui fait croire qu'une fonctionnalité tourne sur ses vraies données.
 > Si un exemple réel est demandé, il doit venir d'une requête sur la base, pas
 > d'une fixture.
@@ -75,7 +75,7 @@ Pas en note de bas de page.
 
 ## Vérifications : GitHub s'en charge, pas de scripts en local
 
-Décision de Loris du 14/10/2026 : lancer les scripts en local à chaque
+Décision de François du 14/10/2026 : lancer les scripts en local à chaque
 modification est beaucoup trop long. Chaque demande de fusion relance tous les
 workflows sur GitHub, et `main` refuse la fusion tant qu'ils ne sont pas verts :
 c'est la vérification qui fait foi.
@@ -83,7 +83,7 @@ c'est la vérification qui fait foi.
 - Par défaut, **aucun script `verif-*` ni compilation en local**. On pousse la
   branche, on ouvre la demande de fusion, on attend les contrôles GitHub.
 - On continue d'écrire et de brancher les scripts `verif-*` d'une nouvelle
-  fonctionnalité (ils tournent sur GitHub, sans coût pour Loris).
+  fonctionnalité (ils tournent sur GitHub, sans coût pour François).
 - Exception : un contrôle GitHub échoue. On lance alors en local le seul script
   en échec, pour comprendre et corriger.
 - Les trois scripts qui échouent déjà sous Windows (`verif-composants-internes`,
@@ -92,7 +92,7 @@ c'est la vérification qui fait foi.
 
 ## Mise en ligne : sans attendre de feu vert
 
-Décision de Loris du 14/10/2026 : une tâche terminée est mise en ligne sans
+Décision de François du 14/10/2026 : une tâche terminée est mise en ligne sans
 qu'il ait à le demander ou à l'écrire. Dès que tous les contrôles GitHub de la
 demande de fusion sont verts, on la fusionne (`gh pr merge`), on attend la fin
 du déploiement, et le compte rendu dit simplement que c'est en ligne. Si un
@@ -100,7 +100,7 @@ contrôle est rouge, on corrige d'abord ; on ne fusionne jamais au rouge.
 Une migration de base n'est pas couverte par cette règle : on dit ce qu'elle
 change et on demande avant de l'appliquer.
 
-Seule exception, décisions de Loris du 24/10/2026 : en mode projet (voir
+Seule exception, décisions de François du 24/10/2026 : en mode projet (voir
 « Projets longs »), toute migration est appliquée sans demander, une fois
 vérifiée.
 
@@ -132,24 +132,24 @@ Hors mode projet, rien ne change.
 
 ## Projets longs : travail en autonomie
 
-Décision de Loris du 24/10/2026 : un gros projet (plusieurs fonctionnalités,
+Décision de François du 24/10/2026 : un gros projet (plusieurs fonctionnalités,
 plusieurs demandes de fusion) est décrit dans un seul fichier, et mené seul
 jusqu'à la mise en ligne complète. On ne s'arrête qu'aux points de validation.
-On est « en mode projet » quand Loris désigne un fichier de `docs/projets/`.
+On est « en mode projet » quand François désigne un fichier de `docs/projets/`.
 
 ### Le fichier projet
 
 - Il vit dans `docs/projets/<nom>.md` (modèle : `docs/projets/_modele.md`) et
   fait foi : en cas de doute, on relit le fichier, pas la conversation. Une
   conversation se coupe ou se résume ; le fichier reste.
-- Sections de Loris — Objectif métier, Règles et invariants, Hors périmètre,
+- Sections de François — Objectif métier, Règles et invariants, Hors périmètre,
   Description des étapes, Validation automatique — jamais modifiées. Si une
   découverte les rend fausses ou impossibles, on s'arrête et on lui demande :
   c'est lui qui décide de ce que le projet doit faire.
 - Sections de Claude — Tâches, Journal des décisions, Comptes rendus — mises à
   jour après chaque tâche et avant tout arrêt, pour qu'une nouvelle session
-  puisse reprendre sans rien demander à Loris.
-- Statuts d'une tâche : à faire, en cours, en attente de Loris, en ligne,
+  puisse reprendre sans rien demander à François.
+- Statuts d'une tâche : à faire, en cours, en attente de François, en ligne,
   bloquée, abandonnée.
 - Reprise : avant de continuer une tâche « en cours », vérifier son état réel
   (branche, demande de fusion, migration appliquée ou non). Une coupure a pu
@@ -200,13 +200,13 @@ On est « en mode projet » quand Loris désigne un fichier de `docs/projets/`.
 - Avant de s'arrêter, écrire dans le fichier : le statut, ce qui est fait, ce
   qui bloque, la question et les éléments pour décider. La question doit
   pouvoir recevoir une réponse en une phrase, depuis un téléphone. La réponse
-  de Loris est notée dans le journal avant de reprendre.
+  de François est notée dans le journal avant de reprendre.
 
 ### Autorisations
 
 - Si une commande nécessaire est interdite par la configuration, on s'arrête et
   on le signale. On ne contourne jamais une interdiction par un autre moyen :
-  une interdiction est une décision de Loris, pas un obstacle technique.
+  une interdiction est une décision de François, pas un obstacle technique.
 
 ### Fin de projet
 
