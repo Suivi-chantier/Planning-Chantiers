@@ -606,6 +606,7 @@ rôle).
 | 06/11/2026 | **Lot 6 — Phases autres qu'Étude et Contrat en lecture seule**, et pas de « Déclarer comme phase en cours » ; une étape dont la phase est inconnue (groupe d'exécution, échéance de facturation) est en lecture seule. Garanti **à l'écran** (`peutValiderEtape`) **et en base** (2 policies restrictives sur `chantier_cycle_vie`). | Le plus prudent ; la base empêche un contournement par un ancien onglet ou un appel direct. La liste d'étapes de la base est comparée à celle du module par `verif-refonte-lot6` : une étape en trop en base fait échouer le contrôle ; une étape ajoutée plus tard à Étude/Contrat sans migration est signalée (le chargé d'affaires verrait alors un refus d'enregistrer, jamais un droit de trop). | `sql/202611_refonte_operations_lot6_rollback.sql`. |
 | 06/11/2026 | **Lot 6 — Droits SQL alignés sur le commercial** : aucune fonction (`est_collaborateur_actif`, `est_ouvrier`, `mon_role`…) ni contrainte modifiée ; pas d'ajout aux listes de rôles nommées (factures de frais, export du planning, suggestions de matériaux, portail client Invest). | Le rôle est déjà collaborateur actif et non ouvrier ; ne lui donner aucun droit de plus qu'au commercial. | — |
 | 06/11/2026 | **Lot 6 — Configuration d'accès en base modifiée avant la fusion** (liste des rôles + pages du rôle), sans rien retirer aux autres rôles ; sauvegardes id 7 et 8. Le rôle n'est attribué à personne. | Compatible avec l'ancien code ; sans la ligne en base, le rôle n'était pas proposé dans Réglages (la liste en base remplace la liste par défaut). | `sql/202611_refonte_operations_lot6_acces_rollback.sql`. |
+| 07/11/2026 | **Demande de Loris du 07/11 — Client ProGBat existant : reprise complète, plus de blocage injustifié.** Lecture (GET seulement, comptes sans aucune valeur) des 113 clients ProGBat, liste et détail `GET /company/thirds/{id}` : le détail n'a aucun champ de plus que la liste ; **aucun champ prénom** (`legalName`, `businessName` 11/113, `civility` 97/113 ; `addresses[]` 113/113 avec `address` 110, `postcode`/`city`/`country` 113, `email` 39, `mobile` 25, `phone` 11 ; `contacts[]` 54/113 avec `lastname` 54, `email` 30, `mobile` 18, `phone` 10 ; sous-ressources `/contacts` et `/addresses` = mêmes données, `/emails` et `/phones` inexistantes). La fiche reprend tout : type, nom, raison sociale, contact, adresse, e-mail et téléphone (adresse par défaut, autres adresses, puis contacts). Prénom : découpage « NOM Prénom » / « Prénom NOM » seulement (`progbatNomPrenom.mjs`), sinon nom entier — sur leur nom ProGBat, 41 particuliers sur 89 se découpent (plus ceux dont le contact porte « NOM Prénom » avec le même nom) ; 48 restent entiers (21 un seul mot, 11 tout en majuscules, 11 civilité ou couple, 5 sans majuscules). Les règles Profero prénom / e-mail / téléphone sont marquées `profero` dans la liste unique `reglesSaisieProgbat.mjs` et ne s'appliquent plus à une fiche reliée à ProGBat (`progbat_client_id`) ; elles restent bloquantes pour un nouveau client. Ce que ProGBat n'a pas s'affiche en note grise « Absent dans ProGBat : … ». Fiches déjà reprises : bouton « Relire depuis ProGBat » et relecture automatique à l'ouverture de l'opération (champs vides seulement ; le nom ProGBat resté entier est découpé). Pas de reprise en base : une seule fiche reliée en base, complétée par la relecture automatique. | Le client existe déjà dans ProGBat, l'application ne le crée pas : exiger ce que ProGBat n'a pas bloquait le devis sans raison. Ne rien inventer : un nom ambigu reste entier. | Retirer `profero: true` des trois règles (les bandeaux reviennent). |
 
 ---
 
@@ -893,9 +894,9 @@ dossier.
 1. **Client ProGBat existant** (Opérations → une opération → « Client ProGBat
    existant ») : la liste des clients ProGBat s'affiche (113 clients et les
    prospects) ; taper un nom ou une ville filtre la liste. « Choisir » →
-   confirmation → la fiche apparaît comme client de l'opération ; ce qui manque
-   (prénom, e-mail, téléphone…) est listé. Rechoisir le même client ProGBat
-   sur un autre chantier → message « fiche réutilisée » (pas de doublon).
+   confirmation → la fiche apparaît comme client de l'opération, remplie avec
+   tout ce que ProGBat connaît (voir l'étape 11). Rechoisir le même client
+   ProGBat sur un autre chantier → message « fiche réutilisée » (pas de doublon).
 2. **+ Nouveau client** : taper le nom d'un client existant dans ProGBat → le
    bloc orange « Ce client existe peut-être déjà dans ProGBat » le propose ;
    « Enregistrer » est refusé tant que « aucun ne correspond » n'est pas coché.
@@ -928,6 +929,17 @@ dossier.
 10. **Coupure** : si un message « état incertain » apparaît, vérifier dans
     ProGBat ; « J'ai vérifié dans ProGBat : rien n'a été créé » rouvre la
     création.
+11. **Client ProGBat complet (demande du 07/11)** : ouvrir l'opération
+    « Fourmond » → sous le client, plus de bandeau rouge « Fiche client
+    incomplète » ; la fiche affiche « FOURMOND » en nom et « Bruno » en prénom
+    (relecture automatique) ; si ProGBat n'a pas d'e-mail pour lui, une note
+    grise « Absent dans ProGBat : e-mail » apparaît, sans rien bloquer.
+    « Modifier la fiche » → « Relire depuis ProGBat » : les cases vides se
+    remplissent, ce qui a été saisi à la main ne change pas. Choisir un autre
+    client ProGBat (particulier écrit « NOM Prénom ») : nom et prénom séparés,
+    adresse, e-mail et téléphone repris. Contre-épreuve : « + Nouveau client »
+    sans e-mail → l'enregistrement est toujours refusé (« E-mail du client
+    (règle Profero) »).
 ### Lot 5
 
 1. **Menu** (compte administrateur, sur ordinateur puis sur téléphone) :

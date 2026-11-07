@@ -14,7 +14,8 @@ import { X, AlertTriangle, Ban, Undo2, UserCircle, Briefcase } from "lucide-reac
 import { STATUTS_AFFICHAGE, MOTIFS_PERTE, validerMotifPerte, libelleMotifPerte, STATUTS_OPERATION } from "./statutsChantier.js";
 import { estObligatoire, controlerFiche, genererCodeClient, TYPES_CLIENT } from "./reglesSaisieProgbat.js";
 import { FICHE_CLIENT_VIDE, enregistrerClient, libelleClient, nomCollaborateur } from "./clientsDonnees.js";
-import { RessemblancesProgbat } from "./ClientsProgbat.jsx";
+import { RessemblancesProgbat, NoteClientProgbat } from "./ClientsProgbat.jsx";
+import { CHAMPS_RELUS_PROGBAT } from "./progbatAutomatisation.js";
 
 const couleurs = (T = {}) => ({
   surface: T.surface || "#262a32", card: T.card || "rgba(255,255,255,0.04)", border: T.border || "rgba(255,255,255,0.1)",
@@ -151,7 +152,16 @@ export function FicheClientModal({ T, client = null, initial = null, onClose, on
       <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
         {nouveau && <RessemblancesProgbat T={T} fiche={fiche} accuse={accuse} setAccuse={setAccuse} onEtat={setEtatPg} onUtiliser={(c) => onEnregistre?.(c)} />}
         {!nouveau && client?.progbat_client_id && (
-          <div style={{ fontSize: FONT.xs.size + 1, color: s.c.textMuted }}>Fiche reliée au client ProGBat n° {client.progbat_client_id} : la compléter ici ne modifie pas ProGBat.</div>
+          <div style={{ fontSize: FONT.xs.size + 1, color: s.c.textMuted }}>Fiche reliée au client ProGBat n° {client.progbat_client_id} : la compléter ici ne modifie pas ProGBat. Prénom, e-mail et téléphone ne sont pas exigés pour un client qui existe déjà dans ProGBat.</div>
+        )}
+        {!nouveau && client?.progbat_client_id && (
+          <NoteClientProgbat T={s.c} client={{ ...fiche, id: client.id }} onClient={(lu) => setFiche((f) => {
+            // Ne complète que les champs encore vides du formulaire : rien de saisi n'est écrasé.
+            const out = { ...f };
+            for (const k of CHAMPS_RELUS_PROGBAT) if (!String(f[k] ?? "").trim() && String(lu?.[k] ?? "").trim()) out[k] = lu[k];
+            if (String(lu?.prenom ?? "").trim() && !String(f.prenom ?? "").trim() && String(lu?.nom ?? "").trim() && String(f.nom ?? "").trim() === String(client.nom ?? "").trim()) out.nom = lu.nom;
+            return out;
+          })} />
         )}
         <ListeManquants T={T} manquants={manquants} titre="Enregistrement refusé, il manque :" />
         {erreur && <div style={{ color: "#e15a5a", fontSize: FONT.sm.size }}>Enregistrement impossible : {erreur}</div>}

@@ -36,7 +36,8 @@
 //     réponse = facture brouillon (code provisoire « $… »).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { controlerFiche, genererCodeClient, genererNomChantierProgbat, genererCodeChantierProgbat, chantierDepuisProjet } from "./reglesSaisieProgbat.mjs";
+import { controlerFiche, notesFiche, genererCodeClient, genererNomChantierProgbat, genererCodeChantierProgbat, chantierDepuisProjet } from "./reglesSaisieProgbat.mjs";
+import { decouperNomPrenom } from "./progbatNomPrenom.mjs";
 import { etatsEtapesRepris } from "./cycleVieReprise.mjs";
 import { STATUTS_DEVIS, STATUT_INTROUVABLE, interpreterStatutDevis, synchroniserStatutsDevis } from "./progbatStatutDevis.mjs";
 
@@ -72,10 +73,10 @@ export const ACTIONS = Object.freeze([
   "etat", "chercher_clients", "lier_client", "preparer_client", "creer_client",
   "preparer_chantier", "creer_chantier", "relire_chantier",
   "preparer_acompte", "creer_acompte", "statut_devis", "verifier_ecriture",
-  "lister_clients_progbat", "importer_client_progbat",
+  "lister_clients_progbat", "importer_client_progbat", "relire_client_progbat",
 ]);
 /** Actions qui ne portent pas sur un chiffrage (fiche Opération : choix d'un client ProGBat existant). */
-export const ACTIONS_SANS_CHIFFRAGE = Object.freeze(["lister_clients_progbat", "importer_client_progbat"]);
+export const ACTIONS_SANS_CHIFFRAGE = Object.freeze(["lister_clients_progbat", "importer_client_progbat", "relire_client_progbat"]);
 
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const str = (v) => (v == null ? "" : String(v).trim());
@@ -146,37 +147,115 @@ export function resumerTiers(t = {}) {
 
 const PAYS_LIBELLE = Object.freeze({ FR: "France", BE: "Belgique", CH: "Suisse", LU: "Luxembourg", MC: "Monaco", ES: "Espagne", IT: "Italie", DE: "Allemagne", PT: "Portugal", GB: "Royaume-Uni", NL: "Pays-Bas" });
 
+// Premier texte renseigné parmi des objets (adresse par défaut d'abord, puis
+// les autres adresses, puis le contact par défaut, puis les autres contacts).
+const premier = (objets, champs) => {
+  for (const o of objets) for (const k of champs) if (o && str(o[k])) return str(o[k]);
+  return "";
+};
+const parDefautDabord = (liste) => {
+  const l = Array.isArray(liste) ? liste.filter((x) => x && typeof x === "object") : [];
+  return [...l.filter((x) => x.byDefault), ...l.filter((x) => !x.byDefault)];
+};
+
 /**
- * Fiche client locale (table clients) pré-remplie depuis un client ProGBat
- * EXISTANT choisi par l'utilisateur (demande de Loris du 06/11 : les clients
- * existent déjà dans ProGBat, ne pas les recréer). Rien n'est deviné : le nom
- * ProGBat d'un particulier (« Mr et Mme DUPONT », « DUPONT Jean »…) n'a pas de
- * forme fixe, il va entier dans « nom » et le prénom reste à compléter si les
- * règles l'exigent. L'identifiant ProGBat (code) est repris tel quel.
- * → { fiche, manquants }
+ * Nom et prénom d'un particulier ProGBat. ProGBat n'a PAS de champ prénom
+ * (relevé du 07/11 sur les 113 clients : legalName, civility, contacts[].lastname
+ * seulement). Règle (progbatNomPrenom.mjs) : « NOM Prénom » ou « Prénom NOM »
+ * se découpe ; sinon le nom reste entier et le prénom vide, rien n'est deviné.
+ * Repli : le nom du contact par défaut, seulement s'il se découpe et que son
+ * NOM est exactement le nom ProGBat (« DUPONT » + contact « DUPONT Jean »).
+ */
+export function nomPrenomDepuisTiers(t = {}) {
+  const legal = str(t.legalName) || str(t.businessName);
+  const d = decouperNomPrenom(legal);
+  if (d.decoupe) return { nom: d.nom, prenom: d.prenom, decoupe: true, nom_progbat: legal };
+  const contacts = parDefautDabord(t.contacts);
+  for (const c of contacts) {
+    const dc = decouperNomPrenom(c.lastname);
+    if (dc.decoupe && normaliserTexte(dc.nom) === normaliserTexte(legal)) return { nom: dc.nom, prenom: dc.prenom, decoupe: true, nom_progbat: legal };
+  }
+  return { nom: legal || premier(contacts, ["lastname"]), prenom: "", decoupe: false, nom_progbat: legal };
+}
+
+/**
+ * Fiche client locale (table clients) remplie depuis un client ProGBat
+ * EXISTANT choisi par l'utilisateur (demandes de Loris du 06/11 et du 07/11 :
+ * les clients existent déjà dans ProGBat, ne pas les recréer, et reprendre
+ * TOUT ce que ProGBat a). Champs repris (forme relevée le 07/11) :
+ *   legalType (1 particulier, 0 société) → type ;
+ *   legalName → nom + prénom (découpage, voir nomPrenomDepuisTiers) ou raison
+ *   sociale (businessName en priorité) ;
+ *   contacts[].lastname → nom du contact d'une société ;
+ *   addresses[] → adresse, complément, code postal, ville, pays ;
+ *   e-mail / téléphone : adresse par défaut, autres adresses, puis contacts
+ *   (phone, puis mobile).
+ * L'identifiant ProGBat (code) est repris tel quel.
+ * → { fiche, manquants, notes } : `manquants` bloque (règles qui s'appliquent
+ *   à un client ProGBat), `notes` ne bloque pas (« Absent dans ProGBat : … »).
  */
 export function ficheDepuisTiers(t = {}) {
-  const adresses = Array.isArray(t.addresses) ? t.addresses : [];
-  const a = adresses.find((x) => x?.byDefault) || adresses[0] || {};
-  const contacts = Array.isArray(t.contacts) ? t.contacts : [];
-  const c = contacts.find((x) => x?.byDefault) || contacts[0] || {};
+  const adresses = parDefautDabord(t.addresses);
+  const a = adresses[0] || {};
+  const contacts = parDefautDabord(t.contacts);
   const societe = t.legalType === LEGAL_TYPE.societe;
   const pays = str(a.country);
+  const np = societe ? null : nomPrenomDepuisTiers(t);
   const fiche = {
     type: societe ? "societe" : "particulier",
-    nom: societe ? "" : str(t.legalName) || str(c.lastname),
-    prenom: "",
+    nom: societe ? "" : np.nom,
+    prenom: societe ? "" : np.prenom,
     raison_sociale: societe ? (str(t.businessName) || str(t.legalName)) : "",
-    contact_nom: societe ? str(c.lastname) : "",
+    contact_nom: societe ? premier(contacts, ["lastname"]) : "",
     adresse: str(a.address), adresse_complement: str(a.address2),
     code_postal: str(a.postcode), ville: str(a.city),
     pays: PAYS_LIBELLE[pays.toUpperCase()] || pays || "France",
-    email: str(a.email) || str(c.email),
-    telephone: str(a.phone) || str(a.mobile) || str(c.phone) || str(c.mobile),
+    email: premier([...adresses, ...contacts], ["email"]),
+    telephone: premier([...adresses, ...contacts], ["phone", "mobile"]),
     code_progbat: str(t.code),
     progbat_client_id: idProgbat(t.id) != null ? String(idProgbat(t.id)) : null,
   };
-  return { fiche, manquants: controlerFiche("client", fiche) };
+  return { fiche, manquants: controlerFiche("client", fiche), notes: notesFiche("client", fiche) };
+}
+
+/**
+ * Fiche reliée à ProGBat dont un champ utile est vide (relecture automatique à
+ * l'ouverture de la fiche Opération, une fois par session).
+ */
+export function ficheRelieeIncomplete(client = {}) {
+  if (idProgbat(client?.progbat_client_id) == null) return false;
+  const champs = client.type === "societe"
+    ? ["raison_sociale", "contact_nom", "adresse", "code_postal", "ville", "email", "telephone"]
+    : ["nom", "prenom", "adresse", "code_postal", "ville", "email", "telephone"];
+  return champs.some((k) => !str(client[k]));
+}
+
+/** Champs d'une fiche que la relecture ProGBat peut compléter. */
+export const CHAMPS_RELUS_PROGBAT = Object.freeze(["nom", "prenom", "raison_sociale", "contact_nom", "adresse", "adresse_complement", "code_postal", "ville", "pays", "email", "telephone", "code_progbat"]);
+
+/**
+ * Relecture d'une fiche DÉJÀ reliée à un client ProGBat : complète les champs
+ * VIDES, n'écrase jamais ce que l'utilisateur a saisi. Seule exception : le
+ * nom d'un particulier resté exactement tel que ProGBat l'a donné (« NOM
+ * Prénom » entier, prénom vide) est remplacé par son découpage — c'est la
+ * même donnée ProGBat, mieux rangée, pas une saisie de l'utilisateur.
+ * Le type (particulier / société) n'est jamais changé.
+ * → { patch, champs: [noms des champs complétés] }
+ */
+export function completerDepuisTiers(client = {}, t = {}) {
+  const { fiche } = ficheDepuisTiers(t);
+  const patch = {};
+  if (client.type === fiche.type) {
+    for (const k of CHAMPS_RELUS_PROGBAT) {
+      if (!str(client[k]) && str(fiche[k])) patch[k] = fiche[k];
+    }
+    if (fiche.type === "particulier" && fiche.prenom && !str(client.prenom)) {
+      const np = nomPrenomDepuisTiers(t);
+      if (normaliserTexte(client.nom) === normaliserTexte(np.nom_progbat)) { patch.nom = fiche.nom; patch.prenom = fiche.prenom; }
+      else if (str(client.nom) && normaliserTexte(client.nom) !== normaliserTexte(fiche.nom)) delete patch.prenom;   // nom saisi autrement : ne pas lui coller un prénom
+    }
+  }
+  return { patch, champs: Object.keys(patch) };
 }
 
 /**
@@ -756,11 +835,35 @@ export async function traiterRequeteAutomatisation(requete = {}, { appelant, dep
 /**
  * lister_clients_progbat : clients (type 2) et prospects (type 4) ProGBat,
  *   résumés, pour la recherche dans l'application. GET uniquement.
- * importer_client_progbat { thirdId, confirmed } : fiche locale pré-remplie
+ * importer_client_progbat { thirdId, confirmed } : fiche locale remplie
  *   depuis le client ProGBat CHOISI ; réutilise la fiche locale qui porte
- *   déjà ce progbat_client_id (index unique en base). Aucune écriture ProGBat.
- * depot : clientParProgbatId(id) → ligne | null ; creerClientLocal(fiche) → { ok, client } | { ok: false, conflit?, erreur }
+ *   déjà ce progbat_client_id (index unique en base) et complète ses champs
+ *   vides. Aucune écriture ProGBat.
+ * relire_client_progbat { clientId } : relit le client ProGBat d'une fiche
+ *   reliée et complète ses champs VIDES (completerDepuisTiers). Aucune
+ *   écriture ProGBat ; seule la fiche locale est complétée.
+ * depot : clientParProgbatId(id) → ligne | null ; clientParId(id) → ligne | null ;
+ *   creerClientLocal(fiche) → { ok, client } | { ok: false, conflit?, erreur } ;
+ *   completerClient(id, patch) → { ok, client } | { ok: false, erreur }
  */
+const RE_UUID_CLIENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Relit le tiers d'une fiche reliée et complète ses champs vides. → { ok, client, champs, notes } | { ok: false, code, error } */
+async function completerFicheReliee(client, { depot, progbat }) {
+  const tid = idProgbat(client?.progbat_client_id);
+  if (tid == null) return { ok: false, code: "non_relie", error: "Cette fiche client n'est pas reliée à un client ProGBat." };
+  const lu = await progbat.lireTiersUn(tid);
+  if (!lu?.ok) return { ok: false, code: "tiers_illisible", error: `Client ProGBat ${tid} illisible (${lu?.status || "réseau"}) : fiche inchangée.` };
+  const { patch, champs } = completerDepuisTiers(client, lu.data || {});
+  let fiche = client;
+  if (champs.length) {
+    const r = await depot.completerClient(client.id, patch);
+    if (!r?.ok) return { ok: false, code: "enregistrement_impossible", error: `Fiche non complétée : ${nettoyerMessage(r?.erreur) || "erreur"}.` };
+    fiche = r.client || { ...client, ...patch };
+  }
+  return { ok: true, client: fiche, champs, notes: notesFiche("client", fiche) };
+}
+
 export async function traiterClientsProgbat(action, requete = {}, { appelant, depot, progbat } = {}) {
   if (action === "lister_clients_progbat") {
     const clients = [];
@@ -772,30 +875,49 @@ export async function traiterClientsProgbat(action, requete = {}, { appelant, de
     clients.sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
     return { http: 200, body: { ok: true, action, aucune_ecriture: true, clients }, journal: { action, nb: clients.length } };
   }
+  const non = (code, error) => ({ http: 200, body: { ok: false, action, code, error, aucune_ecriture_progbat: true }, journal: { action, refus: code } });
+  if (action === "relire_client_progbat") {
+    const id = str(requete.clientId);
+    if (!RE_UUID_CLIENT.test(id)) return non("client_id_invalide", "Fiche client non précisée.");
+    const client = await depot.clientParId(id);
+    if (!client) return non("client_introuvable", "Fiche client introuvable.");
+    const r = await completerFicheReliee(client, { depot, progbat });
+    if (!r.ok) return non(r.code, r.error);
+    return {
+      http: 200,
+      body: { ok: true, action, client: r.client, champs: r.champs, manquants: controlerFiche("client", r.client), notes: r.notes, aucune_ecriture_progbat: true,
+        message: (r.champs.length ? `Fiche complétée depuis ProGBat (${r.champs.length} champ${r.champs.length > 1 ? "s" : ""}).` : "Fiche déjà à jour : ProGBat n'a rien de plus.") },
+      journal: { action, clientId: id, champs: r.champs },
+    };
+  }
   // importer_client_progbat
   const tid = idProgbat(requete.thirdId);
-  const non = (code, error) => ({ http: 200, body: { ok: false, action, code, error, aucune_ecriture_progbat: true }, journal: { action, refus: code } });
   if (tid == null) return non("third_id_invalide", "Client ProGBat non choisi.");
   if (requete.confirmed !== true) return non("confirmation_requise", "Confirmation explicite requise.");
+  const reutiliser = async (fiche, message) => {
+    // Fiche déjà là : on complète ses champs vides depuis ProGBat (sans rien écraser).
+    const r = await completerFicheReliee(fiche, { depot, progbat });
+    const client = r.ok ? r.client : fiche;
+    const notes = notesFiche("client", client);
+    return { http: 200, body: { ok: true, action, reutilise: true, client, champs: r.ok ? r.champs : [], manquants: controlerFiche("client", client), notes, aucune_ecriture_progbat: true, message: message + (r.ok && r.champs.length ? ` Champs complétés depuis ProGBat : ${r.champs.length}.` : "") }, journal: { action, thirdId: tid, reutilise: true } };
+  };
   const existant = await depot.clientParProgbatId(tid);
-  if (existant) {
-    return { http: 200, body: { ok: true, action, reutilise: true, client: existant, manquants: controlerFiche("client", existant), aucune_ecriture_progbat: true, message: "Ce client ProGBat a déjà sa fiche dans l'application : elle est réutilisée." }, journal: { action, thirdId: tid, reutilise: true } };
-  }
+  if (existant) return await reutiliser(existant, "Ce client ProGBat a déjà sa fiche dans l'application : elle est réutilisée.");
   const lu = await progbat.lireTiersUn(tid);
   if (!lu?.ok) return non("tiers_illisible", `Client ProGBat ${tid} illisible (${lu?.status || "réseau"}) : aucune fiche créée.`);
   if (![TYPE_TIERS.client, TYPE_TIERS.prospect].includes(lu.data?.type)) return non("type_tiers", `Le tiers ProGBat ${tid} n'est ni un client ni un prospect : aucune fiche créée.`);
-  const { fiche, manquants } = ficheDepuisTiers(lu.data);
+  const { fiche, manquants, notes } = ficheDepuisTiers(lu.data);
   const cree = await depot.creerClientLocal({ ...fiche, cree_par: str(appelant?.email) || null });
   if (!cree?.ok) {
     if (cree?.conflit) {
       const deja = await depot.clientParProgbatId(tid);
-      if (deja) return { http: 200, body: { ok: true, action, reutilise: true, client: deja, manquants: controlerFiche("client", deja), aucune_ecriture_progbat: true, message: "Fiche déjà créée à l'instant pour ce client ProGBat : elle est réutilisée." } };
+      if (deja) return await reutiliser(deja, "Fiche déjà créée à l'instant pour ce client ProGBat : elle est réutilisée.");
     }
     return non("creation_locale_impossible", `Fiche client non créée : ${nettoyerMessage(cree?.erreur) || "erreur"}.`);
   }
   return {
     http: 200,
-    body: { ok: true, action, reutilise: false, client: cree.client, manquants, aucune_ecriture_progbat: true, message: manquants.length ? `Fiche créée depuis ProGBat ; il manque (règles Profero) : ${manquants.map((m) => m.libelle).join(", ")}. Compléter la fiche ne modifie pas ProGBat.` : "Fiche créée depuis ProGBat." },
+    body: { ok: true, action, reutilise: false, client: cree.client, manquants, notes, aucune_ecriture_progbat: true, message: (manquants.length ? `Fiche créée depuis ProGBat ; à compléter : ${manquants.map((m) => m.libelle).join(", ")}. Compléter la fiche ne modifie pas ProGBat.` : "Fiche créée depuis ProGBat avec ses coordonnées ProGBat.") },
     journal: { action, thirdId: tid, reutilise: false },
   };
 }
