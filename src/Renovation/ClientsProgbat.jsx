@@ -13,7 +13,8 @@ import { FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { Search, X, Check, AlertTriangle, RefreshCw } from "lucide-react";
 import { appelerProgbatOperations } from "./ProgbatClientChantier.jsx";
-import { chercherCorrespondances, normaliserTexte } from "./progbatAutomatisation.js";
+import { chercherCorrespondances, normaliserTexte, ficheRelieeIncomplete } from "./progbatAutomatisation.js";
+import { noteAbsentsProgbat } from "./reglesSaisieProgbat.js";
 
 // Liste gardée 5 minutes dans l'onglet (le serveur a son propre cache).
 let memoire = null;
@@ -24,9 +25,63 @@ export async function chargerClientsProgbat({ forcer = false } = {}) {
   return rep;
 }
 
-/** Choix d'un client ProGBat → fiche locale. onChoisi(client, { manquants, message, reutilise }). */
+/** Choix d'un client ProGBat → fiche locale. onChoisi(client, { manquants, notes, message, reutilise }). */
 export async function importerClientProgbat(m) {
   return await appelerProgbatOperations({ action: "importer_client_progbat", thirdId: m.id, confirmed: true });
+}
+
+// ─── Relecture d'une fiche reliée (demande de Loris du 07/11) ────────────────
+/** Complète les champs VIDES d'une fiche reliée depuis ProGBat (rien n'est écrasé, rien n'est écrit dans ProGBat). */
+export async function relireClientProgbat(clientId) {
+  return await appelerProgbatOperations({ action: "relire_client_progbat", clientId });
+}
+
+// Relecture automatique : une seule tentative par fiche et par session.
+const dejaRelus = new Set();
+/** Relit automatiquement les fiches reliées et incomplètes. onClient(client) reçoit la fiche complétée. */
+export function useRelectureAutoProgbat(clients = [], onClient) {
+  const cle = clients.filter(Boolean).map((c) => `${c.id}:${ficheRelieeIncomplete(c) ? 1 : 0}`).join(",");
+  useEffect(() => {
+    let actif = true;
+    for (const c of clients.filter(Boolean)) {
+      if (!c.id || dejaRelus.has(c.id) || !ficheRelieeIncomplete(c)) continue;
+      dejaRelus.add(c.id);
+      relireClientProgbat(c.id).then((r) => { if (actif && r?.ok && r.champs?.length && r.client) onClient?.(r.client); });
+    }
+    return () => { actif = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cle]);
+}
+
+/**
+ * Note discrète (gris, jamais rouge) pour une fiche reliée à ProGBat : ce que
+ * ProGBat n'a pas (« Absent dans ProGBat : e-mail ») et le bouton « Relire
+ * depuis ProGBat ». Rien pour une fiche non reliée.
+ */
+export function NoteClientProgbat({ T, client, onClient, bouton = true }) {
+  const [occupe, setOccupe] = useState(false);
+  const [info, setInfo] = useState(null);
+  if (!client?.progbat_client_id) return null;
+  const note = noteAbsentsProgbat(client);
+  const relire = async () => {
+    setOccupe(true); setInfo(null);
+    const r = await relireClientProgbat(client.id);
+    setOccupe(false);
+    if (r?.ok) { setInfo(r.message || null); if (r.client) onClient?.(r.client); }
+    else setInfo(r?.error || "Relecture impossible.");
+  };
+  return (
+    <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, color: T.textMuted, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      {note && <span>{note}</span>}
+      {bouton && client.id && (
+        <button type="button" onClick={relire} disabled={occupe} title="Relit le client dans ProGBat et complète les champs vides de la fiche (ce qui a été saisi n'est pas écrasé ; rien n'est modifié dans ProGBat)"
+          style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "2px 8px", cursor: occupe ? "wait" : "pointer", color: T.textSub, fontFamily: "inherit", fontSize: FONT.xs.size + 1, display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <Icon as={RefreshCw} size={11} /> {occupe ? "Lecture…" : "Relire depuis ProGBat"}
+        </button>
+      )}
+      {info && <span>{info}</span>}
+    </div>
+  );
 }
 
 const carteTiers = (T, m, action) => (

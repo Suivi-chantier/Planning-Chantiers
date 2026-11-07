@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-07",
+    type: "correctif",
+    titre: "Client ProGBat existant : toutes ses coordonnées reprises, plus de bandeau rouge « fiche incomplète »",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Quand on choisit un client qui existe déjà dans ProGBat, la fiche de l'application reprend désormais tout ce que ProGBat connaît : particulier ou société, nom, prénom, raison sociale et contact, adresse, code postal, ville, pays, e-mail et téléphone (pris dans l'adresse du client ou dans ses contacts ProGBat). ProGBat n'a pas de case « prénom » : quand le nom ProGBat est écrit « NOM Prénom » (ou « Prénom NOM »), l'application le sépare ; quand c'est ambigu (« Mr et Mme NOM », tout en majuscules, un seul mot), le nom reste entier et rien n'est inventé. Pour un client ProGBat, le prénom, l'e-mail et le téléphone ne sont plus exigés : il existe déjà dans ProGBat, l'application ne le crée pas. Ces trois informations restent obligatoires pour un nouveau client créé depuis l'application.",
+    comment: "Rien à faire en plus : « Client ProGBat existant » remplit la fiche. Si ProGBat n'a pas une information, une petite note grise le dit sous le client (« Absent dans ProGBat : e-mail ») sans rien bloquer, et le bouton « Créer le devis » reste disponible. Les fiches déjà reprises avant ce correctif sont relues automatiquement à l'ouverture de l'opération, et un bouton « Relire depuis ProGBat » (sous le client et dans « Modifier la fiche ») complète les cases vides à la demande. Ce qui a été saisi à la main n'est jamais écrasé, et rien n'est modifié dans ProGBat.",
+  },
+  {
+    date: "2026-11-07",
     type: "amelioration",
     titre: "Facturation du chantier : bouton « Voir la facture » qui ouvre directement la facture dans ProGBat",
     pages: [{ id: "chantiers", label: "Chantiers" }],

@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { synchroniserStatutsDevis } from "./lib/progbatStatutDevis.mjs"
-import { diagnostiquer } from "./lib/progbatDiagnosticLot4.mjs"
+import { diagnostiquer, diagnostiquerRemplissageClients } from "./lib/progbatDiagnosticLot4.mjs"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // progbat-devis-statut-cron — Refonte Opérations, lot 4.
@@ -23,6 +23,9 @@ import { diagnostiquer } from "./lib/progbatDiagnosticLot4.mjs"
 //   { action: "statuts" }      (défaut) lecture des statuts, mise à jour de la base
 //   { action: "diagnostic" }   vérifications du lot 4 (GET uniquement, formes et
 //                              valeurs techniques, jamais les coordonnées d'un client)
+//   { action: "remplissage_clients" }  taux de remplissage des champs des
+//                              clients ProGBat (liste + détail de chacun), GET
+//                              uniquement, jamais une valeur (demande du 07/11)
 //   { action: "docs", urls }   lecture de la documentation PUBLIQUE ProGBat
 //                              (progbat.readme.io, aucun jeton envoyé)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,6 +87,26 @@ serve(async (req) => {
       } catch (e) { docs[u] = { status: 0, erreur: String((e as Error)?.message || e) } }
     }
     return json({ ok: true, docs })
+  }
+
+  if (action === "remplissage_clients") {
+    if (!jetons.devis) return json({ ok: false, error: "Jeton ProGBat PROGBAT_PRIVATE_ACCESS_TOKEN non configuré." }, 500)
+    const lireListe = async (chemin: string) => {
+      const tout: unknown[] = []
+      for (let p = 0; p < 10; p++) {
+        const r = await get(`${chemin}${chemin.includes("?") ? "&" : "?"}limit=100&offset=${p * 100}`, jetons.devis)
+        if (!r.ok) return p === 0 ? r : { ok: true, status: 200, data: tout }
+        const lot = Array.isArray(r.data) ? r.data : []
+        tout.push(...lot)
+        if (lot.length < 100) break
+      }
+      return { ok: true, status: 200, data: tout }
+    }
+    const rapport = await diagnostiquerRemplissageClients({
+      max: Number(corps.max) || 150,
+      lire: async (chemin: string, { liste }: { liste: boolean }) => (liste ? await lireListe(chemin) : await get(chemin, jetons.devis)),
+    })
+    return json({ ok: true, rapport })
   }
 
   if (action === "diagnostic") {

@@ -15,6 +15,13 @@
 //      (progbatQuotePayload.mjs), côté navigateur ET côté serveur.
 // scripts/verif-refonte-lot2.mjs prouve que les deux lisent cette liste.
 //
+// `profero: true` (prénom, e-mail, téléphone) : règle PROFERO, exigée pour un
+// NOUVEAU client créé depuis l'application (cahier des charges du lot 2). Elle
+// ne s'applique pas à un client relié à ProGBat (`progbat_client_id`
+// renseigné) : il existe déjà dans ProGBat, l'application ne le crée pas
+// (demande de Loris du 07/11). Ce qui lui manque dans ProGBat même reste
+// visible, sans bloquer : notesFiche() → « Absent dans ProGBat : e-mail ».
+//
 // `serveur: true` : la règle porte sur un champ du chiffrage (profero_projets)
 // et est donc AUSSI vérifiée par construireEnTeteDevis. Les autres (chantier
 // rattaché, chargé d'affaires) portent sur des données que le serveur ne lit
@@ -30,6 +37,8 @@ export const TYPES_CLIENT = Object.freeze([
 
 const estSociete = (c) => c && c.type === "societe";
 const estParticulier = (c) => c && c.type === "particulier";
+/** Fiche reliée à un client ProGBat existant ? */
+export const estLieProgbat = (c) => !!c && c.progbat_client_id != null && txt(c.progbat_client_id) !== "";
 
 /**
  * Règles. `si(valeurs)` : la règle ne s'applique que dans ce cas (ex. prénom
@@ -41,15 +50,15 @@ export const REGLES_SAISIE = Object.freeze([
   { id: "client_type", fiche: "client", champ: "type", libelle: "Type de client (particulier ou société)", code: "client_type_absent", serveur: true,
     valide: (c) => estSociete(c) || estParticulier(c) },
   { id: "client_nom", fiche: "client", champ: "nom", libelle: "Nom du client", code: "client_absent", serveur: true, si: estParticulier },
-  { id: "client_prenom", fiche: "client", champ: "prenom", libelle: "Prénom du client", code: "client_prenom_absent", serveur: true, si: estParticulier },
+  { id: "client_prenom", fiche: "client", champ: "prenom", libelle: "Prénom du client", court: "prénom", code: "client_prenom_absent", serveur: true, profero: true, si: estParticulier },
   { id: "client_raison_sociale", fiche: "client", champ: "raison_sociale", libelle: "Raison sociale", code: "client_absent", serveur: true, si: estSociete },
   { id: "client_contact", fiche: "client", champ: "contact_nom", libelle: "Nom du contact (société)", code: "client_contact_absent", serveur: true, si: estSociete },
   { id: "client_adresse", fiche: "client", champ: "adresse", libelle: "Adresse de facturation du client", code: "client_adresse_absente", serveur: true },
   { id: "client_code_postal", fiche: "client", champ: "code_postal", libelle: "Code postal de facturation du client", code: "client_code_postal_absent", serveur: true },
   { id: "client_ville", fiche: "client", champ: "ville", libelle: "Ville de facturation du client", code: "client_ville_absente", serveur: true },
   { id: "client_pays", fiche: "client", champ: "pays", libelle: "Pays du client (France par défaut)", code: "client_pays_absent", serveur: true },
-  { id: "client_email", fiche: "client", champ: "email", libelle: "E-mail du client (règle Profero)", code: "client_email_absent", serveur: true },
-  { id: "client_telephone", fiche: "client", champ: "telephone", libelle: "Téléphone du client (règle Profero)", code: "client_telephone_absent", serveur: true },
+  { id: "client_email", fiche: "client", champ: "email", libelle: "E-mail du client (règle Profero)", court: "e-mail", code: "client_email_absent", serveur: true, profero: true },
+  { id: "client_telephone", fiche: "client", champ: "telephone", libelle: "Téléphone du client (règle Profero)", court: "téléphone", code: "client_telephone_absent", serveur: true, profero: true },
   // ── Chantier ──
   { id: "chantier_rattache", fiche: "chantier", champ: "chantier_id", libelle: "Chantier et opération du chiffrage (impossible de chiffrer sans opération)", code: "chantier_non_rattache", serveur: false },
   { id: "chantier_adresse", fiche: "chantier", champ: "adresse", libelle: "Adresse du chantier", code: "chantier_adresse_absente", serveur: true },
@@ -74,8 +83,15 @@ export const FICHES = Object.freeze(["client", "chantier", "devis"]);
 
 const reglesDe = (fiche) => REGLES_SAISIE.filter((r) => r.fiche === fiche);
 
-function regleApplicable(r, valeurs) {
+/** Condition propre de la règle (ex. prénom : particulier seulement). */
+function conditionRemplie(r, valeurs) {
   return typeof r.si !== "function" || r.si(valeurs || {});
+}
+
+/** La règle s'applique-t-elle ? Une règle Profero ne s'applique pas à un client relié à ProGBat. */
+function regleApplicable(r, valeurs) {
+  if (r.profero && estLieProgbat(valeurs)) return false;
+  return conditionRemplie(r, valeurs);
 }
 
 function regleRespectee(r, valeurs) {
@@ -100,6 +116,25 @@ export function controlerFiche(fiche, valeurs = {}, { serveurSeulement = false }
     .map((r) => ({ id: r.id, code: r.code, champ: r.champ, libelle: r.libelle, message: `${r.libelle} : à renseigner` }));
 }
 
+/**
+ * Client relié à ProGBat : règles Profero non respectées parce que ProGBat
+ * n'a pas l'information. Jamais bloquant, affiché en note discrète.
+ * → [{ id, champ, court, message: "Absent dans ProGBat : e-mail" }] ; [] si la
+ * fiche n'est pas reliée à ProGBat (là, ces règles bloquent : controlerFiche).
+ */
+export function notesFiche(fiche, valeurs = {}) {
+  if (!estLieProgbat(valeurs)) return [];
+  return reglesDe(fiche)
+    .filter((r) => r.profero && conditionRemplie(r, valeurs) && !regleRespectee(r, valeurs))
+    .map((r) => ({ id: r.id, champ: r.champ, court: r.court || r.libelle, message: `Absent dans ProGBat : ${r.court || r.libelle}` }));
+}
+
+/** Une seule ligne : « Absent dans ProGBat : prénom, e-mail » ou "" (rien à signaler). */
+export function noteAbsentsProgbat(valeurs = {}) {
+  const n = notesFiche("client", valeurs);
+  return n.length ? `Absent dans ProGBat : ${n.map((x) => x.court).join(", ")}` : "";
+}
+
 // ─── Passage chiffrage (profero_projets) ↔ fiches ───────────────────────────
 /** Client tel que le chiffrage le porte (colonnes client_* de profero_projets). */
 export function clientDepuisProjet(projet = {}) {
@@ -110,12 +145,14 @@ export function clientDepuisProjet(projet = {}) {
       contact_nom: [txt(projet.client_nom), txt(projet.client_prenom)].filter(Boolean).join(" "),
       adresse: txt(projet.client_adresse), code_postal: txt(projet.client_code_postal), ville: txt(projet.client_ville),
       pays: txt(projet.client_pays), email: txt(projet.client_email), telephone: txt(projet.client_telephone),
+      progbat_client_id: txt(projet.progbat_client_id) || null,
     };
   }
   return {
     type: "particulier", nom: txt(projet.client_nom), prenom: txt(projet.client_prenom), raison_sociale: "", contact_nom: "",
     adresse: txt(projet.client_adresse), code_postal: txt(projet.client_code_postal), ville: txt(projet.client_ville),
     pays: txt(projet.client_pays), email: txt(projet.client_email), telephone: txt(projet.client_telephone),
+    progbat_client_id: txt(projet.progbat_client_id) || null,
   };
 }
 

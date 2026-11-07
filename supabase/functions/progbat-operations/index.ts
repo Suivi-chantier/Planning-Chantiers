@@ -17,6 +17,9 @@ import { traiterRequeteAutomatisation, nettoyerMessage, CLE_MANAGERS } from "./l
 //   POST /company/quotes/{quoteId}/advance-bill   scope bills.write    (action creer_acompte)
 // Chacun exige : utilisateur du bureau, confirmed: true, empreinte de l'aperçu
 // identique, réservation préalable dans progbat_ecritures (index unique).
+// Clients ProGBat existants (fiche Opération) : lister_clients_progbat,
+// importer_client_progbat, relire_client_progbat (07/11 : complète les champs
+// vides d'une fiche reliée) — LECTURE ProGBat seulement.
 // LECTURES (GET) : /company/thirds?type=2|4, /company/thirds/{id},
 //   /company/business/{id}/yards, /company/quotes/{id}, /company/bills.
 //
@@ -183,6 +186,15 @@ serve(async (req) => {
       async clientParProgbatId(thirdId: number) {
         const { data } = await admin.from("clients").select("*").eq("progbat_client_id", String(thirdId)).order("created_at").limit(1).maybeSingle()
         return data ?? null
+      },
+      async clientParId(id: string) {
+        const { data } = await admin.from("clients").select("*").eq("id", id).maybeSingle()
+        return data ?? null
+      },
+      // Relecture ProGBat (07/11) : le patch ne contient QUE des champs vides de la fiche.
+      async completerClient(id: string, patch: Record<string, unknown>) {
+        const { data, error } = await admin.from("clients").update(patch).eq("id", id).select("*").single()
+        return error ? { ok: false, erreur: error.message } : { ok: true, client: data }
       },
       async creerClientLocal(fiche: Record<string, unknown>) {
         const { data, error } = await admin.from("clients").insert(fiche).select("*").single()

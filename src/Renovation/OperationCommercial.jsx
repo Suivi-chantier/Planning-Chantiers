@@ -24,7 +24,7 @@ import {
   BadgeStatut, FicheClientModal, ChoixClient, ChoixChargeAffaires, MarquerPerduModal, AnnulerPerteModal, ResumePerte,
   ListeManquants,
 } from "./ComposantsCommerciaux.jsx";
-import { ChoixClientProgbatModal } from "./ClientsProgbat.jsx";
+import { ChoixClientProgbatModal, NoteClientProgbat, useRelectureAutoProgbat } from "./ClientsProgbat.jsx";
 import { controlerFiche } from "./reglesSaisieProgbat.js";
 
 export default function OperationCommercial({ T, op, chantiersOp = [], chantiers = [], setChantiers, saveConfig, profil, onOperationModifiee }) {
@@ -49,6 +49,10 @@ export default function OperationCommercial({ T, op, chantiersOp = [], chantiers
   const clientParId = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
   const clientOp = op.client_id ? clientParId.get(op.client_id) : null;
   const auteur = profil?.nom || profil?.email || "";
+  // Demande de Loris du 07/11 : une fiche reliée à ProGBat et incomplète est
+  // relue automatiquement (champs vides complétés, rien d'écrasé).
+  const remplacerClient = (client) => setClients((l) => [...l.filter((c) => c.id !== client.id), client]);
+  useRelectureAutoProgbat([clientOp, ...chantiersOp.map((c) => (c.client_id ? clientParId.get(c.client_id) : null))], remplacerClient);
 
   const majChantier = async (chantierId, champs) => {
     const u = chantiers.map((c) => (c.id === chantierId ? { ...c, ...champs } : c));
@@ -80,11 +84,13 @@ export default function OperationCommercial({ T, op, chantiersOp = [], chantiers
     setClients((l) => [...l.filter((c) => c.id !== client.id), client]);
     const cible = choixProgbat?.cible;
     setChoixProgbat(null);
-    setInfoProgbat({ texte: rep?.message || "Client ProGBat repris.", manquants: rep?.manquants || [] });
+    setInfoProgbat({ texte: rep?.message || "Client ProGBat repris.", manquants: rep?.manquants || [] });   // les absences ProGBat : note grise sous le client
     if (cible === "operation") await majOperation({ client_id: client.id });
     else if (cible) await majChantier(cible, { client_id: client.id });
   };
-  // Fiche reprise de ProGBat incomplète au regard des règles Profero : on le dit.
+  // Ce qui bloque le devis (liste unique des règles). Pour un client relié à
+  // ProGBat, les règles Profero (prénom, e-mail, téléphone) ne s'appliquent
+  // pas : ce que ProGBat n'a pas est une note grise (NoteClientProgbat).
   const manquantsFiche = (cl) => (cl ? controlerFiche("client", cl) : []);
 
   const lbl = { fontSize: 10, fontWeight: 800, letterSpacing: .7, textTransform: "uppercase", color: textMuted, marginBottom: 4 };
@@ -111,6 +117,7 @@ export default function OperationCommercial({ T, op, chantiersOp = [], chantiers
           {clientOp && manquantsFiche(clientOp).length > 0 && (
             <div style={{ marginTop: 6 }}><ListeManquants T={T} manquants={manquantsFiche(clientOp)} titre="Fiche client incomplète (règles Profero, à compléter avant le devis) :" /></div>
           )}
+          {clientOp && <NoteClientProgbat T={T} client={clientOp} onClient={remplacerClient} bouton={peutModifier} />}
           {clientOp && peutModifier && (
             <button onClick={() => setFicheClient({ cible: "operation", client: clientOp })} style={{ marginTop: 6, background: "transparent", border: "none", color: textSub, cursor: "pointer", fontSize: FONT.xs.size + 1, display: "inline-flex", alignItems: "center", gap: 4, padding: 0, fontFamily: "inherit" }}>
               <Icon as={Pencil} size={11} /> Modifier la fiche de {libelleClient(clientOp)}
@@ -158,6 +165,7 @@ export default function OperationCommercial({ T, op, chantiersOp = [], chantiers
                       {c.client_id && clientParId.get(c.client_id) && manquantsFiche(clientParId.get(c.client_id)).length > 0 && (
                         <div style={{ fontSize: FONT.xs.size, color: "#f5a623", marginTop: 3 }}>Fiche incomplète : {manquantsFiche(clientParId.get(c.client_id)).map((m) => m.libelle).join(", ")}</div>
                       )}
+                      {c.client_id && clientParId.get(c.client_id) && <NoteClientProgbat T={T} client={clientParId.get(c.client_id)} onClient={remplacerClient} bouton={false} />}
                       {!ce.valeur && <div style={{ fontSize: FONT.xs.size, color: "#f5a623", marginTop: 3 }}>Aucun client</div>}
                     </td>
                     <td style={{ padding: "8px" }}>
