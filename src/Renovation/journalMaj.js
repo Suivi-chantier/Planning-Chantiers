@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-11-07",
+    type: "amelioration",
+    titre: "Facturation du chantier : bouton « Voir la facture » qui ouvre directement la facture dans ProGBat",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "Sur la fiche chantier, onglet facturation, une échéance déjà facturée dans ProGBat affichait « import manuel inutile », ce qui n'aidait pas à retrouver la facture. Elle affiche maintenant « Facture émise dans ProGBat » et un bouton « Voir la facture » qui ouvre cette facture dans ProGBat, dans un nouvel onglet. Le même bouton figure sur chaque facture de la liste « Factures ProGBat ». Le PDF n'est pas rapatrié dans l'application : ProGBat ne le met pas à disposition de façon fiable, la facture se consulte donc dans ProGBat.",
+    comment: "Cliquer sur « Voir la facture ». L'entreprise « PROFERO RENOVATION » doit être celle sélectionnée en haut de ProGBat, sinon ProGBat n'ouvre pas la bonne fiche (l'infobulle du bouton le rappelle). Si l'application ne connaît pas encore le numéro interne ProGBat de la facture, le bouton s'appelle « Ouvrir la liste des factures » et ouvre la liste des factures de ProGBat.",
+  },
+  {
     date: "2026-11-06",
     type: "nouveaute",
     titre: "Notifications pour la comptabilité et la direction : encours du vendredi, nouveau chantier signé, synthèse de la semaine, écart du journal d'avancement (envois automatiques encore coupés)",
