@@ -16,8 +16,11 @@
 // (planning_config « phases_travaux ».items) et la date du jour arrivent en
 // paramètre. Utilisé par :
 //   - le mail récap du vendredi (api/_cron/cron-recap-commandes.js) ;
-//   - la notification C3 (api/_cron/cron-push-materiaux.js) ;
 //   - scripts/verif-materiaux-a-commander.mjs (données fictives).
+// Depuis la tâche 10, la notification C3 ne l'utilise plus : elle suit la page
+// « Commandes à passer » (commandesAPasserV1.mjs). Le récap du vendredi garde
+// ce calcul (règle 8). notificationMateriauxACommander n'est plus appelée par
+// le job ; elle reste ici, vérifiée, pour ne rien retirer au module.
 // Façade front : materiauxACommanderV1.js.
 // ─────────────────────────────────────────────────────────────────────────────
 

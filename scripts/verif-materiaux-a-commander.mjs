@@ -9,8 +9,8 @@
 //      l'extraction) : même résultat attendu, cas par cas ;
 //   2. le récap du vendredi importe bien le module et n'a plus sa propre copie
 //      du calcul ; exécuté avec une base et un envoi de mail simulés ;
-//   3. le job ?job=push_materiaux : liste vide = aucun appel, avant 8h = rien,
-//      une seule notification C3 regroupée (clé C3-<date>), simulation ;
+//   3. le job ?job=push_materiaux ne passe plus par ce module (tâche 10 : il
+//      suit la page « Commandes à passer », voir verif-commandes-a-passer.mjs) ;
 //   4. garde-fous : dispatcher, créneaux été / hiver, aucune fonction Vercel
 //      ajoutée, module pur (ni Supabase, ni horloge).
 //
@@ -239,61 +239,14 @@ test("8. récap exécuté (base et mail simulés) : le mail contient la liste du
 });
 
 // ═══ 4. Job ?job=push_materiaux ═════════════════════════════════════════════
-const { runPushMateriaux } = require("../api/_cron/cron-push-materiaux.js");
-
-test("9. job : une seule notification C3 regroupée vers send-push (mode serveur)", async () => {
-  appels = [];
-  const r = await runPushMateriaux(REQ(), BASE(), t(8));
-  assert.equal(appels.length, 1);
-  assert.equal(appels[0].url, "https://exemple.invalid/functions/v1/send-push");
-  const c = appels[0].corps;
-  assert.equal(c.mode, "serveur");
-  assert.equal(c.type, "C3");
-  assert.equal(c.simulation, false);
-  assert.equal(c.cle_regroupement, "C3-2026-11-06");
-  assert.equal(c.titre, "5 matériaux à commander aujourd'hui");
-  assert.equal(r.materiaux, 5);
-  assert.equal(r.phases, 4);
-});
-
-test("10. job : liste vide = aucun appel à send-push", async () => {
-  appels = [];
-  const r = await runPushMateriaux(REQ(), BASE(), t(9, "2026-12-25"));
-  assert.equal(appels.length, 0);
-  assert.equal(r.envoi, "aucun");
-  assert.equal(r.materiaux, 0);
-});
-
-test("11. job : avant 8h Paris (créneau d'hiver « inutile »), rien", async () => {
-  appels = [];
-  const r = await runPushMateriaux(REQ(), BASE(), t(7));
-  assert.equal(r.skipped, "avant_8h");
-  assert.equal(appels.length, 0);
-});
-
-test("12. job : simulation=1 → send-push en simulation, à toute heure, date au choix", async () => {
-  appels = [];
-  const r = await runPushMateriaux(REQ({ simulation: "1", date: "2026-11-13" }), BASE(), t(3));
-  assert.equal(appels.length, 1);
-  assert.equal(appels[0].corps.simulation, true);
-  assert.equal(appels[0].corps.cle_regroupement, "C3-2026-11-13");
-  assert.equal(appels[0].corps.titre, "1 matériau à commander aujourd'hui");
-  assert.equal(r.simulation, true);
-  await assert.rejects(() => runPushMateriaux(REQ({ date: "2026-11-13" }), BASE(), t(9)), /simulation/);
-  await assert.rejects(() => runPushMateriaux(REQ({ simulation: "1", date: "13/11/2026" }), BASE(), t(9)), /AAAA-MM-JJ/);
-});
-
-test("13. job : une lecture en échec n'est pas une liste vide", async () => {
-  appels = [];
-  const base = BASE();
-  const from = base.from;
-  base.from = (table) => {
-    const q = from(table);
-    if (table === "phasages") q.then = (ok, ko) => Promise.resolve({ data: null, error: { message: "panne fictive" } }).then(ok, ko);
-    return q;
-  };
-  await assert.rejects(() => runPushMateriaux(REQ(), base, t(9)), /phasages impossible/);
-  assert.equal(appels.length, 0);
+// Tâche 10 : la notification C3 suit désormais la page « Commandes à passer »
+// (commandesAPasserV1.mjs, vérifiée par scripts/verif-commandes-a-passer.mjs).
+// Ce module ne sert plus qu'au récap du vendredi, qui garde son calcul (règle 8).
+test("9. job C3 : n'utilise plus ce module, le récap du vendredi si", () => {
+  const job = sansCommentaires(lire("api/_cron/cron-push-materiaux.js"));
+  assert.ok(!/materiauxACommanderV1/.test(job), "le job C3 ne lit plus le calcul par phase");
+  assert.match(job, /commandesAPasserV1\.mjs/);
+  assert.match(sansCommentaires(lire("api/_cron/cron-recap-commandes.js")), /materiauxACommanderV1\.mjs/);
 });
 
 // ═══ 5. Garde-fous ══════════════════════════════════════════════════════════

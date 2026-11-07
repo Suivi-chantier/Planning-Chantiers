@@ -10,11 +10,13 @@ import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constan
 // Le MONTANT à commander vient des enveloppes de lot : la même fonction que la
 // marge à terminaison (chantierFinance). La liste des matériaux prévus par
 // ouvrage reste affichée comme aide.
-import { resteACommanderEnveloppes, eur } from "../chantierFinance";
+import { eur } from "../chantierFinance";
 import { lireToutParTranches } from "./lectureParTranches";
 // Règle « à commander / marqué commandé / date de besoin » d'un ouvrage : la
 // même que la section « La semaine qui vient » du Bilan.
-import { etatMateriauxOuvrageV1 } from "./commandesOuvrageV1.js";
+// La liste elle-même (modèle chantier → ouvrage, articles à commander) est
+// calculée par commandesAPasserV1, partagé avec la notification C3.
+import { modeleCommandesAPasser, statsCommandesAPasser, lignesACommander, indexMateriaux, indexLots } from "./commandesAPasserV1.js";
 import { chargerAchatsTermines, achatsTerminesParChantier, marquerAchatsTermines, annulerAchatsTermines } from "./achatsLotsTermines";
 import { Icon } from "../ui";
 import {
@@ -246,151 +248,25 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   };
 
   // Index biblio par id (string-safe)
-  const matById = useMemo(() => {
-    const m = {};
-    materiaux.forEach(x => { m[String(x.id)] = x; });
-    return m;
-  }, [materiaux]);
+  const matById = useMemo(() => indexMateriaux(materiaux), [materiaux]);
 
-  const lotById = useMemo(() => {
-    const m = {};
-    lots.forEach(l => { m[l.id] = l; });
-    return m;
-  }, [lots]);
-
-  // Lignes de commande indexées par ouvrage (par ouvrage_id, repli sur matériau).
-  const lignesParOuvrage = useMemo(() => {
-    // Map ouvrageId -> [lignes]
-    const direct = {};
-    lignesCmd.forEach(l => {
-      if (l.ouvrage_id) (direct[l.ouvrage_id] = direct[l.ouvrage_id] || []).push(l);
-    });
-    return direct;
-  }, [lignesCmd]);
+  const lotById = useMemo(() => indexLots(lots), [lots]);
 
   // ── Construit le modèle Chantier → Ouvrage avec "à commander" / "déjà commandé".
-  const modele = useMemo(() => {
-    const result = [];
-    phasages.forEach(p => {
-      const ouvragesRaw = Array.isArray(p.ouvrages) ? p.ouvrages : [];
-      if (ouvragesRaw.length === 0) return;
-      const chantier = chantiers.find(c => c.id === p.chantier_id);
-      const chantierNom = chantier?.nom || p.chantier_nom || "(sans chantier)";
-      const chantierCouleur = chantier?.couleur || "#888";
-
-      const ouvrages = [];
-      ouvragesRaw.forEach(o => {
-        // Matériaux prévus / à commander / marqués commandés et date de besoin :
-        // règle partagée (commandesOuvrageV1), valorisée ici via la biblio.
-        const etat = etatMateriauxOuvrageV1({ ouvrage: o, chantierId: p.chantier_id, lignesCmd,
-          estConnu: id => !!matById[String(id)] });
-        const valoriser = ml => {
-            const mat = matById[String(ml.materiau_id)];
-            return {
-              materiau_id:     ml.materiau_id,
-              libelle:         mat.nom || "",
-              quantite:        ml.quantite != null ? ml.quantite : 1,
-              unite:           mat.unite || "U",
-              prix_ht:         parseFloat(mat.prix_unitaire) || 0,
-              fournisseur_id:  mat.fournisseur_id || null,
-              fournisseur_nom: mat.fournisseur || "",
-              commande_le:     ml.commande_le || null,
-            };
-        };
-        const prevus = etat.liens.map(valoriser);
-        // Lignes déjà commandées rattachées à cet ouvrage (par ouvrage_id, repli matériau)
-        const lignesO = etat.lignesOuvrage;
-        // À commander = prévus sans ligne de commande saisie NI flag commande_le
-        // (posé par « Passer commande » — la saisie réelle se fait à réception).
-        const aCommander = etat.aCommander.map(valoriser);
-        // Marqués commandés via la page, en attente de la saisie réelle.
-        const marques = etat.marques.map(valoriser);
-        // Date de besoin = date_prevue la plus proche parmi les tâches de l'ouvrage
-        const earliest = etat.dateBesoin;
-
-        if (prevus.length === 0 && lignesO.length === 0) return; // ouvrage sans matériau ni commande : ignoré (son enveloppe compte quand même)
-
-        ouvrages.push({
-          id:            o.id,
-          libelle:       libelleOuvrage(o) || o.nom || "Ouvrage",
-          lotId:         o.lot_id || null,
-          lotLabel:      lotById[o.lot_id]?.label || "Sans lot",
-          lotCouleur:    lotById[o.lot_id]?.couleur || "#888",
-          prevus,
-          aCommander,
-          marques,
-          lignesCmd:     lignesO,
-          dateISO:       earliest,
-          dateObj:       earliest ? new Date(earliest) : null,
-        });
-      });
-
-      // Enveloppes matériaux par lot : LE montant à commander du chantier.
-      const enveloppes = resteACommanderEnveloppes({
-        ouvrages: ouvragesRaw,
-        commandeLignes: lignesCmd.filter(l => l.chantier_id === p.chantier_id),
-        lots, achatsTermines: achatsParCh[p.chantier_id] || [],
-      });
-      if (ouvrages.length === 0 && !(enveloppes.enveloppe > 0.5) && !(enveloppes.commandesMateriaux > 0.5)) return;
-      // tri ouvrages : par lot puis libellé
-      ouvrages.sort((a, b) => (a.lotLabel || "").localeCompare(b.lotLabel || "") || (a.libelle || "").localeCompare(b.libelle || ""));
-
-      // Nombre d'articles : aide (liste des matériaux prévus non commandés).
-      const nbACommander = ouvrages.reduce((s, o) => s + o.aCommander.length, 0);
-      const totalACommander = enveloppes.reste;
-
-      result.push({
-        phasageId:   p.id,
-        chantierId:  p.chantier_id,
-        chantierNom,
-        chantierCouleur,
-        ouvrages,
-        nbACommander,
-        totalACommander,
-        enveloppes,
-      });
-    });
-    // tri chantiers : ceux avec des articles à commander d'abord, puis par nom
-    result.sort((a, b) => (b.totalACommander - a.totalACommander) || (b.nbACommander - a.nbACommander) || a.chantierNom.localeCompare(b.chantierNom));
-    return result;
-  }, [phasages, chantiers, matById, lotById, lignesCmd, lots, achatsParCh]);
+  // Calcul déplacé dans commandesAPasserV1.mjs (partagé avec la notification C3).
+  const modele = useMemo(
+    () => modeleCommandesAPasser({ phasages, chantiers, matById, lotById, lignesCmd, lots, achatsParCh }),
+    [phasages, chantiers, matById, lotById, lignesCmd, lots, achatsParCh]);
 
   // Sélection courante
   const chantierSel = modele.find(c => c.chantierId === selChantierId) || null;
   const ouvrageSel  = chantierSel?.ouvrages.find(o => o.id === selOuvrageId) || null;
 
   // Stats globales
-  const stats = useMemo(() => {
-    const nbChantiers = modele.length;
-    const nbACommander = modele.reduce((s, c) => s + c.nbACommander, 0);
-    const totalHt = modele.reduce((s, c) => s + c.totalACommander, 0);
-    return { nbChantiers, nbACommander, totalHt };
-  }, [modele]);
+  const stats = useMemo(() => statsCommandesAPasser(modele), [modele]);
 
   // ── Construit la liste plate de TOUS les articles à commander (bouton vendredi)
-  const lignesGlobalesACommander = useMemo(() => {
-    const out = [];
-    modele.forEach(c => {
-      c.ouvrages.forEach(o => {
-        o.aCommander.forEach(m => {
-          out.push({
-            ...m,
-            chantierId:      c.chantierId,
-            chantierNom:     c.chantierNom,
-            chantierCouleur: c.chantierCouleur,
-            phasageId:       c.phasageId,
-            lotId:           o.lotId,
-            lotLabel:        o.lotLabel,
-            ouvrageId:       o.id,
-            ouvrageLibelle:  libelleOuvrage(o),
-            dateISO:         o.dateISO,
-            dateObj:         o.dateObj,
-          });
-        });
-      });
-    });
-    return out;
-  }, [modele]);
+  const lignesGlobalesACommander = useMemo(() => lignesACommander(modele), [modele]);
 
   const aucunChantier = !loading && modele.length === 0;
 

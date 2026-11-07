@@ -316,7 +316,11 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   eq([e1.liens.length, e1.aCommander.map(x => x.materiau_id), e1.marques.map(x => x.materiau_id), e1.dateBesoin],
     [3, ["m3"], ["m2"], "2026-10-28"], "règle d'un ouvrage : à commander, marqué commandé, date de besoin");
   // Même règle dans la page « Commandes à passer » (même chiffre = même service).
-  const pageCmd = lireFichier(new URL("../src/Renovation/PagePlanningCommandes.jsx", import.meta.url), "utf8");
+  // Depuis la tâche 10 (notifications push), la liste de la page vit dans
+  // commandesAPasserV1.mjs, importé par la page : on lit les deux.
+  const pageCmdSeule = lireFichier(new URL("../src/Renovation/PagePlanningCommandes.jsx", import.meta.url), "utf8");
+  const pageCmd = pageCmdSeule + lireFichier(new URL("../src/Renovation/commandesAPasserV1.mjs", import.meta.url), "utf8");
+  ok(/from "\.\/commandesAPasserV1\.js"/.test(pageCmdSeule), "Commandes à passer importe commandesAPasserV1");
   ok(pageCmd.includes("etatMateriauxOuvrageV1(") && !/const matCommandes = new Set/.test(pageCmd), "Commandes à passer utilise la même règle");
   const o2 = ouv("o2", "2026-11-20", [{ materiau_id: "m4" }]); // besoin après la semaine qui vient
   const FEN = { debut: "2026-10-26", fin: "2026-11-01" };
