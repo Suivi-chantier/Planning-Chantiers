@@ -28,7 +28,7 @@ import { FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import {
   Receipt, Upload, Check, X, Loader2, AlertTriangle, Paperclip,
-  Pencil, Banknote, Plus, RotateCcw, FileText,
+  Pencil, Banknote, Plus, RotateCcw, FileText, ExternalLink,
 } from "lucide-react";
 import {
   uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier,
@@ -47,6 +47,33 @@ import {
 // La règle de correction humaine d'une échéance (patch + verrou) vit déjà dans
 // le module de facturation ProGBat : on la RÉUTILISE, on ne la réécrit pas.
 import { corrigerLigneFacture } from "./progbatFacturation.mjs";
+// Adresses ProGBat : module unique (aucune adresse recopiée ici).
+import { lienProgbat } from "./progbatLiens.js";
+
+// ─── Bouton « Voir la facture » dans ProGBat ─────────────────────────────────
+// L'API ProGBat ne fournit pas le PDF des factures à l'application : on
+// renvoie donc vers la facture DANS ProGBat. L'identifiant est l'id API de la
+// facture (progbat_bill_id, « ProGBat n°511 »), pas le numéro affiché
+// (F-260067). Id inconnu → repli explicite sur la liste des factures, et le
+// bouton le dit. L'infobulle rappelle l'entreprise à activer dans ProGBat.
+function BoutonFactureProgbat({ billId, numero = "", avecNumero = false, couleur = "#4db8ff" }) {
+  const lien = lienProgbat("facture", billId, { nom: numero });
+  if (!lien.url) return null;
+  const libelle = lien.repli
+    ? "Ouvrir la liste des factures"
+    : `Voir la facture${avecNumero && numero ? ` ${numero}` : ""}`;
+  return (
+    <a href={lien.url} target="_blank" rel="noopener noreferrer" title={lien.titre}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none",
+        border: `1px solid ${couleur}55`, borderRadius: RADIUS.pill, padding: "2px 9px",
+        background: `${couleur}14`, color: couleur, fontSize: FONT.xs.size + 1, fontWeight: 700,
+        fontFamily: "inherit", cursor: "pointer",
+      }}>
+      <Icon as={ExternalLink} size={10}/> {libelle}
+    </a>
+  );
+}
 
 const ACCEPT_FACTURE = "application/pdf,image/*";
 
@@ -645,6 +672,9 @@ function FacturesProgbat({ T, peutModifier, echeancier = [], chargement, erreurL
               {facture.progbat_bill_id != null && (
                 <span style={{ marginLeft: "auto", color: textMuted, opacity: .8 }}>ProGBat n°{facture.progbat_bill_id}</span>
               )}
+              <span style={{ marginLeft: facture.progbat_bill_id != null ? 0 : "auto" }}>
+                <BoutonFactureProgbat billId={facture.progbat_bill_id} numero={libelle}/>
+              </span>
             </div>
 
             {/* ── Rattachement à une échéance ──────────────────────────────
@@ -1291,6 +1321,20 @@ export default function FacturationChantier({
                 )}
 
                 <div style={{ display: "flex", gap: 6, marginTop: 7, flexWrap: "wrap", alignItems: "center" }}>
+                  {/* Échéance facturée dans ProGBat : le document est dans
+                      ProGBat (l'API ne fournit pas le PDF) — un bouton par
+                      facture rattachée y mène directement. Visible de tous,
+                      pas seulement de ceux qui peuvent modifier. */}
+                  {pg && (
+                    <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+                      Facture émise dans ProGBat.
+                    </span>
+                  )}
+                  {pg && pg.entrees.map((e, i) => (
+                    <BoutonFactureProgbat key={e?.facture?.id ?? i}
+                      billId={e?.facture?.progbat_bill_id} numero={e?.libelle || ""}
+                      avecNumero={pg.entrees.length > 1}/>
+                  ))}
                   {l.factures.map(fac => (
                     <button key={fac.id} onClick={() => ouvrirDocument(fac)}
                       title="Ouvrir la facture" style={{
@@ -1311,11 +1355,6 @@ export default function FacturationChantier({
                         <button onClick={() => choisirFichier(l.id)} disabled={!!busy} style={btn("#4db8ff")}>
                           <Icon as={Upload} size={11}/> Importer la facture
                         </button>
-                      )}
-                      {!f && pg && (
-                        <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
-                          Facturée dans ProGBat — import manuel inutile.
-                        </span>
                       )}
                       {f && f.statut === "emise" && (
                         <button onClick={() => setEncaissement({ facture: f, ligneNom: l.nom })} style={btn("#22c55e")}>

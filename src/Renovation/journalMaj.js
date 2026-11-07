@@ -31,6 +31,14 @@ export const JOURNAL_MAJ = [
     comment: "Rien à faire en plus : « Client ProGBat existant » remplit la fiche. Si ProGBat n'a pas une information, une petite note grise le dit sous le client (« Absent dans ProGBat : e-mail ») sans rien bloquer, et le bouton « Créer le devis » reste disponible. Les fiches déjà reprises avant ce correctif sont relues automatiquement à l'ouverture de l'opération, et un bouton « Relire depuis ProGBat » (sous le client et dans « Modifier la fiche ») complète les cases vides à la demande. Ce qui a été saisi à la main n'est jamais écrasé, et rien n'est modifié dans ProGBat.",
   },
   {
+    date: "2026-11-07",
+    type: "amelioration",
+    titre: "Facturation du chantier : bouton « Voir la facture » qui ouvre directement la facture dans ProGBat",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "Sur la fiche chantier, onglet facturation, une échéance déjà facturée dans ProGBat affichait « import manuel inutile », ce qui n'aidait pas à retrouver la facture. Elle affiche maintenant « Facture émise dans ProGBat » et un bouton « Voir la facture » qui ouvre cette facture dans ProGBat, dans un nouvel onglet. Le même bouton figure sur chaque facture de la liste « Factures ProGBat ». Le PDF n'est pas rapatrié dans l'application : ProGBat ne le met pas à disposition de façon fiable, la facture se consulte donc dans ProGBat.",
+    comment: "Cliquer sur « Voir la facture ». L'entreprise « PROFERO RENOVATION » doit être celle sélectionnée en haut de ProGBat, sinon ProGBat n'ouvre pas la bonne fiche (l'infobulle du bouton le rappelle). Si l'application ne connaît pas encore le numéro interne ProGBat de la facture, le bouton s'appelle « Ouvrir la liste des factures » et ouvre la liste des factures de ProGBat.",
+  },
+  {
     date: "2026-11-06",
     type: "nouveaute",
     titre: "Notifications pour la comptabilité et la direction : encours du vendredi, nouveau chantier signé, synthèse de la semaine, écart du journal d'avancement (envois automatiques encore coupés)",
