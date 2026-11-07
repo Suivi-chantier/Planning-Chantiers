@@ -26,14 +26,14 @@
 // Utilisé par :
 //   - la page « Commandes à passer » (PagePlanningCommandes.jsx, via la façade
 //     commandesAPasserV1.js) ;
-//   - la notification C3 (api/_cron/cron-push-materiaux.js) ;
+//   - la notification C3 (api/_cron/cron-push-materiaux.js, choix des articles
+//     à notifier dans commandesAPasserPushV1.mjs) ;
 //   - scripts/verif-commandes-a-passer.mjs (données fictives).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { libelleOuvrage } from "./libellesPhasageV1.mjs";
 import { etatMateriauxOuvrageV1 } from "./commandesOuvrageV1.mjs";
 import { resteACommanderEnveloppes } from "../chantierFinance.mjs";
-import { lienPage } from "../../supabase/functions/_partage/notificationsPushV1.mjs";
 
 /** Index bibliothèque par id (string-safe) — ancien useMemo « matById ». */
 export function indexMateriaux(materiaux) {
@@ -178,88 +178,4 @@ export function lignesACommander(modele) {
       });
     });
     return out;
-}
-
-// ─── Notification C3 (tâche 10) ─────────────────────────────────────────────
-
-/**
- * Identifiant stable d'une commande à passer (une ligne de la liste) :
- * phasage, ouvrage et matériau. Sert de cle_objet dans notifications_etat
- * (type C3) : une commande déjà notifiée n'est plus reprise.
- * Un même matériau lié deux fois au même ouvrage fait deux lignes à l'écran :
- * la deuxième reçoit le suffixe « #2 », la troisième « #3 »…
- */
-export function cleCommandeAPasser(l, occurrence = 1) {
-  const base = `${l.phasageId}|${l.ouvrageId}|${l.materiau_id}`;
-  return occurrence > 1 ? `${base}#${occurrence}` : base;
-}
-
-/** Clés de toutes les lignes, dans l'ordre (occurrences numérotées). */
-export function clesCommandesAPasser(lignes) {
-  const vues = new Map();
-  return (lignes || []).map(l => {
-    const base = cleCommandeAPasser(l);
-    const n = (vues.get(base) || 0) + 1;
-    vues.set(base, n);
-    return cleCommandeAPasser(l, n);
-  });
-}
-
-/** Lien de la page « Commandes à passer » (format lienPage : /?page=<id>). */
-export const LIEN_PAGE_COMMANDES_A_PASSER = lienPage("planning-commandes");
-
-/**
- * Commandes NOUVELLEMENT à passer : celles de la liste qui n'ont pas encore
- * été notifiées (chaque ligne reçoit sa clé dans `cleObjet`).
- * @param {{ lignes: Array<object>, dejaNotifiees: Iterable<string> }} p
- */
-export function commandesNouvellementAPasser({ lignes, dejaNotifiees }) {
-  const deja = new Set(dejaNotifiees || []);
-  const liste = lignes || [];
-  const cles = clesCommandesAPasser(liste);
-  const out = [];
-  liste.forEach((l, i) => { if (!deja.has(cles[i])) out.push({ ...l, cleObjet: cles[i] }); });
-  return out;
-}
-
-/** « texte long » → « texte lo… » (une ligne de notification reste lisible). */
-function court(txt, max) {
-  const t = String(txt || "").replace(/\s+/g, " ").trim();
-  return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t;
-}
-
-/**
- * Contenu de LA notification C3 du jour (une seule, regroupée), ou null si
- * aucune commande nouvelle : liste vide = aucun envoi.
- * Texte = la liste « ouvrage / matériau · chantier » (libellés raccourcis à
- * 60 et 50 caractères), tronquée à 1 000 caractères avec « … et N autres ».
- * @param {{ nouvelles: Array<object>, dateIso: string }} p
- */
-export function notificationCommandesAPasser({ nouvelles, dateIso }) {
-  const liste = Array.isArray(nouvelles) ? nouvelles : [];
-  const n = liste.length;
-  if (n === 0) return null;
-  const titre = `${n} commande${n > 1 ? "s" : ""} à passer`;
-  const MAX = 1000;
-  const lignesTxt = liste.map(l => `${court(l.ouvrageLibelle, 60) || "Ouvrage"} / ${court(l.libelle, 50) || "Matériau"} · ${l.chantierNom}`);
-  let texte = "";
-  for (let i = 0; i < lignesTxt.length; i++) {
-    const reste = n - i - 1;
-    const suite = reste > 0 ? `\n… et ${reste} autre${reste > 1 ? "s" : ""}` : "";
-    const candidat = (texte ? texte + "\n" : "") + lignesTxt[i];
-    if ((candidat + suite).length > MAX) {
-      const restant = n - i;
-      const fin = `… et ${restant} autre${restant > 1 ? "s" : ""}`;
-      texte = texte ? `${texte}\n${fin}` : fin;
-      break;
-    }
-    texte = candidat;
-  }
-  return {
-    type: "C3",
-    titre,
-    texte,
-    lien: LIEN_PAGE_COMMANDES_A_PASSER,
-    cle_regroupement: `C3-${dateIso}`,
-  };
 }

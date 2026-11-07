@@ -5,6 +5,8 @@ on:
     paths:
       - 'src/Renovation/commandesAPasserV1.mjs'
       - 'src/Renovation/commandesAPasserV1.js'
+      - 'src/Renovation/commandesAPasserPushV1.mjs'
+      - 'src/Renovation/commandesAPasserPushV1.js'
       - 'src/Renovation/commandesOuvrageV1.mjs'
       - 'src/Renovation/libellesPhasageV1.mjs'
       - 'src/chantierFinance.mjs'
