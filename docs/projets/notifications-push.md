@@ -226,7 +226,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | en ligne | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | [n°224](https://github.com/Suivi-chantier/Planning-Chantiers/pull/224) (fusionnée le 06/11) |
 | 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | en ligne | Auto | Simulation sur les vraies données | [n°234](https://github.com/Suivi-chantier/Planning-Chantiers/pull/234) (fusionnée le 06/11) |
 | 10 | C3 rebranchée sur la logique de l'écran « Commandes à passer » (saisie par ouvrage), extraite en module `.mjs` partagé avec l'écran ; mail du vendredi inchangé | en ligne | Auto | Simulation sur les vraies données : la liste correspond à ce qu'affiche « Commandes à passer » | [n°233](https://github.com/Suivi-chantier/Planning-Chantiers/pull/233) (fusionnée le 07/11) |
-| 9 | Simulation des 7 derniers jours par personne (aucun envoi), puis activation de l'interrupteur général par François | en cours | **Arrêt** : François active ; arrêt si quelqu'un dépasse 3 push par jour en moyenne | Tableau par personne recopié dans le compte rendu | — |
+| 9 | Simulation des 7 derniers jours par personne (aucun envoi), puis activation de l'interrupteur général par François | en attente de François (activation) | **Arrêt** : François active ; arrêt si quelqu'un dépasse 3 push par jour en moyenne | Tableau par personne recopié dans le compte rendu | — |
 
 ## Journal des décisions
 
@@ -493,6 +493,12 @@ prochains jours (J à J+6), chacun une seule fois ; arriéré (déjà en retard)
 enregistré sans envoi au premier passage ; articles sans date jamais
 notifiés.
 
+**07/11/2026 — Simulation finale faite : seuil non dépassé.** Moyenne la
+plus haute : 1,71 push par jour (2,40 par jour ouvré), pour les 4 admins.
+Le seuil de 3 du cahier n'est pas atteint. **Question à François** :
+j'allume l'interrupteur général, ou il le fait lui-même dans Réglages ›
+Logistique › Notifications ?
+
 ## À faire par François
 
 1. **Saisir `VITE_VAPID_PUBLIC_KEY`** dans Vercel (Settings › Environment
@@ -749,4 +755,56 @@ avant / module / job : 1 895 articles identiques (base du 07/11).
 | lun. 16/11 | non | 0 | 0 | 0 |
 
 468 articles sans date de besoin ne seront jamais notifiés.
+
+### Tâche 9 — Simulation finale sur 7 jours (07/11/2026) — en attente de François
+
+**Méthode.** Les données sont lues en base, en lecture seule. Les 7 vrais
+programmes d'envoi tournent sur une copie en mémoire, avec le vrai moteur et
+l'interrupteur supposé allumé. Aucun envoi, aucune écriture.
+- Période : du sam. 31/10 au ven. 06/11/2026.
+- Réglages par défaut (aucun réglage en base, vérifié) ; aucune préférence
+  coupée.
+- Premiers passages silencieux le lundi.
+- Chaque personne est comptée comme si elle avait un téléphone.
+- Quand l'historique manque, on retient l'hypothèse qui fait envoyer le plus.
+
+**Push par personne (issu de la base).**
+
+| Personne | Rôle | Appareil | sam | dim | lun | mar | mer | jeu | ven | Total | Moy. 7 j | Moy. ouvrés | Max/jour |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Loris Bessonneau | admin | non | 0 | 0 | 3 | 2 | 4 | 1 | 2 | 12 | 1,71 | 2,40 | 4 |
+| Camille Landais | admin | non | 0 | 0 | 3 | 2 | 4 | 1 | 2 | 12 | 1,71 | 2,40 | 4 |
+| François Huet | admin | oui | 0 | 0 | 3 | 2 | 4 | 1 | 2 | 12 | 1,71 | 2,40 | 4 |
+| Matthieu Fumoleau | admin | non | 0 | 0 | 3 | 2 | 4 | 1 | 2 | 12 | 1,71 | 2,40 | 4 |
+| Nadine Piau | comptable | non | 0 | 0 | 1 | 0 | 0 | 0 | 1 | 2 | 0,29 | 0,40 | 1 |
+
+**Contenu, identique pour les 4 admins :**
+- lun. : « 109 commandes à passer cette semaine », synthèse semaine 44,
+  point du soir ;
+- mar. : KATHLEEN T2 passe « à surveiller », point du soir ;
+- mer. : 1 commande à passer, 2 chantiers passent en critique, 3 passent
+  « à surveiller », point du soir ;
+- jeu. : point du soir ;
+- ven. : 2 chantiers passent en critique, point du soir.
+
+**Contenu pour la comptable :** « 14 factures à émettre » le lundi, et
+l'encours du vendredi (31 813,81 € HT).
+
+**Ce qui ne part pas cette semaine-là :** rien pour la marge devenue
+négative, le nouveau chantier signé ni l'écart du journal.
+
+**Verdict.** Seuil non dépassé : 1,71 push par jour au maximum. Le jour le
+plus chargé est le mercredi, avec 4 push.
+
+**Points d'attention.**
+- La demande de matériel de Steven sur KATHLEEN T2 (en attente depuis le
+  26/10) revient chaque soir.
+- Le premier push « commandes à passer » dépend du jour d'activation : 109
+  articles pour un lundi 02/11, 1 article prévu pour le 09/11.
+- Les 4 admins reçoivent les notifications « conducteurs ». Chacun peut les
+  couper dans « Mon profil ».
+- Seul François a un téléphone enregistré. Les autres verraient tout dans la
+  cloche seulement.
+- Pendant l'heure d'été, l'encours du vendredi (19h) peut basculer dans la
+  plage de silence si GitHub prend plus d'une heure de retard.
 
