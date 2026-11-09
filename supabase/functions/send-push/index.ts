@@ -81,7 +81,7 @@ async function envoyerAuxAppareils(
       const rep = await webpush.sendNotification(
         { endpoint: a.endpoint, keys: { p256dh: a.p256dh, auth: a.auth } },
         corps,
-        { TTL: 60 * 60 * 12, urgency: "normal" },
+        { TTL: 60 * 60 * 12, urgency: "high" },
       )
       statut = rep?.statusCode ?? 201
     } catch (err) {
