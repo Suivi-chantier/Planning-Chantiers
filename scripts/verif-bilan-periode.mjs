@@ -49,9 +49,16 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); n++; };
   // Semaine de 4 jours : lundi→jeudi travaillés ; la précédente aussi.
   const jours = ["2026-10-12", "2026-10-15", "2026-10-19", "2026-10-22"];
   const b = B.bornesComparaisonV3(p, jours);
-  eq([b.dateDepart, b.dateFin], ["2026-10-15", "2026-10-22"], "jeudi 15/10 → jeudi 22/10");
+  // Décision du 09/11/2026 : une semaine s'arrête au VENDREDI, même de 4 jours.
+  eq([b.dateDepart, b.dateFin], ["2026-10-16", "2026-10-23"], "semaine : vendredi 16/10 → vendredi 23/10");
+  ok(b.dernierJourTravaille === "2026-10-22" && b.finJourTravaille, "dernier jour travaillé gardé (jeudi 22/10)");
+  const samedi = B.bornesComparaisonV3(p, [...jours, "2026-10-24"]);
+  ok(samedi.dateFin === "2026-10-24", "samedi travaillé : la semaine va jusqu'au samedi");
   const vide = B.bornesComparaisonV3(p, []);
-  ok(vide.sansJourTravaille && vide.dateFin === "2026-10-25" && vide.dateDepart === "2026-10-18", "sans jour travaillé : bornes calendaires, signalé");
+  ok(vide.sansJourTravaille && vide.dateFin === "2026-10-23" && vide.dateDepart === "2026-10-16", "sans jour travaillé : vendredis, signalé");
+  // Mois / dates libres : dernier jour travaillé, inchangé.
+  const m = B.bornesComparaisonV3(B.periodeMoisV3("2026-10"), ["2026-09-29", "2026-10-29"]);
+  eq([m.dateDepart, m.dateFin], ["2026-09-29", "2026-10-29"], "mois : derniers jours travaillés");
 }
 
 // ── Synthèse par chantier ───────────────────────────────────────────────────
@@ -552,7 +559,7 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
 {
   const N = "\u202f";
   const P44 = B.periodeSemaineV3("2026-W44"); // 26/10 → 01/11
-  const BOR = B.bornesComparaisonV3(P44, ["2026-10-22", "2026-10-29"]); // fin = jeu. 29/10
+  const BOR = B.bornesComparaisonV3(P44, ["2026-10-22", "2026-10-29"]); // fin = ven. 30/10 (semaine arrêtée au vendredi)
   const lot2 = (id, h, prov, av = 40) => ({ id, label: id, avancementExact: av, heuresRestantesPrevues: h, provenanceCoefficient: prov });
   const r = (id, d, o = {}) => rel(id, d, { mat_prev: 1000, mo_prev: 3000, ...o });
   // Chantier « a » : un relevé chaque semaine sauf celle qui finit le 15/10 (aucun relevé du 09/10 au 15/10) ;
@@ -570,7 +577,8 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ]);
   const syn = B.syntheseChantiersV3({ releves, chantiers: [{ id: "a", nom: "A" }, { id: "s", nom: "S" }, { id: "g", nom: "G" }], bornes: BOR, periode: P44 });
   const [a, sInc] = syn;
-  eq(a.tendance.semaines.map(x => x.date), ["2026-09-24", "2026-10-01", "2026-10-08", "2026-10-15", "2026-10-22", "2026-10-29"],
+  // Semaine arrêtée au vendredi (09/11/2026) : points de tendance = vendredis.
+  eq(a.tendance.semaines.map(x => x.date), ["2026-09-25", "2026-10-02", "2026-10-09", "2026-10-16", "2026-10-23", "2026-10-30"],
     "synthèse détaillée (données fictives) : le dernier point de la tendance est le dernier jour retenu de la période");
   eq(a.tendance.symbolesAffiches, ["▲", "▼", "=", "·", "▲", "▲"], "synthèse détaillée (données fictives) : « · » pour la semaine sans relevé");
   ok(a.tendance.evolution === 600 && a.margePeriodePct === 30, "synthèse détaillée (données fictives) : évolution 1 600 − 1 000 et marge de la période en % de la production");

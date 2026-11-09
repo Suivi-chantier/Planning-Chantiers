@@ -415,7 +415,7 @@ function heroHtml(d, detaillee) {
       <div class="txt">
         <div class="eb">${detaillee ? "Bilan détaillé" : "Bilan"}</div>
         <h1>${e(ph.titre)}</h1>
-        <div class="sous-titre">Comparaison du ${e(fmtJourV3(b.dateDepart))} (dernier jour travaillé avant la période) au ${e(fmtJourV3(b.dateFin))} (dernier jour travaillé de la période)</div>
+        <div class="sous-titre">Comparaison du ${e(fmtJourV3(b.dateDepart))} (${e(b.libelleDepart || "dernier jour travaillé avant la période")}) au ${e(fmtJourV3(b.dateFin))} (${e(b.libelleFin || "dernier jour travaillé de la période")})</div>
         ${pills.length ? `<div class="pills">${pills.map(x => `<span class="pill">${e(x)}</span>`).join("")}</div>` : ""}
       </div>
       <div class="hero-kpi"><div class="l">${semaine ? "Généré cette semaine" : "Généré sur la période"}</div><div class="v">${e(fmtEur(d.bandeau?.production))}</div></div>

@@ -189,7 +189,9 @@ export function syntheseSemaineD3V1({ weekId, chantiers = [], releves = [], poin
   // chantier qui a bougé. Aucun relevé daté du dernier jour travaillé de la
   // semaine = relevé pas encore écrit (ou semaine sans travail) : les
   // chiffres seraient ceux d'un autre jour. Ce n'est pas « 0 € ».
-  const releveDuJour = liste(releves).some((r) => jour(r.date_releve) === bornes.dateFin);
+  // Semaine arrêtée au vendredi : le contrôle porte sur le dernier jour
+  // TRAVAILLÉ (seuls les chantiers qui ont bougé ont un relevé un jour chômé).
+  const releveDuJour = liste(releves).some((r) => jour(r.date_releve) === (bornes.dernierJourTravaille || bornes.dateFin));
   const nbDisponibles = synthese.filter((s) => s.disponible).length;
   const releveDisponible = !bornes.sansJourTravaille && releveDuJour && nbDisponibles > 0;
   return { ok: true, periode, bornes, retenus: retenus.length, nbDisponibles, releveDisponible, bandeau, synthese };

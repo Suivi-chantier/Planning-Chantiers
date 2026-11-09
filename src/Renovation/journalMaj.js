@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-09",
+    type: "amelioration",
+    titre: "Le bilan de la semaine s'arrête au vendredi",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Une semaine de 4 jours ne s'arrête plus au jeudi : ce qui est saisi ou corrigé le vendredi compte dans la semaine.",
+    comment: "Le bilan d'une semaine compare le relevé du vendredi de la semaine précédente à celui du vendredi de la semaine (samedi ou dimanche s'il y a eu du travail). Les semaines s'enchaînent sans trou. La tendance sur 6 semaines prend aussi les vendredis. Les bilans par mois ou par dates libres gardent le dernier jour travaillé.",
+  },
+  {
+    date: "2026-11-09",
     type: "correctif",
     titre: "« Déjà commandé » : plus de double compte, la marge suit ce qu'il reste à acheter",
     pages: [{ id: "planning-commandes", label: "Commandes à passer" }, { id: "phasage-v2", label: "Phasage" }],
