@@ -33,7 +33,7 @@
 // Les « schedule » GitHub de ces 7 tâches ne partaient pas, ou avec des heures
 // de retard (constat du 09/11/2026). Depuis, pg_cron + pg_net (Supabase)
 // appellent `?job=` à la minute près, avec le CRON_SECRET lu dans Supabase
-// Vault (nom `cron_secret`) — supabase/migrations/20261109140000_cron_notifications_push.sql.
+// Vault (nom `cron_secret`) — supabase/migrations/20261109134233_cron_notifications_push.sql.
 // Chaque job pg_cron est planifié sur les deux heures UTC possibles (été /
 // hiver) et ne fait rien si l'heure de Paris n'est pas la bonne : un seul
 // appel par jour, à l'heure de Paris, été comme hiver. Le `pas_avant` reste

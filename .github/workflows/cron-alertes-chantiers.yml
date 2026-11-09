@@ -18,7 +18,7 @@ name: Alertes chantiers — notifications C4, C5, D1 (9h, jours ouvrés)
 # pas, ou avec des heures de retard (constat du 09/11/2026). C'est la base
 # Supabase qui appelle le dispatcher, à la minute près (9h05 Paris, jours ouvrés,
 # été comme hiver) : job pg_cron « profero_push_alertes_chantiers »,
-# supabase/migrations/20261109140000_cron_notifications_push.sql.
+# supabase/migrations/20261109134233_cron_notifications_push.sql.
 # Ce workflow ne sert plus qu'au lancement à la main.
 #
 # Bouton « Run workflow » : simulation cochée (par défaut) = niveaux, ce qui
