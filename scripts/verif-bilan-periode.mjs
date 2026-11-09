@@ -732,7 +732,9 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(jeu.bandeau.nbChantiersComparables === 2 && jeu.bandeau.margeProbableTotale === 3300 && jeu.bandeau.margeTerminaisonTotale === 4500,
     "bandeau (données fictives) : total à terminaison sur les 2 mêmes chantiers que la marge probable totale (C hors des deux)");
   ok(jeu.bandeau.margeTerminaisonTotalePct === 22.5 && jeu.bandeau.margeProbableTotalePct === 16.5, "bandeau (données fictives) : pourcentages sur le même vendu");
-  ok(jeu.dir.includes(`à terminaison +4${N}500${N}€ (23${N}%)`) && jeu.det.includes(`à terminaison +4${N}500${N}€ (23${N}%)`), "bandeau (données fictives) : « à terminaison +4 500 € » dans les deux versions");
+  // Case dédiée (09/11/2026) : « Marge à terminaison (2 chantiers) » juste avant la marge probable.
+  const caseTerm = h => { const i = h.indexOf(`<div class="l">Marge à terminaison (2 chantiers)</div>`); return i >= 0 && h.slice(i, i + 300).includes(`+4${N}500${N}€`) && h.slice(i, i + 400).includes(`23${N}% du vendu`) && i < h.indexOf(`<div class="l">Marge probable (2 chantiers)</div>`); };
+  ok(caseTerm(jeu.dir) && caseTerm(jeu.det), "bandeau (données fictives) : case « Marge à terminaison » +4 500 € (23 %) avant la marge probable, dans les deux versions");
   const corpsDet = jeu.det.slice(jeu.det.indexOf("<tbody>"), jeu.det.indexOf("</tbody>"));
   const total = corpsDet.split("<tr").slice(1)[0];
   ok(/<td>TOTAL<\/td>/.test(total) && total.includes(`+4${N}500${N}€`) && total.indexOf(`+4${N}500${N}€`) < total.indexOf(`+3${N}300${N}€`),
@@ -743,7 +745,8 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   const inc = docs([rel("a", "2026-10-29"), rel("b", "2026-10-29", { marge_terminaison: null })], [{ id: "a", nom: "A" }, { id: "b", nom: "B" }]);
   ok(inc.syn[1].margeTerminaison === null && inc.syn[1].margeTerminaisonPct === null, "synthèse (données fictives) : marge à terminaison inconnue");
   ok(inc.bandeau.margeProbableTotale === 3000 && inc.bandeau.margeTerminaisonTotale === null, "bandeau (données fictives) : un chantier sans marge à terminaison → total inconnu, pas de somme partielle");
-  ok(inc.dir.includes("à terminaison — (—)") && inc.det.includes("à terminaison — (—)"), "bandeau (données fictives) : « — » pour le total à terminaison inconnu");
+  const caseInc = h => { const i = h.indexOf(`<div class="l">Marge à terminaison, tous chantiers</div>`); return i >= 0 && h.slice(i, i + 300).includes(">—</div>") && h.slice(i, i + 400).includes("inconnue sur au moins un chantier"); };
+  ok(caseInc(inc.dir) && caseInc(inc.det), "bandeau (données fictives) : « — » et « inconnue » pour le total à terminaison inconnu, jamais 0");
   for (const [nom, html] of [["direction", inc.dir], ["détaillé", inc.det]]) {
     const ligneB = html.slice(html.indexOf("</thead>")).split("<tr").find(l => l.includes(">B<"));
     const cellules = [...ligneB.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => m[1]);

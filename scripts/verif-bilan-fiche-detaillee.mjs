@@ -244,7 +244,11 @@ const verifierCascade = (r, nom) => {
   // 09/11/2026 : 3e changement VOULU (décision de François) — une semaine
   // s'arrête au vendredi ; seul le sous-titre « Comparaison du … au … » change
   // (ven. 23/10 → ven. 30/10, « fin de la semaine »), aucun chiffre.
-  eq(createHash("sha256").update(dir).digest("hex"), "78db112324f195fcf309cc6aca75a564416e86600cdb6ee8dfe16b6d242a7b38",
+  // 09/11/2026 : 4e changement VOULU (demande de François) — la marge à
+  // terminaison de tous les chantiers a sa propre case dans le bandeau, juste
+  // avant la marge probable (elle quitte la ligne grise de la marge probable).
+  ok(dir.includes("Marge à terminaison, tous chantiers") && !dir.includes("à terminaison +"), "PDF direction (données fictives) : case « Marge à terminaison, tous chantiers »");
+  eq(createHash("sha256").update(dir).digest("hex"), "17ff48af990b50d1223add02675fc9ea883c11b88447205651ee0b45a47cccb4",
     "PDF direction (données fictives) : HTML identique à celui attendu (design Profero du 06/11/2026)");
 
   // ── Design des documents Profero (06/11/2026) ──

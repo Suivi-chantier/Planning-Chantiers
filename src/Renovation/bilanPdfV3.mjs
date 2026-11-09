@@ -162,7 +162,9 @@ const fleche = v => (v == null || Math.abs(v) < 1 ? "=" : v < 0 ? "▼" : "▲")
 
 // Bandeau (choix de Loris du 26/10/2026) : des chiffres avec leurs repères.
 // Rangée de chiffres clés de la charte, juste sous le héros ; la case de la
-// marge probable, qui porte le plus de repères, est plus large.
+// marge probable, qui porte le plus de repères, est plus large. La marge à
+// terminaison de tous les chantiers a sa propre case juste avant (demande de
+// François du 09/11/2026), dans le même ordre que les colonnes du tableau.
 function bandeauHtml(b) {
   const kpi = (l, v, c, sous = [], large = false) => `<div class="kpi${large ? " large" : ""}"><div class="l">${e(l)}</div><div class="v" style="color:${c || ENCRE}">${e(v)}</div>${
     sous.filter(Boolean).map(x => `<div class="s">${e(x)}</div>`).join("")}</div>`;
@@ -171,11 +173,14 @@ function bandeauHtml(b) {
     ${kpi("Production de la période", fmtEur(b.production))}
     ${kpi("Marge de la période", fmtEurSigne(b.margePeriode), couleurSigne(b.margePeriode),
       [b.margePeriodePct == null ? "— de la production" : `${fmtPctSur(b.margePeriodePct)} de la production`])}
+    ${kpi(b.nbChantiersHorsComparaison > 0 ? `Marge à terminaison (${nbChantiersV3(b.nbChantiersComparables)})` : "Marge à terminaison, tous chantiers",
+      fmtEurSigne(b.margeTerminaisonTotale), couleurSigne(b.margeTerminaisonTotale), [
+      // Même ensemble de chantiers que la marge probable totale (bandeauV3).
+      b.margeTerminaisonTotale == null ? "inconnue sur au moins un chantier" : `${fmtPctSur(b.margeTerminaisonTotalePct)} du vendu`,
+      "si le reste se passe comme le devis"])}
     ${kpi(b.nbChantiersHorsComparaison > 0 ? `Marge probable (${nbChantiersV3(b.nbChantiersComparables)})` : "Marge probable, tous chantiers",
       fmtEurSigne(b.margeProbableTotale), couleurSigne(b.margeProbableTotale), [
       `${fmtPctSur(b.margeProbableTotalePct)} du vendu · devis ${fmtEurSigne(b.margeDevisTotale)} (${fmtPctSur(b.margeDevisTotalePct)})`,
-      // Même ensemble de chantiers que la marge probable totale (bandeauV3).
-      `à terminaison ${fmtEurSigne(b.margeTerminaisonTotale)} (${fmtPctSur(b.margeTerminaisonTotalePct)})`,
       evo == null ? "évolution sur la période : —" : `${fleche(evo)} ${fmtEurSigne(evo)} sur la période, tous chantiers`,
       b.nbChantiersHorsComparaison > 0 ? `${b.nbChantiersHorsComparaison} chantier${b.nbChantiersHorsComparaison > 1 ? "s" : ""} hors total (marge devis inconnue ou sans matériaux prévus)` : null], true)}
     ${kpi("Heures validées", fmtH(b.heuresValidees), null, [`${fmtEurH(b.eurParHeure)} produits · devis ${fmtEurH(b.eurParHeureDevis)}`])}
