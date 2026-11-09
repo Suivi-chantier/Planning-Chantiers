@@ -955,6 +955,15 @@ test("48. notifications-pilotage : JWT, admin vérifié avant toute lecture, lec
   assert.match(lire("supabase/functions/send-push/index.ts"), /import \{ lireUtilisateurs \} from "\.\.\/_partage\/utilisateursPush\.ts"/);
 });
 
+test("49. send-push : priorité haute pour tous les envois (sinon Android les retarde en veille)", () => {
+  const envoi = sansCommentaires(lire("supabase/functions/send-push/index.ts"));
+  // Un seul point d'envoi (test, serveur et reportés passent tous par envoyerAuxAppareils).
+  assert.equal((envoi.match(/webpush\.sendNotification\(/g) || []).length, 1, "un seul appel sendNotification");
+  assert.match(envoi, /urgency: "high"/, "urgency high présente");
+  assert.ok(!/urgency: "normal"/.test(envoi), "urgency normal absente");
+  assert.match(envoi, /TTL: 60 \* 60 \* 12/, "TTL de 12 h conservé");
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 let echecs = 0;
 for (const [nom, fn] of cas) {
