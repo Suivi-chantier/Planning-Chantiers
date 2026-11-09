@@ -107,7 +107,14 @@ export function periodeLibreV3(debut, fin) {
  * période (relevé de départ) et dernier jour travaillé DE la période (relevé de
  * fin). Sans jour travaillé : la veille de la période / le dernier jour de la
  * période (et `sansJourTravaille` le dit).
- * @param {object} periode   { debut, fin }
+ * SEMAINE (décision de François du 09/11/2026) : la semaine s'arrête au
+ * VENDREDI, même quand personne n'a travaillé ce jour-là (semaine de 4 jours :
+ * une correction du vendredi doit compter). Fin = vendredi de la semaine (ou
+ * samedi / dimanche s'il y a eu du travail) ; départ = la fin de la semaine
+ * précédente, même règle : les semaines s'enchaînent. Le relevé lu est le
+ * dernier écrit à cette date ou avant (releveAuPlusTardV3).
+ * `dernierJourTravaille` : dernier jour pointé de la période (null sans).
+ * @param {object} periode   { debut, fin, type }
  * @param {string[]} joursTravailles  dates ayant au moins un pointage
  */
 export function bornesComparaisonV3(periode, joursTravailles) {
@@ -118,12 +125,29 @@ export function bornesComparaisonV3(periode, joursTravailles) {
     if (j < periode.debut) depart = j;
     else if (j <= periode.fin) fin = j;
   }
+  if (periode.type === "semaine") {
+    const vendredi = ajouterJoursV3(periode.debut, 4);
+    const vendrediPrec = ajouterJoursV3(periode.debut, -3);
+    return {
+      dateDepart: depart && depart > vendrediPrec ? depart : vendrediPrec,
+      dateFin: fin && fin > vendredi ? fin : vendredi,
+      departJourTravaille: !!depart,
+      finJourTravaille: !!fin,
+      sansJourTravaille: !fin,
+      dernierJourTravaille: fin,
+      libelleDepart: "fin de la semaine précédente",
+      libelleFin: "fin de la semaine",
+    };
+  }
   return {
     dateDepart: depart || ajouterJoursV3(periode.debut, -1),
     dateFin: fin || periode.fin,
     departJourTravaille: !!depart,
     finJourTravaille: !!fin,
     sansJourTravaille: !fin,
+    dernierJourTravaille: fin,
+    libelleDepart: "dernier jour travaillé avant la période",
+    libelleFin: "dernier jour travaillé de la période",
   };
 }
 

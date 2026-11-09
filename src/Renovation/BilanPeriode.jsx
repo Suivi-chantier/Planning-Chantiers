@@ -633,8 +633,8 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
 
       {calcul && (<>
         <div style={{ fontSize: 12, color: T.textSub, marginBottom: 10 }}>
-          Comparaison du <strong>{fmtJourV3(donnees.bornes.dateDepart)}</strong> (dernier jour travaillé avant la période)
-          au <strong>{fmtJourV3(donnees.bornes.dateFin)}</strong> (dernier jour travaillé de la période)
+          Comparaison du <strong>{fmtJourV3(donnees.bornes.dateDepart)}</strong> ({donnees.bornes.libelleDepart || "dernier jour travaillé avant la période"})
+          au <strong>{fmtJourV3(donnees.bornes.dateFin)}</strong> ({donnees.bornes.libelleFin || "dernier jour travaillé de la période"})
           {donnees.bornes.sansJourTravaille ? " — aucun jour travaillé sur la période" : ""}.
         </div>
 

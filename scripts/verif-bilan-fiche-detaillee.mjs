@@ -241,7 +241,10 @@ const verifierCascade = (r, nom) => {
   // des PDF du Bilan au design des documents Profero (héros, chiffres clés,
   // titres, tableaux, pied « Document interne »). Les chiffres et les textes
   // n'ont pas bougé (vérifié sur la semaine 2026-W44 réelle, avant / après).
-  eq(createHash("sha256").update(dir).digest("hex"), "4c3a9b61428b70eaaedd3c6cedb2e76532cea5cfbb68d88025c4810fa37d12f4",
+  // 09/11/2026 : 3e changement VOULU (décision de François) — une semaine
+  // s'arrête au vendredi ; seul le sous-titre « Comparaison du … au … » change
+  // (ven. 23/10 → ven. 30/10, « fin de la semaine »), aucun chiffre.
+  eq(createHash("sha256").update(dir).digest("hex"), "78db112324f195fcf309cc6aca75a564416e86600cdb6ee8dfe16b6d242a7b38",
     "PDF direction (données fictives) : HTML identique à celui attendu (design Profero du 06/11/2026)");
 
   // ── Design des documents Profero (06/11/2026) ──
@@ -249,7 +252,7 @@ const verifierCascade = (r, nom) => {
     const hero = html.slice(html.indexOf(`<div class="hero">`), html.indexOf(`<div class="bandeau">`));
     ok(html.indexOf(`<div class="hero">`) >= 0 && html.indexOf(`<div class="hero">`) < html.indexOf(`<div class="bandeau">`), `PDF ${nom} (données fictives) : héros en tête, avant les chiffres clés`);
     ok(hero.includes(`<div class="eb">${surtitre}</div>`) && hero.includes("<h1>Semaine 44</h1>"), `PDF ${nom} (données fictives) : surtitre « ${surtitre} » et période en titre`);
-    ok(hero.includes(`<span class="pill">26/10 → 01/11/2026</span>`) && hero.includes(`<span class="pill">5 chantiers</span>`) && hero.includes("Comparaison du jeu. 22/10"),
+    ok(hero.includes(`<span class="pill">26/10 → 01/11/2026</span>`) && hero.includes(`<span class="pill">5 chantiers</span>`) && hero.includes("Comparaison du ven. 23/10 (fin de la semaine précédente) au ven. 30/10 (fin de la semaine)"),
       `PDF ${nom} (données fictives) : pastilles (dates, chantiers) et dates de comparaison`);
     ok(hero.includes(`<div class="hero-kpi">`) && hero.includes("Généré cette semaine"), `PDF ${nom} (données fictives) : bloc jaune « généré » dans le héros`);
     ok(!hero.includes("<img"), `PDF ${nom} (données fictives) : pas de logo sans URL (jamais d'image cassée)`);
