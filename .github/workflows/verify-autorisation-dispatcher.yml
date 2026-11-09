@@ -1,0 +1,26 @@
+name: Verify Clé du dispatcher (CRON_SECRET_BASE)
+
+on:
+  pull_request:
+    paths:
+      - 'api/**'
+      - 'supabase/migrations/*_cron_notifications_push.sql'
+      - 'scripts/verif-autorisation-dispatcher.mjs'
+      - '.github/workflows/verify-autorisation-dispatcher.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dépendances (supabase-js, chargé par les routes testées)
+        run: npm ci
+      - name: Clé CRON_SECRET_BASE acceptée par le seul dispatcher, refusée ailleurs, routes fermées sans secret (données fictives)
+        run: node scripts/verif-autorisation-dispatcher.mjs

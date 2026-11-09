@@ -14,8 +14,12 @@
 -- `pas_avant` des anciens créneaux est conservé en seconde garde, côté
 -- dispatcher.
 --
--- Secret : CRON_SECRET est lu au moment de l'appel dans Supabase Vault, sous
--- le nom `cron_secret` (saisi par François, jamais écrit dans le dépôt). Les
+-- Secret : la clé est lue au moment de l'appel dans Supabase Vault, sous le
+-- nom `cron_secret` (saisie par François, jamais écrite dans le dépôt). La
+-- valeur à y saisir est celle de CRON_SECRET_BASE (variable Vercel distincte,
+-- acceptée par le seul dispatcher), PAS celle de CRON_SECRET, dont la valeur
+-- n'est plus lisible dans Vercel. (Commentaire mis à jour après application de
+-- la migration : le SQL ci-dessous est inchangé.) Les
 -- jobs pg_cron tournent en tant que postgres, qui lit vault.decrypted_secrets
 -- sans fonction SECURITY DEFINER (même mécanisme que progbat-billing-sync).
 -- Secret absent ou vide : AUCUN appel, et le passage échoue avec un message

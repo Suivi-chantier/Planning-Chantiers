@@ -32,8 +32,11 @@
 // Notifications sur téléphone : créneaux tenus par la BASE, pas par GitHub.
 // Les « schedule » GitHub de ces 7 tâches ne partaient pas, ou avec des heures
 // de retard (constat du 09/11/2026). Depuis, pg_cron + pg_net (Supabase)
-// appellent `?job=` à la minute près, avec le CRON_SECRET lu dans Supabase
-// Vault (nom `cron_secret`) — supabase/migrations/20261109134233_cron_notifications_push.sql.
+// appellent `?job=` à la minute près, avec une clé lue dans Supabase Vault
+// (nom `cron_secret`) — supabase/migrations/20261109134233_cron_notifications_push.sql.
+// La valeur rangée dans le Vault est celle de CRON_SECRET_BASE, une clé
+// distincte de CRON_SECRET (dont la valeur n'est plus lisible dans Vercel) :
+// ce dispatcher, et lui seul, accepte l'une ou l'autre (voir le handler).
 // Chaque job pg_cron est planifié sur les deux heures UTC possibles (été /
 // hiver) et ne fait rien si l'heure de Paris n'est pas la bonne : un seul
 // appel par jour, à l'heure de Paris, été comme hiver. Le `pas_avant` reste
@@ -180,9 +183,21 @@ const TACHES = {
 };
 
 module.exports = async function handler(req, res) {
-  // Auth — fermée par défaut : sans CRON_SECRET configuré, la route refuse
+  // Auth — fermée par défaut : sans aucun secret configuré, la route refuse
   // (500) au lieu de s'ouvrir. Voir api/_lib/autorisationServeur.js.
-  const acces = verifierAppelServeur(req);
+  //
+  // Deux clés acceptées, ICI SEULEMENT :
+  //   - CRON_SECRET      : créneaux GitHub Actions et lancements à la main ;
+  //   - CRON_SECRET_BASE : appels pg_cron depuis Supabase (notifications sur
+  //     téléphone), qui lisent leur clé dans le Vault. Clé distincte, car la
+  //     valeur de CRON_SECRET n'est plus lisible dans Vercel et ne pouvait
+  //     donc pas être recopiée dans le Vault.
+  // Les autres routes (send-email, snapshots, relevés journaliers, encours
+  // fournisseurs…) n'acceptent que CRON_SECRET. Le jeton reçu ne sert qu'à
+  // cette vérification : quand un job appelle une autre route (ex.
+  // /api/send-email), il utilise CRON_SECRET (enTetesAppelServeur), jamais le
+  // jeton entrant. CRON_SECRET_BASE n'ouvre donc rien d'autre que ce dispatcher.
+  const acces = verifierAppelServeur(req, [process.env.CRON_SECRET, process.env.CRON_SECRET_BASE]);
   if (!acces.ok) return res.status(acces.status).json({ error: acces.error });
 
   const t = parisNow();
