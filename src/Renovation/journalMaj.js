@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-09",
     type: "amelioration",
+    titre: "Opérations : la marge à terminaison s'affiche",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Voir où finit l'opération et chacun de ses logements si le reste se passe comme le devis, à côté de la marge probable.",
+    comment: "Synthèse d'une opération : une case « Marge à terminaison » (avec son % du vendu) s'ajoute juste avant « Marge probable », et le tableau des logements gagne une colonne « Marge à terminaison », ligne Total opération comprise. Ce sont les mêmes chiffres que dans le phasage de chaque logement.",
+  },
+  {
+    date: "2026-11-09",
+    type: "amelioration",
     titre: "Bilan : la progression de l'avancement de chaque chantier sur la période",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "Voir d'un coup d'œil combien chaque chantier a avancé pendant la semaine (ou le mois), pas seulement où il en est.",

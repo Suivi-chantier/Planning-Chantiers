@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 // Vérifie la normalisation des données d'opération en « modèle d'export »
 // (src/Renovation/operationExportModele.mjs). Module PUR : les entrées sont des
 // lignes de base écrites en dur, à la forme RÉELLE des tables Supabase.
@@ -850,6 +851,22 @@ test("agregerOperation somme les scalaires bruts et pondère l'avancement par le
   assert.equal(t.avancement, 67, "l'avancement est pondéré par le vendu, jamais moyenné");
   assert.deepEqual(t.statuts, { en_cours: 2, planifie: 1 },
     "un statut inconnu est rangé sous « en cours », comme à l'écran");
+});
+
+test("agregerOperation : marge à terminaison de l'opération = somme des logements, % du vendu (données fictives)", () => {
+  const fin = {
+    a: { finance: { brut: { prixHTChantier: 40000, margeATerminaison: 8000, margeProbable: 2000 } } },
+    b: { finance: { brut: { prixHTChantier: 60000, margeATerminaison: -1000, margeProbable: -3000 } } },
+  };
+  const t = agregerOperation([{ id: "a" }, { id: "b" }], fin, []);
+  assert.equal(t.margeATerminaison, 7000);
+  assert.ok(Math.abs(t.margeATerminaisonPct - 7) < 1e-9, "7 % du vendu");
+  assert.equal(agregerOperation([], {}, []).margeATerminaisonPct, null, "sans vendu : % inconnu, jamais 0");
+  const page = readFileSync(new URL("../src/Renovation/PageOperations.jsx", import.meta.url), "utf8");
+  assert.ok(page.includes('label="Marge à terminaison"') && page.indexOf('label="Marge à terminaison"') < page.indexOf('label="Marge probable"'),
+    "case « Marge à terminaison » juste avant la marge probable");
+  assert.ok(page.includes("<th style={th}>Marge à terminaison</th>") && page.includes("eur(agg.margeATerminaison)") && page.includes("eur(b.margeATerminaison)"),
+    "colonne « Marge à terminaison » dans le tableau des logements, total compris");
 });
 
 // ─── EXÉCUTION ───────────────────────────────────────────────────────────────

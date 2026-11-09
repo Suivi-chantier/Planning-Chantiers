@@ -899,6 +899,12 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
               label="Marge à l'avancement" value={agg.vendu > 0 ? eur(agg.margeAvancement) : "—"}
               sub={agg.vendu > 0 ? (agg.margeAvancementPct != null ? `${pctTxt(agg.margeAvancementPct)} de la production` : "rien de produit pour l'instant") : "vendu HT non renseigné"}
               onClick={() => setKpiDetail("marge")}/>
+            {/* Marge à terminaison (demande de François du 09/11/2026), juste
+                avant la marge probable, comme dans le Bilan : somme des marges
+                à terminaison des logements (computeChantierFinance). */}
+            <KpiCard T={T} icon={agg.margeATerminaison >= 0 ? TrendingUp : TrendingDown} iconColor="#8b5cf6"
+              label="Marge à terminaison" value={agg.vendu > 0 ? eur(agg.margeATerminaison) : "—"}
+              sub={agg.vendu > 0 ? `${pctTxt(agg.margeATerminaisonPct)} du vendu · si le reste se passe comme le devis` : undefined}/>
             <KpiCard T={T} icon={agg.margeProbable >= 0 ? TrendingUp : TrendingDown} iconColor="#8b5cf6"
               label="Marge probable" value={agg.vendu > 0 ? eur(agg.margeProbable) : "—"}
               sub={agg.vendu > 0 ? `${pctTxt(agg.margeProbablePct)} du vendu · si on continue au rythme actuel` : undefined}/>
@@ -961,6 +967,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   <th style={th}>Matériaux</th>
                   <th style={th}>Marge prév.</th>
                   <th style={th}>Marge à l'avancement</th>
+                  <th style={th}>Marge à terminaison</th>
                   <th style={th}>Marge probable</th>
                   <th style={th}>Heures (réel/vendu)</th>
                 </tr>
@@ -990,7 +997,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                         }}>{s.label}</span>
                       </td>
                       {!b ? (
-                        <td colSpan={8} style={{ ...td, textAlign: "left", fontStyle: "italic", color: textMuted }}>Sans phasage — hors chiffres</td>
+                        <td colSpan={9} style={{ ...td, textAlign: "left", fontStyle: "italic", color: textMuted }}>Sans phasage — hors chiffres</td>
                       ) : (
                         <>
                           <td style={{ ...td, fontWeight: 700, color: text }}>{b.avancementChantier}%</td>
@@ -999,6 +1006,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                           <td style={td}>{eur(b.coutMatChantier)}</td>
                           <td style={{ ...td, fontWeight: 700, color: mPrevColor }}>{b.prixHTChantier > 0 ? eur(b.margePrevChantier) : "—"}</td>
                           <td style={{ ...td, fontWeight: 800, color: mColor }}>{b.prixHTChantier > 0 ? `${eur(b.margeAvancement)}${b.repris ? " · repris" : ""}` : "—"}</td>
+                          <td style={{ ...td, fontWeight: 700, color: b.margeATerminaison >= 0 ? "#8b5cf6" : "#e15a5a" }}>{b.prixHTChantier > 0 ? eur(b.margeATerminaison) : "—"}</td>
                           <td style={{ ...td, fontWeight: 700, color: b.margeProbable >= 0 ? "#8b5cf6" : "#e15a5a" }}>{b.prixHTChantier > 0 ? eur(b.margeProbable) : "—"}</td>
                           <td style={td}>{fmtH(b.heuresReellesTotalChantier)}h / {fmtH(b.heuresVenduesChantier)}h{b.heuresHorsDevisChantier > 0 ? ` (dont ${fmtH(b.heuresHorsDevisChantier)}h hors devis)` : ""}</td>
                         </>
@@ -1016,6 +1024,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   <td style={{ ...td, fontWeight: 800, color: text }}>{eur(agg.mat)}</td>
                   <td style={{ ...td, fontWeight: 800, color: agg.vendu > 0 ? couleurMarge(agg.margePrev, agg.margePrevPct ?? 0) : textMuted }}>{agg.vendu > 0 ? eur(agg.margePrev) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? eur(agg.margeAvancement) : "—"}</td>
+                  <td style={{ ...td, fontWeight: 800, color: agg.margeATerminaison >= 0 ? "#8b5cf6" : "#e15a5a" }}>{agg.vendu > 0 ? eur(agg.margeATerminaison) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: agg.margeProbable >= 0 ? "#8b5cf6" : "#e15a5a" }}>{agg.vendu > 0 ? eur(agg.margeProbable) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: text }}>{fmtH(agg.hReelles)}h / {fmtH(agg.hVendues)}h{agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}</td>
                 </tr>
