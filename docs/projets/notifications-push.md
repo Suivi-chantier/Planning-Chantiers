@@ -535,10 +535,24 @@ session, accord de François).** Premiers passages silencieux : alertes
 envoi. Puis, après le correctif : D3 « Synthèse de la semaine 45 », F1
 « 14 factures à émettre », C3 « 1 commande à passer cette semaine ».
 
+**09/11/2026 — Notifications non affichées sur Android, corrigé.** Les 3
+envois du 09/11 ont été acceptés par Google mais pas affichés sur le
+téléphone de François : ils partaient en priorité « normale », retenue par
+Android en veille. Tous les envois partent désormais en priorité haute
+(demande de fusion n°241, `send-push` v7). François a reçu la notification
+de test, téléphone verrouillé.
+
+**09/11/2026 — Clé des envois automatiques : `CRON_SECRET_BASE`.** La valeur
+de CRON_SECRET n'est plus lisible dans Vercel. Choix de François (« a ») :
+une clé distincte, `CRON_SECRET_BASE`, acceptée par le seul dispatcher
+(demande de fusion n°242) ; les autres routes gardent CRON_SECRET seul.
+François l'a saisie dans Vercel et dans Supabase Vault (`cron_secret`,
+32 caractères, vérifié sans afficher la valeur).
+
 ## À faire par François
 
-- **Enregistrer `cron_secret` dans Supabase › Vault** (valeur : CRON_SECRET de
-  Vercel). Sans lui, les envois automatiques ne partent pas.
+- ~~Enregistrer `cron_secret` dans Supabase › Vault~~ : fait le 09/11
+  (valeur de `CRON_SECRET_BASE`).
 
 1. **Saisir `VITE_VAPID_PUBLIC_KEY`** dans Vercel (Settings › Environment
    Variables, Production) avec la même valeur que `VAPID_PUBLIC_KEY` (clé
