@@ -914,6 +914,7 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
   // peu avancé n'a encore presque rien produit).
   t.margeAvancementPct = t.production > 0 ? (t.margeAvancement / t.production) * 100 : null;
   t.margeProbablePct = t.vendu > 0 ? (t.margeProbable / t.vendu) * 100 : null;
+  t.margeATerminaisonPct = t.vendu > 0 ? (t.margeATerminaison / t.vendu) * 100 : null;
   t.margePrevPct = t.vendu > 0 ? (t.margePrev / t.vendu) * 100 : null;
   // Dérive des heures vendues : même formule que la dérive d'un lot et que
   // `deriveChantier` (computeChantierFinance), sur les sommes de l'opération.
