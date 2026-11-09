@@ -46,7 +46,9 @@ const cle = (l) => { const m = RE_ALTER.exec(l); return m && `${m[1]}|${m[2]}|${
     if (m[5]) ok(m[6] === "(select not public.est_ouvrier())", `with check une fois par requête (${m[2]})`);
   });
   const texte = sansCommentaires(lire(MIGRATION)).toLowerCase();
-  ["create ", "drop ", "grant ", "revoke ", "security definer", "profero_collaborateurs_seulement", "delete ", "update ", "insert "]
+  // (Chaque ligne est déjà un « alter policy » ; delete / update / insert ne
+  // sont pas cherchés : ils figurent dans des noms de règles, ex. *_bureau_delete.)
+  ["create ", "drop ", "grant ", "revoke ", "security definer", "profero_collaborateurs_seulement"]
     .forEach(mot => ok(!texte.includes(mot), `migration sans « ${mot.trim()} »`));
   ok(new Set(L.map(l => RE_ALTER.exec(l)[2])).size === 60, "60 tables concernées");
 }
