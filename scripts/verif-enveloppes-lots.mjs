@@ -85,12 +85,12 @@ const ligne = (prix_total, lot_id, extra = {}) => ({ id: `l${Math.random()}`, pr
   const lignesX = [ligne(600, "electricite")];
   const fx = (ouv) => computeChantierFinance({ phasage: { ouvrages: ouv }, commandeLignes: lignesX, lots: LOTS, tauxMOPrev: 40 });
   proche(lot(resteACommanderEnveloppes({ ouvrages: ouvX, lots: LOTS, commandeLignes: lignesX }), "electricite").reste, 0, "déclaré > reste : reste à 0");
-  proche(fx(ouvX).margeATerminaison.valeur, fx(ouvrages).margeATerminaison.valeur, "déclaré au-delà de l'enveloppe : marge inchangée (pas de double compte)");
-  // Marge à terminaison : le déclaré passe du reste aux dépenses, total inchangé.
+  proche(fx(ouvX).margeATerminaison.valeur - fx(ouvrages).margeATerminaison.valeur, 200, "tout est commandé : la marge monte du reste qu'on ne dépensera pas (800 − 600), sans double compte");
+  // Marge à terminaison : un déclaré n'ajoute aucun coût, il retire du reste.
   const fin = (ouv) => computeChantierFinance({ phasage: { ouvrages: ouv }, commandeLignes: [ligne(100, "electricite", { ouvrage_id: "o3", materiau_id: "c" })], lots: LOTS, tauxMOPrev: 40 });
   const sansDecl = ouvrages.map(o => o.id !== "o3" ? o : ({ ...o, materiaux_liens: [{ materiau_id: "c", commande_le: "2026-11-01", commande_montant: 999 }] }));
-  proche(fin(ouvD).margeATerminaison.valeur, fin(sansDecl).margeATerminaison.valeur, "déclaré commandé : marge inchangée");
-  ok(fin(ouvD).resteACommander.valeur < fin(sansDecl).resteACommander.valeur, "mais reste à commander plus bas");
+  proche(fin(ouvD).margeATerminaison.valeur - fin(sansDecl).margeATerminaison.valeur, 250, "déclaré : marge + ce qui sort du reste");
+  ok(fin(ouvD).matReel.valeur === fin(sansDecl).matReel.valeur && fin(ouvD).matReel.valeur === 100, "matériaux réels = commandes saisies seulement");
   // Ouvrage terminé : la marge monte de ce qui n'est plus à acheter.
   const fT = computeChantierFinance({ phasage: { ouvrages: ouvT }, commandeLignes: lignes, lots: LOTS, tauxMOPrev: 40 });
   const f0 = computeChantierFinance({ phasage: { ouvrages }, commandeLignes: lignes, lots: LOTS, tauxMOPrev: 40 });
