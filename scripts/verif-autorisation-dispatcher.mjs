@@ -216,7 +216,8 @@ section("4. Contrôles statiques");
     }
     return out;
   }
-  const lecteurs = fichiers("api").filter((f) => /CRON_SECRET_BASE/.test(lire(f)));
+  // Lecture effective de la variable (les commentaires peuvent la nommer).
+  const lecteurs = fichiers("api").filter((f) => /process\.env\s*(\.\s*CRON_SECRET_BASE|\[\s*["']CRON_SECRET_BASE["']\s*\])/.test(lire(f)));
   verifie("CRON_SECRET_BASE n'est lu que par api/cron-dispatcher.js",
     lecteurs.length === 1 && lecteurs[0].replace(/\\/g, "/") === "api/cron-dispatcher.js",
     lecteurs.join(", "));
