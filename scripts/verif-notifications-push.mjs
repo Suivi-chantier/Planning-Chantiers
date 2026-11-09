@@ -720,7 +720,7 @@ test("39. rattrapage : job ?job=push_reportes, créneau pg_cron 7h05 Paris (ét�
   const wf = lire(".github/workflows/cron-push-reportes.yml");
   // Créneau tenu par la base (pg_cron), plus par GitHub — détail : verif-cron-notifications.mjs.
   assert.ok(!/^\s*schedule:/m.test(wf), "plus de schedule GitHub");
-  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  const migr = lire("supabase/migrations/20261109134233_cron_notifications_push.sql");
   assert.match(migr, /'profero_push_reportes',\s*'5 5,6 \* \* 1-5'/);
   assert.match(migr, /cron-dispatcher\?job=push_reportes'/);
   assert.match(wf, /job=push_reportes/);

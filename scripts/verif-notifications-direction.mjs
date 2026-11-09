@@ -560,7 +560,7 @@ test("15. créneaux : D2 8h45 et D3 lundi 8h30 Paris, été comme hiver (pg_cron
   const d3 = lire(".github/workflows/cron-push-synthese-semaine.yml");
   assert.ok(!/^\s*schedule:/m.test(d3), "D3 : plus de schedule GitHub");
   assert.match(d3, /job="synthese_semaine&simulation=1"/);
-  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  const migr = lire("supabase/migrations/20261109134233_cron_notifications_push.sql");
   assert.match(migr, /'profero_push_nouveaux_chantiers',\s*'45 6,7 \* \* 1-5'/);
   assert.match(migr, /cron-dispatcher\?job=nouveaux_chantiers&pas_avant=8'/);
   assert.match(migr, /'profero_push_synthese_semaine',\s*'30 6,7 \* \* 1'/);

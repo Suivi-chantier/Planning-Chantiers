@@ -459,7 +459,7 @@ test("19. créneau pg_cron : 18h30 Paris en été comme en hiver, jours ouvrés 
   // la commande n'appelle que si l'heure de Paris vaut 18h. Détail :
   // verif-cron-notifications.mjs.
   assert.ok(!/^\s*schedule:/m.test(wf), "plus de schedule GitHub");
-  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  const migr = lire("supabase/migrations/20261109134233_cron_notifications_push.sql");
   assert.match(migr, /'profero_push_point_conducteurs',\s*'30 16,17 \* \* 1-5'/);
   assert.match(migr, /cron-dispatcher\?job=point_conducteurs&pas_avant=18:30'/);
   assert.match(migr, /<> 18 then\s*\n\s*return;/);

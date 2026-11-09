@@ -436,7 +436,7 @@ test("18. dispatcher, créneau pg_cron 9h05 Paris (été / hiver), simulation à
   const wf = lire(".github/workflows/cron-alertes-chantiers.yml");
   // Créneau tenu par la base (pg_cron), plus par GitHub — détail : verif-cron-notifications.mjs.
   assert.ok(!/^\s*schedule:/m.test(wf), "plus de schedule GitHub");
-  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  const migr = lire("supabase/migrations/20261109134233_cron_notifications_push.sql");
   assert.match(migr, /'profero_push_alertes_chantiers',\s*'5 7,8 \* \* 1-5'/);
   assert.match(migr, /cron-dispatcher\?job=alertes_chantiers&pas_avant=9'/);
   assert.match(wf, /workflow_dispatch:/);
