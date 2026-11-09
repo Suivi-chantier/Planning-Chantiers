@@ -18,6 +18,7 @@
 // d'opération ne recharge rien.
 import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { supabase } from "../supabase";
+import { lireToutParTranches } from "./lectureParTranches";
 import { loadOperations, loadGroupesTypes, loadEquipes, FONT, RADIUS, getBranchAccent, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar } from "../mobileUI";
@@ -83,17 +84,10 @@ function ProgressBar({ value, color, height = 6 }) {
 
 // Pagination Supabase : au-delà de 1 000 lignes une requête simple TRONQUE en
 // silence — même garde-fou que Bilan semaine.
-async function fetchTout(table, select) {
-  const PAGE = 1000;
-  let from = 0;
-  const out = [];
-  for (;;) {
-    const { data, error } = await supabase.from(table).select(select).range(from, from + PAGE - 1);
-    if (error) return { data: out, error };
-    out.push(...(data || []));
-    if (!data || data.length < PAGE) return { data: out, error: null };
-    from += PAGE;
-  }
+// Tranches lues en parallèle (lireToutParTranches) et triées par id : sans
+// tri, deux tranches peuvent se recouvrir ou sauter des lignes (09/11/2026).
+function fetchTout(table, select) {
+  return lireToutParTranches((a, b) => supabase.from(table).select(select).order("id").range(a, b));
 }
 
 // Les statuts reconnus par l'écran : agregerOperation range sous « en cours »
