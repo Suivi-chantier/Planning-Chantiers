@@ -689,8 +689,12 @@ export function coutsParNature(lignes) {
 //     (lot entièrement terminé → 0, comme « achats terminés ») ;
 //   - articles DÉCLARÉS commandés non saisis (articlesDeclaresOuvrage) :
 //     comptés comme engagés (engagé = commandes saisies + déclarés), donc
-//     retirés du reste ; la marge à terminaison les compte en dépense
-//     (`declares`), le total dépensé + à dépenser ne baisse pas pour eux.
+//     retirés du reste À COMMANDER (`reste`). Ils n'ajoutent AUCUN coût : la
+//     marge à terminaison lit `resteADepenser`, calculé sur les seules
+//     commandes saisies (seule source de vérité). `declaresRetenus` =
+//     resteADepenser − reste, la part affichée « commandé, à saisir ». Un
+//     article déjà saisi mais non relié à son matériau ne peut donc pas être
+//     compté deux fois (cas Fourmond, 09/11/2026).
 //     Un article déclaré sans montant (marqué avant cette date) n'est pas
 //     valorisé : il est compté et signalé (`nbDeclaresSansMontant`).
 export const LOT_SANS_LOT = "_sans_lot";
@@ -727,14 +731,23 @@ export function resteACommanderEnveloppes({ ouvrages = [], commandeLignes = [], 
   const lotsOut = [...parLot.values()].sort((a, b) => rang(a.lotId) - rang(b.lotId) || a.label.localeCompare(b.label)).map(l => {
     const t = termines.get(l.lotId) || null;
     const ecart = l.commandes - l.enveloppe;
-    const engage = l.commandes + l.declares;
-    const resteSansTermines = Math.max(0, l.enveloppe - engage);
-    const resteCalcule = Math.max(0, (l.enveloppe - l.enveloppeTerminee) - Math.max(0, engage - l.enveloppeTerminee));
+    // Reste d'un lot pour un montant engagé donné (ouvrages terminés déduits).
+    const resteDe = (engage) => Math.max(0, (l.enveloppe - l.enveloppeTerminee) - Math.max(0, engage - l.enveloppeTerminee));
+    const resteSansTermines = Math.max(0, l.enveloppe - l.commandes);
+    // Reste À DÉPENSER : commandes saisies seules (seule source de vérité des
+    // coûts). Les déclarés n'y entrent pas : c'est la base de la marge.
+    const resteADepenser = resteDe(l.commandes);
+    // Reste À COMMANDER : en plus, les articles déclarés commandés.
+    const resteCalcule = resteDe(l.commandes + l.declares);
     return {
       ...l,
       achatsTermines: t ? { le: t.termine_le || null, par: t.termine_par || null } : null,
       // Part de l'enveloppe qui n'est plus à dépenser car ses ouvrages sont terminés.
-      plusNecessaire: t ? 0 : resteSansTermines - resteCalcule,
+      plusNecessaire: t ? 0 : resteSansTermines - resteADepenser,
+      // Part du reste à dépenser déjà déclarée commandée (jamais plus que ce
+      // reste : un déclaré n'ajoute aucun coût au-delà de l'enveloppe).
+      declaresRetenus: t ? 0 : resteADepenser - resteCalcule,
+      resteADepenser: t ? 0 : resteADepenser,
       reste: t ? 0 : resteCalcule,
       depassement: ecart > 0.005
         ? { euros: ecart, pct: l.enveloppe > 0 ? (ecart / l.enveloppe) * 100 : null }
@@ -746,6 +759,9 @@ export function resteACommanderEnveloppes({ ouvrages = [], commandeLignes = [], 
   // le fait pas remonter).
   const deduction = Math.min(resteLots, Math.max(0, sansLot));
   const reste = Math.max(0, resteLots - Math.max(0, sansLot));
+  // Reste à dépenser (base de la marge à terminaison) : même calcul sans les
+  // articles déclarés. Toujours ≥ reste ; la différence = déclarés retenus.
+  const resteADepenser = Math.max(0, lotsOut.reduce((s, l) => s + l.resteADepenser, 0) - Math.max(0, sansLot));
   const warnings = [];
   const nbSansMontant = lotsOut.reduce((s, l) => s + l.nbDeclaresSansMontant, 0);
   if (nbSansMontant > 0) {
@@ -775,7 +791,8 @@ export function resteACommanderEnveloppes({ ouvrages = [], commandeLignes = [], 
     nbDeclaresSansMontant: lotsOut.reduce((s, l) => s + l.nbDeclaresSansMontant, 0),
     plusNecessaire: lotsOut.reduce((s, l) => s + l.plusNecessaire, 0),
     commandesSansLot: sansLot, nbLignesSansLot, deductionSansLot: deduction,
-    resteLots, reste,
+    resteLots, reste, resteADepenser,
+    declaresRetenus: resteADepenser - reste,
     depassements: lotsOut.filter(l => l.depassement).map(l => ({ lotId: l.lotId, label: l.label, ...l.depassement })),
     warnings,
   };
@@ -1521,8 +1538,12 @@ export function computeChantierFinance({
   // elle ne dépend plus de la bibliothèque (materiauxById n'est plus lu).
   const enveloppes = resteACommanderEnveloppes({ ouvrages, commandeLignes, lots, achatsTermines });
   const resteACommanderVal = enveloppes.reste;
-  // Articles déclarés commandés, pas encore saisis : dépense engagée.
-  const declaresVal = enveloppes.declares;
+  // Articles déclarés commandés, pas encore saisis : ils ne font que déplacer
+  // une part du reste vers « commandé, à saisir ». La marge lit le reste À
+  // DÉPENSER, calculé sur les seules commandes saisies : un clic sur « Déjà
+  // commandé » ne change jamais la marge (décision du 09/11/2026 : la saisie
+  // des commandes est la seule source de vérité des coûts).
+  const declaresVal = enveloppes.declaresRetenus;
   const coutMatParNature = coutsParNature(commandeLignes);
 
   // Marge à terminaison : ce qu'il restera une fois le chantier fini, si les

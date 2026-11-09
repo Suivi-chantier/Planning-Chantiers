@@ -894,7 +894,7 @@ function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, onAnnulerMarque
             ))}
           </div>
           <div style={{ marginTop: 8, fontSize: FONT.xs.size, color: textMuted, fontStyle: "italic" }}>
-            Comptés comme commandés : retirés du reste à commander du lot, et comptés en dépense dans la marge jusqu'à la saisie de la facture (page Saisie commande), qui les remplace.
+            Comptés comme commandés : retirés du reste à commander du lot. Ils ne changent pas la marge : seules les commandes saisies (page Saisie commande) comptent comme coûts.
           </div>
         </div>
       )}

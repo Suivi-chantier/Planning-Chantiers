@@ -78,6 +78,14 @@ const ligne = (prix_total, lot_id, extra = {}) => ({ id: `l${Math.random()}`, pr
   ok(r4.warnings.some(w => w.code === "declares_sans_montant"), "déclaré sans montant signalé");
   proche(lot(r4, "electricite").reste, 800 - 100 - 250, "déclaré retiré du reste");
   ok(!lot(r4, "electricite").depassement, "un déclaré ne crée pas de dépassement");
+  proche(r4.resteADepenser, r4.reste + r4.declaresRetenus, "reste à dépenser = reste + déclarés retenus");
+  // Déclaré au-delà de l'enveloppe (achats déjà saisis mais non reliés au
+  // matériau) : le reste tombe à 0, la marge NE BAISSE PAS.
+  const ouvX = ouvrages.map(o => o.id !== "o3" ? o : ({ ...o, materiaux_liens: [{ materiau_id: "a", commande_le: "2026-11-09", commande_montant: 800 }] }));
+  const lignesX = [ligne(600, "electricite")];
+  const fx = (ouv) => computeChantierFinance({ phasage: { ouvrages: ouv }, commandeLignes: lignesX, lots: LOTS, tauxMOPrev: 40 });
+  proche(lot(resteACommanderEnveloppes({ ouvrages: ouvX, lots: LOTS, commandeLignes: lignesX }), "electricite").reste, 0, "déclaré > reste : reste à 0");
+  proche(fx(ouvX).margeATerminaison.valeur, fx(ouvrages).margeATerminaison.valeur, "déclaré au-delà de l'enveloppe : marge inchangée (pas de double compte)");
   // Marge à terminaison : le déclaré passe du reste aux dépenses, total inchangé.
   const fin = (ouv) => computeChantierFinance({ phasage: { ouvrages: ouv }, commandeLignes: [ligne(100, "electricite", { ouvrage_id: "o3", materiau_id: "c" })], lots: LOTS, tauxMOPrev: 40 });
   const sansDecl = ouvrages.map(o => o.id !== "o3" ? o : ({ ...o, materiaux_liens: [{ materiau_id: "c", commande_le: "2026-11-01", commande_montant: 999 }] }));

@@ -24,11 +24,19 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-09",
+    type: "correctif",
+    titre: "« Déjà commandé » ne change plus jamais la marge",
+    pages: [{ id: "planning-commandes", label: "Commandes à passer" }, { id: "phasage-v2", label: "Phasage" }],
+    quoi: "Seules les commandes saisies comptent comme coûts. Déclarer un article « déjà commandé » réduit le reste à commander, sans alourdir la marge, même quand l'achat est déjà saisi sans être relié à l'article.",
+    comment: "Avant ce correctif, un article déclaré était ajouté aux coûts de la marge à terminaison : quand sa facture était déjà saisie sur le lot sans lien avec l'article, il était compté deux fois (chantiers Fourmond : jusqu'à −2 224 € de marge à tort). Désormais la marge se calcule sur les seules commandes saisies ; la ligne « Matériaux commandés, à saisir » ne montre que la part du reste déjà commandée.",
+  },
+  {
+    date: "2026-11-09",
     type: "amelioration",
     titre: "Reste à commander et marges : articles déjà commandés et ouvrages terminés pris en compte",
     pages: [{ id: "planning-commandes", label: "Commandes à passer" }, { id: "phasage-v2", label: "Phasage" }],
     quoi: "Savoir ce qu'il reste vraiment à dépenser sur chaque chantier. Un article commandé par téléphone ou au comptoir n'apparaît plus « à commander ». Un ouvrage fini n'est plus considéré comme ayant encore des matériaux à acheter. Le reste à commander, la marge à terminaison et la marge probable en tiennent compte, dans le phasage comme sur la page Commandes à passer.",
-    comment: "Page « Commandes à passer », détail d'un ouvrage : bouton « Déjà commandé » sur chaque article (et « Tout déclarer déjà commandé »). L'article passe dans « Commandé · à saisir à réception » avec son montant (quantité × prix de la bibliothèque) : il sort du reste à commander, mais reste compté en dépense dans la marge jusqu'à la saisie de la facture, qui le remplace. « Remettre à commander » annule. Quand toutes les tâches d'un ouvrage sont à 100 % dans le phasage, ses matériaux non commandés passent en « Plus nécessaire · ouvrage terminé » et son enveloppe matériaux sort du reste à commander : la marge est corrigée d'autant. Les commandes déjà passées sur le lot couvrent d'abord les ouvrages terminés. Si une tâche repasse sous 100 %, tout revient. Le détail par lot affiche « déclaré commandé » et « ouvrages terminés ». Les 21 articles marqués commandés avant cette mise à jour n'ont pas de montant : ils sont signalés et non déduits ; « Remettre à commander » puis « Déjà commandé » les valorise.",
+    comment: "Page « Commandes à passer », détail d'un ouvrage : bouton « Déjà commandé » sur chaque article (et « Tout déclarer déjà commandé »). L'article passe dans « Commandé · à saisir à réception » avec son montant (quantité × prix de la bibliothèque) : il sort du reste à commander, sans changer la marge (seules les commandes saisies comptent comme coûts). « Remettre à commander » annule. Quand toutes les tâches d'un ouvrage sont à 100 % dans le phasage, ses matériaux non commandés passent en « Plus nécessaire · ouvrage terminé » et son enveloppe matériaux sort du reste à commander : la marge est corrigée d'autant. Les commandes déjà passées sur le lot couvrent d'abord les ouvrages terminés. Si une tâche repasse sous 100 %, tout revient. Le détail par lot affiche « déclaré commandé » et « ouvrages terminés ». Les 21 articles marqués commandés avant cette mise à jour n'ont pas de montant : ils sont signalés et non déduits ; « Remettre à commander » puis « Déjà commandé » les valorise.",
   },
   {
     date: "2026-11-09",
