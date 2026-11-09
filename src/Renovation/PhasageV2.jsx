@@ -4136,6 +4136,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: FONT.sm.size, color: T.text }}>
                       <span>Prévu <strong>{fmtEur(env.enveloppe)} €</strong></span>
                       <span>Commandé <strong>{fmtEur(env.commandes)} €</strong></span>
+                      {env.declares > 0.005 && <span>Déclaré commandé (à saisir) <strong>{fmtEur(env.declares)} €</strong></span>}
+                      {env.plusNecessaire > 0.005 && <span title="Ouvrages dont toutes les tâches sont à 100 % : plus rien à acheter pour eux">Ouvrages terminés <strong>−{fmtEur(env.plusNecessaire)} €</strong></span>}
                       <span>Reste à commander <strong style={{ color: env.achatsTermines ? "#22c55e" : T.text }}>{fmtEur(env.reste)} €</strong></span>
                     </div>
                     {env.depassement && (

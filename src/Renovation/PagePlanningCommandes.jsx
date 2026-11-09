@@ -193,11 +193,22 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       const ouvrages = base.map(o => {
         const lsO = ls.filter(l => l.ouvrageId === o.id);
         if (lsO.length === 0) return o;
+        // Montant engagé (quantité × prix HT de la ligne commandée), posé sur
+        // le PREMIER lien du matériau ; 0 sur les suivants (même matériau lié
+        // deux fois) pour ne pas le compter deux fois. Lu par le reste à
+        // commander et la marge (articlesDeclaresOuvrage, chantierFinance).
+        const vus = new Set();
         return {
           ...o,
-          materiaux_liens: (o.materiaux_liens || []).map(ml =>
-            lsO.some(l => String(l.materiau_id) === String(ml.materiau_id)) ? { ...ml, commande_le: dateISO } : ml
-          ),
+          materiaux_liens: (o.materiaux_liens || []).map(ml => {
+            const cle = String(ml.materiau_id);
+            const lsM = lsO.filter(l => String(l.materiau_id) === cle);
+            if (lsM.length === 0) return ml;
+            const montant = vus.has(cle) ? 0
+              : Math.round(lsM.reduce((s, l) => s + (parseFloat(l.prix_ht) || 0) * (parseFloat(l.quantite) || 0), 0) * 100) / 100;
+            vus.add(cle);
+            return { ...ml, commande_le: dateISO, commande_montant: montant };
+          }),
         };
       });
       lot.push({ phasage_id: phasageId, revision_attendue: frais.revision ?? 0, ouvrages });
@@ -218,6 +229,22 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
     setCmdModal(null);
     setVendrediOpen(false);
   };
+  // « Déjà commandé » : l'article a été commandé hors de la page (téléphone,
+  // comptoir…). Même marque « commandé le » que « Passer commande », sans
+  // fenêtre ni mail : il sort du « à commander » et son montant est déduit du
+  // reste à commander de son lot jusqu'à la saisie de la ligne réelle.
+  const declarerDejaCommande = async (chantier, ouvrage, articles) => {
+    if (annulationEnCours) return;
+    setAnnulationEnCours(true);
+    try {
+      await marquerCommande((articles || []).map(m => ({
+        phasageId: chantier.phasageId, ouvrageId: ouvrage.id, materiau_id: m.materiau_id,
+        prix_ht: m.prix_ht, quantite: m.quantite,
+      })));
+    } finally {
+      setAnnulationEnCours(false);
+    }
+  };
   // Annule le marquage "commandé" d'un matériau : il revient dans "à commander".
   const annulerMarque = async (chantier, ouvrage, materiauId) => {
     if (annulationEnCours) return;          // double clic impossible
@@ -230,7 +257,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       const ouvrages = base.map(o => o.id !== ouvrage.id ? o : ({
         ...o,
         materiaux_liens: (o.materiaux_liens || []).map(ml =>
-          String(ml.materiau_id) === String(materiauId) ? (({ commande_le, ...rest }) => rest)(ml) : ml
+          String(ml.materiau_id) === String(materiauId) ? (({ commande_le, commande_montant, ...rest }) => rest)(ml) : ml
         ),
       }));
       const res = await sauvegarderPhasage({
@@ -575,6 +602,11 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
                               {o.marques.length} commandé{o.marques.length > 1 ? "s" : ""} · à saisir
                             </span>
                           )}
+                          {o.termine && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: textMuted, background: "rgba(127,127,127,0.12)", borderRadius: RADIUS.pill, padding: "1px 7px" }}>
+                              terminé
+                            </span>
+                          )}
                           {o.lignesCmd.length > 0 && (
                             <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,0.12)", borderRadius: RADIUS.pill, padding: "1px 7px", display: "inline-flex", alignItems: "center", gap: 3 }}>
                               <Icon as={Check} size={9}/> {o.lignesCmd.length} commandé{o.lignesCmd.length > 1 ? "s" : ""}
@@ -600,6 +632,8 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
                   onBack={isMobile ? () => setSelOuvrageId(null) : null}
                   onCommander={() => commanderOuvrage(chantierSel, ouvrageSel)}
                   onAnnulerMarque={(materiauId) => annulerMarque(chantierSel, ouvrageSel, materiauId)}
+                  onDejaCommande={(articles) => declarerDejaCommande(chantierSel, ouvrageSel, articles)}
+                  enCours={annulationEnCours}
                   fournisseurs={fournisseurs}
                   T={T} acc={acc}
                 />
@@ -673,6 +707,8 @@ function EnveloppesLots({ enveloppes, erreurAchats, onBasculer, text, textMuted,
             <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: text }}>{l.label}</div>
             <div style={{ fontSize: FONT.xs.size, color: textMuted }}>
               prévu {eur(l.enveloppe)} · commandé {eur(l.commandes)}
+              {l.declares > 0.005 && <span> · déclaré commandé {eur(l.declares)}</span>}
+              {l.plusNecessaire > 0.005 && <span> · ouvrages terminés −{eur(l.plusNecessaire)}</span>}
               {l.depassement && (
                 <span style={{ color: "#e15a5a", fontWeight: 700 }}>
                   {" "}· dépassement +{eur(l.depassement.euros)}{l.depassement.pct != null ? ` (+${l.depassement.pct.toFixed(0)} %)` : ""}
@@ -695,6 +731,11 @@ function EnveloppesLots({ enveloppes, erreurAchats, onBasculer, text, textMuted,
           )}
         </div>
       ))}
+      {enveloppes.nbDeclaresSansMontant > 0 && (
+        <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: "#f5a623" }}>
+          {enveloppes.warnings.find(w => w.code === "declares_sans_montant")?.message}
+        </div>
+      )}
       {enveloppes.commandesSansLot > 0.5 && (
         <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: "#f5a623" }}>
           {enveloppes.warnings.find(w => w.code === "commandes_sans_lot")?.message}
@@ -722,7 +763,7 @@ function backBtnStyle(text, border) {
 }
 
 // ─── DÉTAIL OUVRAGE : à commander + déjà commandé ────────────────────────────
-function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, onAnnulerMarque, T, acc }) {
+function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, onAnnulerMarque, onDejaCommande, enCours, T, acc }) {
   const text      = T?.text      || "#f0f0f0";
   const textSub   = T?.textSub   || "#9aa5c0";
   const textMuted = T?.textMuted || "#5b6a8a";
@@ -770,7 +811,7 @@ function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, onAnnulerMarque
         <SectionTitre icon={Package} titre="À commander" compteur={ouvrage.aCommander.length} couleur={acc.accent} textMuted={textMuted}/>
         {ouvrage.aCommander.length === 0 ? (
           <div style={{ padding: "12px 0", color: textMuted, fontSize: FONT.sm.size + 1, fontStyle: "italic", display: "flex", alignItems: "center", gap: 6 }}>
-            <Icon as={CheckCircle2} size={14} color="#22c55e"/> Tout est commandé pour cet ouvrage.
+            <Icon as={CheckCircle2} size={14} color="#22c55e"/> {ouvrage.termine ? "Ouvrage terminé dans le phasage : plus rien à commander." : "Tout est commandé pour cet ouvrage."}
           </div>
         ) : (
           <>
@@ -790,9 +831,23 @@ function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, onAnnulerMarque
                   <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 700, color: text, fontFamily: "'DM Mono',monospace", flexShrink: 0 }}>
                     {((parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0)).toFixed(2)} €
                   </div>
+                  {onDejaCommande && (
+                    <button onClick={() => onDejaCommande([m])} disabled={enCours}
+                      title="Commandé ailleurs (téléphone, comptoir…) : retiré du « à commander » et déduit du reste du lot"
+                      style={btnDejaCommande(border, textMuted, enCours)}>
+                      <Icon as={Check} size={11}/> Déjà commandé
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
+            {onDejaCommande && ouvrage.aCommander.length > 1 && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                <button onClick={() => onDejaCommande(ouvrage.aCommander)} disabled={enCours} style={btnDejaCommande(border, textMuted, enCours)}>
+                  <Icon as={Check} size={11}/> Tout déclarer déjà commandé
+                </button>
+              </div>
+            )}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: FONT.sm.size, color: textMuted }}>
                 Total des articles listés (aide) : <strong style={{ color: text }}>{totalACommander.toFixed(2)} € HT</strong>
@@ -839,7 +894,33 @@ function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, onAnnulerMarque
             ))}
           </div>
           <div style={{ marginTop: 8, fontSize: FONT.xs.size, color: textMuted, fontStyle: "italic" }}>
-            Aucun coût compté : la commande réelle sera saisie à réception via la page Saisie commande.
+            Comptés comme commandés : retirés du reste à commander du lot, et comptés en dépense dans la marge jusqu'à la saisie de la facture (page Saisie commande), qui les remplace.
+          </div>
+        </div>
+      )}
+
+      {/* OUVRAGE TERMINÉ : matériaux non commandés plus nécessaires */}
+      {(ouvrage.plusNecessaires || []).length > 0 && (
+        <div style={{ padding: "4px 16px 14px" }}>
+          <SectionTitre icon={CheckCircle2} titre="Plus nécessaire · ouvrage terminé" compteur={ouvrage.plusNecessaires.length} couleur={textMuted} textMuted={textMuted}/>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+            {ouvrage.plusNecessaires.map((m, i) => (
+              <div key={(m.materiau_id ?? "x") + "_" + i} style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "8px 11px",
+                background: card, border: `1px solid ${border}`, borderRadius: RADIUS.md, opacity: .75,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 600, color: text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.libelle}</div>
+                  <div style={{ fontSize: FONT.xs.size, color: textMuted, marginTop: 1 }}>{m.quantite} {m.unite}{m.fournisseur_nom && <span> · {m.fournisseur_nom}</span>}</div>
+                </div>
+                <div style={{ fontSize: FONT.sm.size, color: textMuted, fontFamily: "'DM Mono',monospace", flexShrink: 0 }}>
+                  {((parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0)).toFixed(2)} €
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 8, fontSize: FONT.xs.size, color: textMuted, fontStyle: "italic" }}>
+            Toutes les tâches de l'ouvrage sont à 100 % dans le phasage : ces articles ne sont plus à commander, et l'enveloppe matériaux de l'ouvrage sort du reste à commander (et donc de la marge). Si une tâche repasse sous 100 %, tout revient.
           </div>
         </div>
       )}
@@ -891,6 +972,15 @@ function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, onAnnulerMarque
       </div>
     </div>
   );
+}
+
+function btnDejaCommande(border, textMuted, enCours) {
+  return {
+    display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0,
+    background: "transparent", border: `1px solid ${border}`, borderRadius: RADIUS.sm,
+    color: textMuted, cursor: enCours ? "wait" : "pointer", padding: "4px 8px", fontFamily: "inherit",
+    fontSize: FONT.xs.size, fontWeight: 700, opacity: enCours ? .5 : 1, whiteSpace: "nowrap",
+  };
 }
 
 function SectionTitre({ icon, titre, compteur, couleur, textMuted }) {

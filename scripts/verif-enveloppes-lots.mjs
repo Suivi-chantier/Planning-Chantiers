@@ -49,6 +49,46 @@ const ligne = (prix_total, lot_id, extra = {}) => ({ id: `l${Math.random()}`, pr
   ok(r.lots.map(l => l.lotId).join() === "plomberie,electricite,peinture", "lots dans l'ordre de la configuration");
 }
 
+// ── 1b. Ouvrages terminés et articles déclarés commandés (09/11/2026) ─────
+{
+  // Plomberie : o1 (1 500) terminé, o2 (500) non ; 1 200 commandés.
+  // Les commandes couvrent d'abord l'ouvrage terminé : reste = 500 − max(0, 1 200 − 1 500) = 500.
+  const fait = (o) => ({ ...o, taches: o.taches.map(t => ({ ...t, avancement: 100 })) });
+  const ouvT = ouvrages.map(o => o.id === "o1" ? fait(o) : o);
+  const lignes = [ligne(1200, "plomberie")];
+  const r = resteACommanderEnveloppes({ ouvrages: ouvT, lots: LOTS, commandeLignes: lignes });
+  const lot = (x, id) => x.lots.find(l => l.lotId === id);
+  proche(lot(r, "plomberie").reste, 500, "ouvrage terminé : son enveloppe sort du reste");
+  proche(lot(r, "plomberie").plusNecessaire, 300, "plus nécessaire = 800 − 500");
+  // Commandes au-delà de l'enveloppe terminée : elles consomment le reste.
+  const r2 = resteACommanderEnveloppes({ ouvrages: ouvT, lots: LOTS, commandeLignes: [ligne(1700, "plomberie")] });
+  proche(lot(r2, "plomberie").reste, 300, "500 − (1 700 − 1 500)");
+  // Lot entièrement terminé : 0.
+  const r3 = resteACommanderEnveloppes({ ouvrages: ouvrages.map(o => o.lot_id === "peinture" ? fait(o) : o), lots: LOTS, commandeLignes: [] });
+  proche(lot(r3, "peinture").reste, 0, "lot dont tous les ouvrages sont terminés");
+  // Déclaré commandé (o3, électricité 800) : 250 avec montant, 1 sans montant, 1 déjà saisi.
+  const ouvD = ouvrages.map(o => o.id !== "o3" ? o : ({ ...o, materiaux_liens: [
+    { materiau_id: "a", commande_le: "2026-11-09", commande_montant: 250 },
+    { materiau_id: "b", commande_le: "2026-11-01" },
+    { materiau_id: "c", commande_le: "2026-11-01", commande_montant: 999 },
+  ] }));
+  const r4 = resteACommanderEnveloppes({ ouvrages: ouvD, lots: LOTS, commandeLignes: [ligne(100, "electricite", { ouvrage_id: "o3", materiau_id: "c" })] });
+  proche(lot(r4, "electricite").declares, 250, "seul le déclaré non saisi compte");
+  ok(lot(r4, "electricite").nbDeclaresSansMontant === 1, "déclaré sans montant compté");
+  ok(r4.warnings.some(w => w.code === "declares_sans_montant"), "déclaré sans montant signalé");
+  proche(lot(r4, "electricite").reste, 800 - 100 - 250, "déclaré retiré du reste");
+  ok(!lot(r4, "electricite").depassement, "un déclaré ne crée pas de dépassement");
+  // Marge à terminaison : le déclaré passe du reste aux dépenses, total inchangé.
+  const fin = (ouv) => computeChantierFinance({ phasage: { ouvrages: ouv }, commandeLignes: [ligne(100, "electricite", { ouvrage_id: "o3", materiau_id: "c" })], lots: LOTS, tauxMOPrev: 40 });
+  const sansDecl = ouvrages.map(o => o.id !== "o3" ? o : ({ ...o, materiaux_liens: [{ materiau_id: "c", commande_le: "2026-11-01", commande_montant: 999 }] }));
+  proche(fin(ouvD).margeATerminaison.valeur, fin(sansDecl).margeATerminaison.valeur, "déclaré commandé : marge inchangée");
+  ok(fin(ouvD).resteACommander.valeur < fin(sansDecl).resteACommander.valeur, "mais reste à commander plus bas");
+  // Ouvrage terminé : la marge monte de ce qui n'est plus à acheter.
+  const fT = computeChantierFinance({ phasage: { ouvrages: ouvT }, commandeLignes: lignes, lots: LOTS, tauxMOPrev: 40 });
+  const f0 = computeChantierFinance({ phasage: { ouvrages }, commandeLignes: lignes, lots: LOTS, tauxMOPrev: 40 });
+  ok(fT.margeATerminaison.valeur > f0.margeATerminaison.valeur, "ouvrage terminé : marge corrigée à la hausse");
+}
+
 // ── 2. Une commande SANS LOT : déduite du total, avertissement chiffré ──────
 {
   const r = resteACommanderEnveloppes({ ouvrages, lots: LOTS, commandeLignes: [

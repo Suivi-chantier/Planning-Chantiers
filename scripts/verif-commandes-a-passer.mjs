@@ -124,6 +124,41 @@ test("4. clés : une par ligne, occurrence numérotée pour un matériau lié de
   assert.equal(new Set(cles).size, l.length);
 });
 
+test("4b. déclaré déjà commandé et ouvrage terminé : retirés du « à commander » et du reste du lot", () => {
+  // Données fictives. Lot plomb : enveloppe 100 (o1) ; ligne saisie 20.
+  // m3 marqué commandé SANS montant (ancienne marque) : signalé, non déduit.
+  const a = C.modeleCommandesAPasser(entrees())[0];
+  const plomb = a.enveloppes.lots.find((l) => l.lotId === "plomb");
+  assert.equal(plomb.nbDeclaresSansMontant, 1);
+  assert.equal(plomb.reste, 80);
+  assert.ok(a.enveloppes.warnings.some((w) => w.code === "declares_sans_montant"));
+  // Même marque avec montant (posé par « Déjà commandé ») : 100 − 20 − 7 = 73.
+  const avecMontant = PHASAGES.map((p) => p.id !== "p1" ? p : ({ ...p, ouvrages: p.ouvrages.map((o) => o.id !== "o1" ? o
+    : ({ ...o, materiaux_liens: o.materiaux_liens.map((ml) => ml.materiau_id === "m3" ? { ...ml, commande_montant: 7 } : ml) })) }));
+  const a2 = C.modeleCommandesAPasser({ ...entrees(), phasages: avecMontant })[0];
+  const plomb2 = a2.enveloppes.lots.find((l) => l.lotId === "plomb");
+  assert.equal(plomb2.declares, 7);
+  assert.equal(plomb2.reste, 73);
+  // Ouvrage o2 (élec, enveloppe 50) : toutes ses tâches à 100 % (reprise ignorée).
+  const termine = PHASAGES.map((p) => p.id !== "p1" ? p : ({ ...p, ouvrages: p.ouvrages.map((o) => o.id !== "o2" ? o
+    : ({ ...o, taches: [{ avancement: 100 }, { avancement: 0, nature: "reprise" }] })) }));
+  const b = C.modeleCommandesAPasser({ ...entrees(), phasages: termine })[0];
+  const o2 = b.ouvrages.find((o) => o.id === "o2");
+  assert.equal(o2.termine, true);
+  assert.deepEqual(o2.aCommander, [], "ouvrage terminé : plus rien à commander");
+  assert.deepEqual(o2.plusNecessaires.map((x) => x.materiau_id), ["m4"]);
+  const elec = b.enveloppes.lots.find((l) => l.lotId === "elec");
+  assert.equal(elec.reste, 0);
+  assert.equal(elec.plusNecessaire, 50);
+  assert.ok(!C.lignesACommander([b]).some((x) => x.ouvrageId === "o2"), "absent de la liste plate (et donc de la notification)");
+  // Une seule tâche faite sur deux : l'ouvrage n'est pas terminé.
+  const partiel = PHASAGES.map((p) => p.id !== "p1" ? p : ({ ...p, ouvrages: p.ouvrages.map((o) => o.id !== "o2" ? o
+    : ({ ...o, taches: [{ avancement: 100 }, { avancement: 40 }] })) }));
+  const c = C.modeleCommandesAPasser({ ...entrees(), phasages: partiel })[0];
+  assert.equal(c.ouvrages.find((o) => o.id === "o2").aCommander.length, 1, "tâche à 40 % : toujours à commander");
+  assert.equal(c.enveloppes.lots.find((l) => l.lotId === "elec").reste, 50);
+});
+
 test("5. fenêtre J..J+6 : en retard, dans la fenêtre, plus tard, sans date, déjà vu", () => {
   const L = (id, dateISO) => ({ phasageId: "p", ouvrageId: id, materiau_id: "m", dateISO, chantierNom: "CH FICTIF", ouvrageLibelle: "Ouvrage " + id, libelle: "Mat " + id });
   const lignes = [L("retard", "2026-11-06"), L("j6", "2026-11-15"), L("j", "2026-11-09"), L("j7", "2026-11-16"), L("sansdate", null), L("vu", "2026-11-10")];

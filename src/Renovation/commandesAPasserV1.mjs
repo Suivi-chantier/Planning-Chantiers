@@ -16,7 +16,8 @@
 // La règle « à commander » elle-même vit dans commandesOuvrageV1.mjs
 // (etatMateriauxOuvrageV1, partagée avec le Bilan) : un matériau lié à un
 // ouvrage, connu de la bibliothèque, sans ligne de commande saisie NI marque
-// « commandé le ». Il n'y a PAS de date butoir : un article est à commander dès
+// « commandé le », sur un ouvrage pas encore terminé (toutes tâches à 100 %).
+// Il n'y a PAS de date butoir : un article est à commander dès
 // qu'il est prévu ; la date de besoin (date prévue la plus proche des tâches de
 // l'ouvrage) sert seulement à le ranger par semaine.
 //
@@ -97,6 +98,9 @@ export function modeleCommandesAPasser({ phasages = [], chantiers = [], matById 
         const aCommander = etat.aCommander.map(valoriser);
         // Marqués commandés via la page, en attente de la saisie réelle.
         const marques = etat.marques.map(valoriser);
+        // Ouvrage terminé dans le phasage : matériaux non commandés plus
+        // nécessaires (son enveloppe sort du reste : resteACommanderEnveloppes).
+        const plusNecessaires = etat.plusNecessaires.map(valoriser);
         // Date de besoin = date_prevue la plus proche parmi les tâches de l'ouvrage
         const earliest = etat.dateBesoin;
 
@@ -111,6 +115,8 @@ export function modeleCommandesAPasser({ phasages = [], chantiers = [], matById 
           prevus,
           aCommander,
           marques,
+          plusNecessaires,
+          termine:       etat.termine,
           lignesCmd:     lignesO,
           dateISO:       earliest,
           dateObj:       earliest ? new Date(earliest) : null,
