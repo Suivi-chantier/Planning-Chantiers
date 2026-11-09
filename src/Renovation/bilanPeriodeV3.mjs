@@ -151,6 +151,20 @@ export function bornesComparaisonV3(periode, joursTravailles) {
   };
 }
 
+/**
+ * Progression de l'avancement sur la période (demande de François du
+ * 09/11/2026), sous l'avancement de chaque chantier (écran et PDF) :
+ * relevé de fin − relevé de départ, en points. Départ ou fin inconnu :
+ * « évolution : — », jamais « +0 ».
+ */
+export function texteProgressionAvancementV3(avancement, avancementDepart) {
+  const a = num(avancement), d = num(avancementDepart);
+  if (a == null || d == null) return "évolution : —";
+  const g = Math.round((a - d) * 10) / 10;
+  const abs = Math.abs(g);
+  return `${g > 0 ? "+" : g < 0 ? "−" : "±"}${abs.toLocaleString("fr-FR")}\u00a0pt${abs > 1 ? "s" : ""} sur la période`;
+}
+
 // ── Relevés ──────────────────────────────────────────────────────────────────
 /** Map chantier_id → relevés triés par date croissante. */
 export function indexerRelevesV3(lignes) {

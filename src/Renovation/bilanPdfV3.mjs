@@ -27,7 +27,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   LEGENDE_PASTILLES_V3, COULEURS_PASTILLES_V3, fmtJourV3, alertesBilanV3, alerteVersionDetailleeSeulementV3,
-  resumeJourneesIncompletesV3, resumeNonValidesV3, libelleCourtFiabiliteV3, nbChantiersV3,
+  resumeJourneesIncompletesV3, resumeNonValidesV3, libelleCourtFiabiliteV3, nbChantiersV3, texteProgressionAvancementV3,
 } from "./bilanPeriodeV3.mjs";
 import { normaliserSeuilsMarges } from "../chantierFinance.mjs";
 import { MOTIF_LOT_EN_DERIVE, MOTIF_MARGE_PROBABLE_EN_BAISSE, MOTIF_HEURES_SANS_LOT } from "./pointsAttentionV1.mjs";
@@ -188,6 +188,9 @@ function bandeauHtml(b) {
 }
 
 const mentionsHtml = s => listeSure(s.mentions).map(m => `<span class="mention">${e(m.texte)}${m.heuresApresReception > 0 ? ` · ${e(fmtH(m.heuresApresReception))} après réception` : ""}</span>`).join("");
+// Avancement + ce qu'il a gagné sur la période (texte commun à l'écran :
+// texteProgressionAvancementV3).
+const celluleAvancement = s => `<td class="n">${e(fmtPct(s.avancement))}<div class="gris">${e(texteProgressionAvancementV3(s.avancement, s.avancementDepart))}</div></td>`;
 const celluleMarge = (montant, pct) => `<td class="n" style="color:${couleurSigne(montant)}">${e(fmtEurSigne(montant))}<div class="gris">${e(fmtPctSur(pct))}</div></td>`;
 
 // Tableau des chantiers, version direction : « Devis → probable ». La marge à
@@ -200,7 +203,7 @@ function syntheseHtml(synthese) {
     if (!s.disponible) return `<tr>${tete}<td colspan="8" class="gris">relevé pas encore disponible</td></tr>`;
     const evo = s.evolutionMargeProbable;
     return `<tr>${tete}
-      <td class="n">${e(fmtPct(s.avancement))}</td>
+      ${celluleAvancement(s)}
       <td class="n">${e(fmtEur(s.vendu))}</td>
       ${s.margeDevisSansMateriaux
         ? `<td class="n" style="color:${couleurSigne(s.margeDevis)}">${e(fmtEurSigne(s.margeDevis))}<div class="gris">sans matériaux prévus</div></td>`
@@ -255,7 +258,7 @@ function syntheseDetailleeHtml(synthese, bandeau, periode) {
     const t = s.tendance || {};
     const evo = t.evolution ?? null;
     return `<tr>${tete}
-      <td class="n">${e(fmtPct(s.avancement))}</td>
+      ${celluleAvancement(s)}
       <td class="n">${e(fmtEur(s.production))}</td>
       ${celluleMarge(s.margePeriode, s.margePeriodePct)}
       ${celluleMarge(s.margeTerminaison, s.margeTerminaisonPct)}

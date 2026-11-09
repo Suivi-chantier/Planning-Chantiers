@@ -248,7 +248,10 @@ const verifierCascade = (r, nom) => {
   // terminaison de tous les chantiers a sa propre case dans le bandeau, juste
   // avant la marge probable (elle quitte la ligne grise de la marge probable).
   ok(dir.includes("Marge à terminaison, tous chantiers") && !dir.includes("à terminaison +"), "PDF direction (données fictives) : case « Marge à terminaison, tous chantiers »");
-  eq(createHash("sha256").update(dir).digest("hex"), "17ff48af990b50d1223add02675fc9ea883c11b88447205651ee0b45a47cccb4",
+  // 09/11/2026 : 5e changement VOULU (demande de François) — sous chaque
+  // avancement, sa progression sur la période (« +5 pts sur la période »).
+  ok(dir.includes("pt sur la période") || dir.includes("pts sur la période"), "PDF direction (données fictives) : progression de l'avancement sous chaque chantier");
+  eq(createHash("sha256").update(dir).digest("hex"), "02fb80793b90c33e9aaa9d785c39085539130448cbaa173d94010a9dd142d04d",
     "PDF direction (données fictives) : HTML identique à celui attendu (design Profero du 06/11/2026)");
 
   // ── Design des documents Profero (06/11/2026) ──

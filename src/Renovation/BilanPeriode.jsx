@@ -20,7 +20,7 @@ import {
   periodeSemaineV3, periodeMoisV3, periodeLibreV3, bornesComparaisonV3, ajouterJoursV3, semaineIsoV3,
   indexerRelevesV3, releveAuPlusTardV3, syntheseChantiersV3, bandeauV3, activiteChantiersV3,
   preselectionChantiersV3, ligneSansActiviteV3, avertissementsExportV3, LEGENDE_PASTILLES_V3,
-  COULEURS_PASTILLES_V3, fmtJourV3, resumeSansActiviteV3, nbChantiersV3,
+  COULEURS_PASTILLES_V3, fmtJourV3, resumeSansActiviteV3, nbChantiersV3, texteProgressionAvancementV3,
 } from "./bilanPeriodeV3.js";
 import { documentBilanV3 } from "./bilanPdfV3.js";
 import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3 } from "./bilanFicheV3.js";
@@ -696,7 +696,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
                       ))}
                     </td>
                     {s.disponible ? (<>
-                      <td>{fmtPct(s.avancement)}</td>
+                      <td>{fmtPct(s.avancement)}<div style={{ fontSize: 10, color: T.textMuted }}>{texteProgressionAvancementV3(s.avancement, s.avancementDepart)}</div></td>
                       <td>{fmtEur(s.vendu)}</td>
                       <td style={{ color: couleurSigne(s.margeDevis, T) }}>{fmtEurSigne(s.margeDevis)}<div style={{ fontSize: 10, color: T.textMuted }}>{s.margeDevisSansMateriaux ? "sans matériaux prévus" : fmtPctSur(s.margeDevisPct)}</div></td>
                       <td style={{ color: couleurSigne(s.margeProbable, T) }}>{fmtEurSigne(s.margeProbable)}<div style={{ fontSize: 10, color: T.textMuted }}>{fmtPctSur(s.margeProbablePct)}</div></td>
