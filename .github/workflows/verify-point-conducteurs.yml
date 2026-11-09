@@ -11,6 +11,7 @@ on:
       - 'supabase/functions/_partage/notificationsPushV1.mjs'
       - 'supabase/functions/send-push/**'
       - 'api/cron-dispatcher.js'
+      - 'supabase/migrations/*_cron_notifications_push.sql'
       - 'api/_cron/cron-rappel-rapport.js'
       - 'api/_cron/cron-point-conducteurs.js'
       - 'api/_cron/cron-push-reportes.js'

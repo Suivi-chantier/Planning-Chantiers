@@ -27,6 +27,7 @@ on:
       - 'supabase/migrations/*_push_subscriptions.sql'
       - 'supabase/migrations/*_notifications_boite.sql'
       - 'api/cron-dispatcher.js'
+      - 'supabase/migrations/*_cron_notifications_push.sql'
       - 'api/_cron/cron-push-reportes.js'
       - '.github/workflows/cron-push-reportes.yml'
       - 'supabase/config.toml'

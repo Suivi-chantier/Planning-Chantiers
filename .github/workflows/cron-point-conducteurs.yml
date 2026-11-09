@@ -7,24 +7,20 @@ name: Point du soir des conducteurs — notification C1 + C2 (18h30, jours ouvr�
 # Rien à signaler : rien. Interrupteur général coupé : send-push n'envoie rien
 # (voulu, Loris l'active).
 #
-# Heure d'été / heure d'hiver : un cron GitHub est en UTC. Même technique que
-# cron-push-materiaux.yml et cron-factures-a-emettre.yml, DEUX créneaux, et le
-# job ignore tout appel avant 18h30 Paris (&pas_avant=18:30) :
-#   16h30 UTC = 18h30 Paris en été   (17h30 en hiver : ignoré)
-#   17h30 UTC = 18h30 Paris en hiver (19h30 en été : le point du jour est déjà
-#                                     écrit, rien n'est renvoyé — clé C1-<date>)
-# 18h30 est hors de la plage de silence (20h-7h) : l'envoi part tout de suite.
+# Créneau planifié : il n'est PLUS ici. Les « schedule » GitHub ne partaient
+# pas, ou avec des heures de retard (constat du 09/11/2026). C'est la base
+# Supabase qui appelle le dispatcher, à la minute près (18h30 Paris, jours ouvrés,
+# été comme hiver) : job pg_cron « profero_push_point_conducteurs »,
+# supabase/migrations/20261109140000_cron_notifications_push.sql.
+# Ce workflow ne sert plus qu'au lancement à la main.
 #
 # Bouton « Run workflow » : case « simulation » cochée par défaut → aucun envoi,
 # aucune écriture, réponse = qui aurait reçu quoi. Date facultative (simulation
 # seulement) pour simuler un autre jour.
 #
-# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+# Secret requis : CRON_SECRET (secret GitHub, pour le lancement à la main).
 
 on:
-  schedule:
-    - cron: '30 16 * * 1-5'    # Lun-Ven 16h30 UTC → 18h30 Paris (été)
-    - cron: '30 17 * * 1-5'    # Lun-Ven 17h30 UTC → 18h30 Paris (hiver)
   workflow_dispatch:
     inputs:
       simulation:
@@ -44,7 +40,6 @@ jobs:
       - name: Call /api/cron-dispatcher?job=point_conducteurs
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          EVENEMENT: ${{ github.event_name }}
           SIMULATION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.simulation == 'true' }}
           DATE_SIMULEE: ${{ github.event.inputs.date }}
         run: |
@@ -53,9 +48,7 @@ jobs:
             exit 1
           fi
           job="point_conducteurs"
-          if [ "$EVENEMENT" = "schedule" ]; then
-            job="$job&pas_avant=18:30"
-          elif [ "$SIMULATION" = "true" ]; then
+          if [ "$SIMULATION" = "true" ]; then
             job="$job&simulation=1"
             if [ -n "$DATE_SIMULEE" ]; then
               if ! echo "$DATE_SIMULEE" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then

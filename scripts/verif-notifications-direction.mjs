@@ -550,22 +550,26 @@ const heureParis = (date, h, m) => {
   return p.heure * 60 + p.minute;
 };
 
-test("15. créneaux : D2 8h45 et D3 lundi 8h30 Paris, été comme hiver (deux créneaux + pas_avant=8), hors plage de silence ; F2 avant 20h", () => {
+test("15. créneaux : D2 8h45 et D3 lundi 8h30 Paris, été comme hiver (pg_cron, deux passages UTC + garde heure de Paris + pas_avant=8), hors plage de silence ; F2 avant 20h", () => {
   const d2 = lire(".github/workflows/cron-push-nouveaux-chantiers.yml");
-  assert.match(d2, /cron: '45 6 \* \* 1-5'/);
-  assert.match(d2, /cron: '45 7 \* \* 1-5'/);
-  assert.match(d2, /job="nouveaux_chantiers&pas_avant=8"/);
+  // Créneaux tenus par la base (pg_cron), plus par GitHub : deux passages UTC,
+  // la commande n'appelle que si l'heure de Paris vaut 8h. Détail (trois ans
+  // simulés jour par jour) : verif-cron-notifications.mjs.
+  assert.ok(!/^\s*schedule:/m.test(d2), "D2 : plus de schedule GitHub");
   assert.match(d2, /job="nouveaux_chantiers&simulation=1"/);
   const d3 = lire(".github/workflows/cron-push-synthese-semaine.yml");
-  assert.match(d3, /cron: '30 6 \* \* 1'/);
-  assert.match(d3, /cron: '30 7 \* \* 1'/);
-  assert.match(d3, /job="synthese_semaine&pas_avant=8"/);
+  assert.ok(!/^\s*schedule:/m.test(d3), "D3 : plus de schedule GitHub");
   assert.match(d3, /job="synthese_semaine&simulation=1"/);
+  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  assert.match(migr, /'profero_push_nouveaux_chantiers',\s*'45 6,7 \* \* 1-5'/);
+  assert.match(migr, /cron-dispatcher\?job=nouveaux_chantiers&pas_avant=8'/);
+  assert.match(migr, /'profero_push_synthese_semaine',\s*'30 6,7 \* \* 1'/);
+  assert.match(migr, /cron-dispatcher\?job=synthese_semaine&pas_avant=8'/);
   for (const [date, saison] of [["2026-07-13", "été"], ["2026-11-09", "hiver"]]) {
-    const passeD2 = [[6, 45], [7, 45]].map(([h, m]) => heureParis(date, h, m)).filter((x) => x >= 8 * 60);
-    assert.equal(Math.min(...passeD2), 8 * 60 + 45, `D2 à 8h45 Paris (${saison})`);
-    const passeD3 = [[6, 30], [7, 30]].map(([h, m]) => heureParis(date, h, m)).filter((x) => x >= 8 * 60);
-    assert.equal(Math.min(...passeD3), 8 * 60 + 30, `D3 à 8h30 Paris (${saison})`);
+    const passeD2 = [[6, 45], [7, 45]].map(([h, m]) => heureParis(date, h, m)).filter((x) => Math.floor(x / 60) === 8);
+    assert.deepEqual(passeD2, [8 * 60 + 45], `D2 : un seul appel, à 8h45 Paris (${saison})`);
+    const passeD3 = [[6, 30], [7, 30]].map(([h, m]) => heureParis(date, h, m)).filter((x) => Math.floor(x / 60) === 8);
+    assert.deepEqual(passeD3, [8 * 60 + 30], `D3 : un seul appel, à 8h30 Paris (${saison})`);
     const [a, mo, j] = date.split("-").map(Number);
     assert.equal(estEnSilence(parisVersUtcMs(a, mo, j, 8, 30), SILENCE_DEFAUT), false);
   }
