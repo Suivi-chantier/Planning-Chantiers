@@ -220,3 +220,9 @@ blocs `planning_config`, synchronisation dans les deux sens), après essai dans
 une transaction annulée. Re-synchronisation idempotente :
 `select public.refonte_resynchroniser_depuis_config();`. Retour arrière :
 `sql/202611_refonte_operations_lot1_rollback.sql`.
+
+`20261109165323_rls_bureau_role_verifie_une_fois.sql` **appliquée le 09/11/2026**
+(accord de Loris) : les 71 règles « réservé au bureau » de 60 tables vérifient
+le rôle une fois par requête au lieu d'une fois par ligne. Mêmes droits
+(vérifié : 60 tables × 5 rôles, 0 différence), après essai dans une transaction
+annulée. Retour arrière : `sql/202611_rls_bureau_role_verifie_une_fois_rollback.sql`.

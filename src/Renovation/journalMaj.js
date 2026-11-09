@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-09",
     type: "amelioration",
+    titre: "Toute l'application charge ses données plus vite (Opérations, Bilan de semaine, fiches chantier, finances…)",
+    pages: [],
+    quoi: "La base vérifiait « cet utilisateur est-il du bureau ? » pour chaque ligne lue, au lieu d'une seule fois par demande. Plus une page lisait de lignes (pointages, commandes, phasages…), plus elle était lente. La vérification se fait maintenant une fois par demande : lire toutes les données concernées prend environ 0,4 seconde au lieu de 3,6. Les droits ne changent pas : les ouvriers ne voient toujours pas ces données, le bureau voit tout, comme avant.",
+    comment: "Rien à faire : les pages s'ouvrent comme avant, plus vite. La page Opérations lit aussi ses pointages et lignes de commande par paquets en parallèle.",
+  },
+  {
+    date: "2026-11-09",
+    type: "amelioration",
     titre: "Opérations : la marge à terminaison s'affiche",
     pages: [{ id: "operations", label: "Opérations" }],
     quoi: "Voir où finit l'opération et chacun de ses logements si le reste se passe comme le devis, à côté de la marge probable.",
