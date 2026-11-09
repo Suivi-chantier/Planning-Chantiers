@@ -61,6 +61,18 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); n++; };
   eq([m.dateDepart, m.dateFin], ["2026-09-29", "2026-10-29"], "mois : derniers jours travaillés");
 }
 
+// ── Progression de l'avancement sur la période (09/11/2026) ──────────────
+{
+  const t = B.texteProgressionAvancementV3;
+  eq([t(44, 39), t(44, 43.5), t(44, 44), t(40, 42), t(44, null), t(null, 30)],
+    ["+5\u00a0pts sur la période", "+0,5\u00a0pt sur la période", "±0\u00a0pt sur la période", "−2\u00a0pts sur la période", "évolution : —", "évolution : —"],
+    "progression de l'avancement (données fictives) : points gagnés, départ inconnu → « — », jamais +0");
+  const pdf = lireFichier(new URL("../src/Renovation/bilanPdfV3.mjs", import.meta.url), "utf8");
+  const ecran = lireFichier(new URL("../src/Renovation/BilanPeriode.jsx", import.meta.url), "utf8");
+  ok(pdf.includes("texteProgressionAvancementV3(s.avancement, s.avancementDepart)") && ecran.includes("texteProgressionAvancementV3(s.avancement, s.avancementDepart)"),
+    "progression : même texte à l'écran et dans le PDF (un seul module)");
+}
+
 // ── Synthèse par chantier ───────────────────────────────────────────────────
 const rel = (id, date, o = {}) => ({ chantier_id: id, chantier_nom: id.toUpperCase(), date_releve: date, avancement: 50,
   vendu_ht: 10000, heures_vendues: 100, heures_reelles: 40, production_cumulee: 5000, marge_avancement: 1000,

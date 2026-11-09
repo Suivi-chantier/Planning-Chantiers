@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-09",
     type: "amelioration",
+    titre: "Bilan : la progression de l'avancement de chaque chantier sur la période",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Voir d'un coup d'œil combien chaque chantier a avancé pendant la semaine (ou le mois), pas seulement où il en est.",
+    comment: "Sous l'avancement de chaque chantier, à l'écran et dans les deux PDF : « +6 pts sur la période » (avancement du relevé de fin moins celui du relevé de départ). Sans relevé avant la période : « évolution : — ».",
+  },
+  {
+    date: "2026-11-09",
+    type: "amelioration",
     titre: "PDF du bilan : la marge à terminaison de tous les chantiers a sa case",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "Lire d'un coup d'œil où finissent tous les chantiers si le reste se passe comme le devis, à côté de la marge probable.",
