@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-09",
     type: "amelioration",
+    titre: "PDF du bilan : la marge à terminaison de tous les chantiers a sa case",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Lire d'un coup d'œil où finissent tous les chantiers si le reste se passe comme le devis, à côté de la marge probable.",
+    comment: "Dans le bandeau du PDF (direction et détaillé), une case « Marge à terminaison, tous chantiers » s'ajoute juste avant la marge probable, avec son pourcentage du vendu. C'est le même total que la ligne TOTAL du tableau, sur les mêmes chantiers que la marge probable.",
+  },
+  {
+    date: "2026-11-09",
+    type: "amelioration",
     titre: "Le bilan de la semaine s'arrête au vendredi",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "Une semaine de 4 jours ne s'arrête plus au jeudi : ce qui est saisi ou corrigé le vendredi compte dans la semaine.",
