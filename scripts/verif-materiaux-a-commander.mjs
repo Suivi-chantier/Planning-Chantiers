@@ -262,8 +262,11 @@ test("15. dispatcher et créneaux : ?job=push_materiaux, 8h05 Paris été / hive
   assert.match(disp, /require\("\.\/_cron\/cron-push-materiaux\.js"\)/);
   for (const job of ["recap_commandes", "push_reportes", "push_simulation"]) assert.match(disp, new RegExp(`${job}: \\{`));
   const wf = lire(".github/workflows/cron-push-materiaux.yml");
-  assert.match(wf, /cron: '5 6 \* \* 1-5'/);
-  assert.match(wf, /cron: '5 7 \* \* 1-5'/);
+  // Créneau tenu par la base (pg_cron), plus par GitHub — détail : verif-cron-notifications.mjs.
+  assert.ok(!/^\s*schedule:/m.test(wf), "plus de schedule GitHub");
+  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  assert.match(migr, /'profero_push_materiaux',\s*'5 6,7 \* \* 1-5'/);
+  assert.match(migr, /cron-dispatcher\?job=push_materiaux'/);
   assert.match(wf, /job=push_materiaux/);
   assert.match(wf, /workflow_dispatch:/);
   assert.match(wf, /simulation=1/);

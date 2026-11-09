@@ -49,11 +49,14 @@ export async function chargerClients() {
  */
 export async function enregistrerClient(fiche, { id = null } = {}) {
   const valeurs = nettoyer(fiche);
-  const manquants = controlerFiche("client", valeurs);
-  if (manquants.length) return { ok: false, manquants };
   // Fiche reliée à un client ProGBat (lot 4) : l'identifiant ProGBat reste
-  // celui de ProGBat ; compléter la fiche locale ne modifie pas ProGBat.
+  // celui de ProGBat ; compléter la fiche locale ne modifie pas ProGBat. Les
+  // règles Profero (prénom, e-mail, téléphone) ne s'appliquent pas à un client
+  // ProGBat existant (demande de Loris du 07/11) : la liste unique le sait
+  // grâce à progbat_client_id.
   const lieProgbat = fiche?.progbat_client_id != null && String(fiche.progbat_client_id).trim() !== "";
+  const manquants = controlerFiche("client", { ...valeurs, progbat_client_id: lieProgbat ? String(fiche.progbat_client_id) : null });
+  if (manquants.length) return { ok: false, manquants };
   const ligne = lieProgbat ? { ...valeurs } : { ...valeurs, code_progbat: genererCodeClient(valeurs) };
   let res;
   if (id) {

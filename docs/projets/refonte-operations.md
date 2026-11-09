@@ -442,6 +442,14 @@ lecture seule pendant le développement, relances désactivées par défaut).
   sans effet sur les écritures ni les droits. `progbat-quote` non redéployée
   (v9 en ligne envoie déjà client/chantier/yard ; seules les règles de saisie
   du lot 2 diffèrent, déjà appliquées par le bouton).
+- 07/11/2026 — Demande de Loris du 07/11 (correctif hors lots) : un client
+  choisi dans ProGBat reprend toutes ses coordonnées ProGBat (nom / prénom
+  séparés quand le nom est « NOM Prénom », adresse, e-mail, téléphone) ; les
+  règles Profero prénom / e-mail / téléphone ne bloquent plus un client relié
+  à ProGBat (note grise « Absent dans ProGBat : … »), elles restent
+  bloquantes pour un nouveau client ; bouton « Relire depuis ProGBat » et
+  relecture automatique des fiches déjà reprises. Détail : journal des
+  décisions du compte rendu (07/11/2026).
 
 ## Comptes rendus
 

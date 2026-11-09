@@ -453,11 +453,17 @@ test("18. dispatcher : ?job=point_conducteurs, aucune nouvelle fonction Vercel",
   assert.ok(!readdirSync(chemin("api")).some((f) => /point/i.test(f)), "aucun fichier ajouté à la racine de api/");
 });
 
-test("19. créneau GitHub : 18h30 Paris en été comme en hiver, jours ouvrés, simulation par défaut", () => {
+test("19. créneau pg_cron : 18h30 Paris en été comme en hiver, jours ouvrés ; simulation par défaut sur GitHub", () => {
   const wf = lire(".github/workflows/cron-point-conducteurs.yml");
-  const crons = [...wf.matchAll(/- cron: '([^']+)'/g)].map((m) => m[1]);
-  assert.deepEqual(crons, ["30 16 * * 1-5", "30 17 * * 1-5"]);
-  assert.match(wf, /job="\$job&pas_avant=18:30"/);
+  // Créneau tenu par la base (pg_cron), plus par GitHub : deux passages UTC,
+  // la commande n'appelle que si l'heure de Paris vaut 18h. Détail :
+  // verif-cron-notifications.mjs.
+  assert.ok(!/^\s*schedule:/m.test(wf), "plus de schedule GitHub");
+  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  assert.match(migr, /'profero_push_point_conducteurs',\s*'30 16,17 \* \* 1-5'/);
+  assert.match(migr, /cron-dispatcher\?job=point_conducteurs&pas_avant=18:30'/);
+  assert.match(migr, /<> 18 then\s*\n\s*return;/);
+  const crons = ["30 16 * * 1-5", "30 17 * * 1-5"];
   assert.match(wf, /\?job=\$job"/);
   assert.match(wf, /workflow_dispatch:\s*\n\s*inputs:\s*\n\s*simulation:[\s\S]*?default: true/);
   // Heure de Paris de chaque créneau, été et hiver : exactement un passage à 18h30, aucun avant ignoré qui enverrait.
@@ -468,8 +474,8 @@ test("19. créneau GitHub : 18h30 Paris en été comme en hiver, jours ouvrés, 
       const p = V.partiesParis(Date.parse(`${jour}T${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}:00Z`));
       return p.heure * 60 + p.minute;
     });
-    const envoient = heures.filter((m) => m >= pasAvant);
-    assert.equal(Math.min(...envoient), 18 * 60 + 30, `${saison} : premier envoi à 18h30`);
+    const envoient = heures.filter((m) => Math.floor(m / 60) === 18 && m >= pasAvant);
+    assert.deepEqual(envoient, [18 * 60 + 30], `${saison} : un seul envoi, à 18h30`);
     assert.ok(heures.every((m) => m < 20 * 60), `${saison} : avant la plage de silence de 20h`);
   }
   const verif = lire(".github/workflows/verify-point-conducteurs.yml");

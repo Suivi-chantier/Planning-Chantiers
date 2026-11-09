@@ -23,6 +23,30 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-11-09",
+    type: "correctif",
+    titre: "Les notifications automatiques partent maintenant à l'heure exacte",
+    pages: [],
+    quoi: "Les notifications sur téléphone envoyées à heure fixe (notifications reportées de la nuit à 7h05, commandes à passer à 8h05, facture à émettre à 8h15, synthèse de la semaine le lundi à 8h30, nouveau chantier signé à 8h45, alertes chantiers à 9h05, point du soir des conducteurs à 18h30) dépendaient d'un planificateur extérieur qui ne garantissait pas l'heure : certaines ne partaient pas du tout, d'autres avec plusieurs heures de retard. Elles sont désormais déclenchées par la base de données de l'application, à la minute près, à l'heure de Paris, en hiver comme en été.",
+    comment: "Rien à faire pour les utilisateurs : les horaires restent les mêmes, du lundi au vendredi (le lundi seulement pour la synthèse de la semaine). Les réglages de chacun (Réglages › Notifications, plage de silence) s'appliquent comme avant. Le déclenchement s'appuie sur une clé d'accès enregistrée une fois dans le coffre-fort de la base : tant qu'elle n'est pas saisie, aucun envoi ne part, et l'absence de clé est signalée dans le suivi des tâches de la base.",
+  },
+  {
+    date: "2026-11-07",
+    type: "correctif",
+    titre: "Client ProGBat existant : toutes ses coordonnées reprises, plus de bandeau rouge « fiche incomplète »",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Quand on choisit un client qui existe déjà dans ProGBat, la fiche de l'application reprend désormais tout ce que ProGBat connaît : particulier ou société, nom, prénom, raison sociale et contact, adresse, code postal, ville, pays, e-mail et téléphone (pris dans l'adresse du client ou dans ses contacts ProGBat). ProGBat n'a pas de case « prénom » : quand le nom ProGBat est écrit « NOM Prénom » (ou « Prénom NOM »), l'application le sépare ; quand c'est ambigu (« Mr et Mme NOM », tout en majuscules, un seul mot), le nom reste entier et rien n'est inventé. Pour un client ProGBat, le prénom, l'e-mail et le téléphone ne sont plus exigés : il existe déjà dans ProGBat, l'application ne le crée pas. Ces trois informations restent obligatoires pour un nouveau client créé depuis l'application.",
+    comment: "Rien à faire en plus : « Client ProGBat existant » remplit la fiche. Si ProGBat n'a pas une information, une petite note grise le dit sous le client (« Absent dans ProGBat : e-mail ») sans rien bloquer, et le bouton « Créer le devis » reste disponible. Les fiches déjà reprises avant ce correctif sont relues automatiquement à l'ouverture de l'opération, et un bouton « Relire depuis ProGBat » (sous le client et dans « Modifier la fiche ») complète les cases vides à la demande. Ce qui a été saisi à la main n'est jamais écrasé, et rien n'est modifié dans ProGBat.",
+  },
+  {
+    date: "2026-11-07",
+    type: "amelioration",
+    titre: "Facturation du chantier : bouton « Voir la facture » qui ouvre directement la facture dans ProGBat",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "Sur la fiche chantier, onglet facturation, une échéance déjà facturée dans ProGBat affichait « import manuel inutile », ce qui n'aidait pas à retrouver la facture. Elle affiche maintenant « Facture émise dans ProGBat » et un bouton « Voir la facture » qui ouvre cette facture dans ProGBat, dans un nouvel onglet. Le même bouton figure sur chaque facture de la liste « Factures ProGBat ». Le PDF n'est pas rapatrié dans l'application : ProGBat ne le met pas à disposition de façon fiable, la facture se consulte donc dans ProGBat.",
+    comment: "Cliquer sur « Voir la facture ». L'entreprise « PROFERO RENOVATION » doit être celle sélectionnée en haut de ProGBat, sinon ProGBat n'ouvre pas la bonne fiche (l'infobulle du bouton le rappelle). Si l'application ne connaît pas encore le numéro interne ProGBat de la facture, le bouton s'appelle « Ouvrir la liste des factures » et ouvre la liste des factures de ProGBat.",
+  },
+  {
     date: "2026-11-06",
     type: "nouveaute",
     titre: "Notifications pour la comptabilité et la direction : encours du vendredi, nouveau chantier signé, synthèse de la semaine, écart du journal d'avancement (envois automatiques encore coupés)",

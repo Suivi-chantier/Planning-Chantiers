@@ -18,6 +18,8 @@
 // sait faire qu'un GET pour ce diagnostic.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { decouperNomPrenom } from "./progbatNomPrenom.mjs";
+
 /** Champs dont la VALEUR peut sortir (techniques, jamais personnels). */
 export const CHAMPS_VALEUR = Object.freeze([
   "id", "type", "legalType", "thirdType", "editable", "canBill", "businessManager", "status", "state", "validated", "thirdId", "businessId", "yardId",
@@ -162,4 +164,89 @@ export async function diagnostiquer({ lire, jetonsDisponibles = { devis: true, f
     }
   }
   return rapport;
+}
+
+// ─── Remplissage des fiches clients ProGBat (demande de Loris du 07/11) ─────
+// Pour savoir QUELLES données d'un client ProGBat on peut reprendre : pour
+// chaque champ (y compris adresses[] et contacts[]), le nombre de clients où
+// il est renseigné. Jamais une valeur : seulement des noms de champs et des
+// comptes. Le découpage nom / prénom des particuliers est compté par issue.
+
+const renseigne = (v) => v !== null && v !== undefined && !(typeof v === "string" && v.trim() === "") && !(Array.isArray(v) && v.length === 0);
+
+/** { "champ": n, "addresses[].email": n, ... } : nombre d'objets où le champ est renseigné. */
+export function tauxRemplissage(items) {
+  const compte = {};
+  const plus = (k, ok) => { compte[k] = compte[k] || 0; if (ok) compte[k]++; };
+  for (const it of items || []) {
+    if (!it || typeof it !== "object") continue;
+    for (const [k, v] of Object.entries(it)) {
+      if (Array.isArray(v)) {
+        plus(`${k}[] (au moins un)`, v.length > 0);
+        const champs = new Set(v.flatMap((x) => (x && typeof x === "object" ? Object.keys(x) : [])));
+        for (const c of champs) plus(`${k}[].${c}`, v.some((x) => x && renseigne(x[c])));
+      } else if (v && typeof v === "object" && !Array.isArray(v)) {
+        for (const [c, w] of Object.entries(v)) plus(`${k}.${c}`, renseigne(w));
+      } else plus(k, renseigne(v));
+    }
+  }
+  return compte;
+}
+
+/** Issue du découpage nom / prénom sur les particuliers (legalType 1) : comptes seulement. */
+export function statsDecoupage(items) {
+  const r = { particuliers: 0, decoupes: 0, ambigus: {} };
+  for (const it of items || []) {
+    if (!it || it.legalType !== 1) continue;
+    r.particuliers++;
+    const d = decouperNomPrenom(it.legalName || it.businessName || "");
+    if (d.decoupe) r.decoupes++;
+    else r.ambigus[d.raison] = (r.ambigus[d.raison] || 0) + 1;
+  }
+  return r;
+}
+
+/**
+ * Lecture du remplissage : liste des clients (type 2), puis le DÉTAIL
+ * GET /company/thirds/{id} de chacun (au plus `max`), puis, sur le premier,
+ * les sous-ressources éventuelles (contacts, addresses). GET uniquement.
+ * `lire(chemin, { liste })` est injecté.
+ */
+export async function diagnostiquerRemplissageClients({ lire, max = 150, type = 2 }) {
+  const l = await lire(`/company/thirds?type=${type}`, { liste: true });
+  if (!l?.ok) return { liste: { status: l?.status ?? 0, ok: false, message: String(l?.message || "").slice(0, 300) } };
+  const items = Array.isArray(l.data) ? l.data : [];
+  const ids = items.map((t) => t?.id).filter((x) => Number.isInteger(x)).slice(0, max);
+  const details = [];
+  const erreurs = {};
+  for (const id of ids) {
+    const r = await lire(`/company/thirds/${id}`, { liste: false });
+    if (r?.ok && r.data && typeof r.data === "object") details.push(r.data);
+    else erreurs[String(r?.status ?? 0)] = (erreurs[String(r?.status ?? 0)] || 0) + 1;
+  }
+  const sous = {};
+  if (ids.length) {
+    for (const s of ["contacts", "addresses", "emails", "phones"]) {
+      const r = await lire(`/company/thirds/${ids[0]}/${s}`, { liste: false });
+      sous[s] = r?.ok ? { status: r.status, ok: true, forme: Array.isArray(r.data) ? (r.data.length ? [formeObjet(r.data[0])] : "tableau vide") : formeObjet(r.data) } : { status: r?.status ?? 0, ok: false };
+    }
+  }
+  const champsListe = new Set(items.flatMap((t) => (t && typeof t === "object" ? Object.keys(t) : [])));
+  const champsDetail = new Set(details.flatMap((t) => (t && typeof t === "object" ? Object.keys(t) : [])));
+  const premierAvec = (cle) => details.find((d) => Array.isArray(d?.[cle]) && d[cle].length) || items.find((d) => Array.isArray(d?.[cle]) && d[cle].length) || null;
+  return {
+    total_liste: items.length,
+    details_lus: details.length,
+    details_en_erreur: erreurs,
+    champs_detail_absents_de_la_liste: [...champsDetail].filter((k) => !champsListe.has(k)).sort(),
+    forme_contact: premierAvec("contacts") ? formeObjet(premierAvec("contacts").contacts[0]) : null,
+    forme_adresse: premierAvec("addresses") ? formeObjet(premierAvec("addresses").addresses[0]) : null,
+    remplissage_liste: tauxRemplissage(items),
+    remplissage_detail: tauxRemplissage(details),
+    remplissage_detail_particuliers: tauxRemplissage(details.filter((d) => d?.legalType === 1)),
+    remplissage_detail_societes: tauxRemplissage(details.filter((d) => d?.legalType === 0)),
+    legalType: repartition(items).legalType || null,
+    decoupage_nom_prenom: statsDecoupage(details.length ? details : items),
+    sous_ressources_premier: sous,
+  };
 }

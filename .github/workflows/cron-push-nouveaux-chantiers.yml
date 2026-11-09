@@ -8,21 +8,19 @@ name: Nouveau chantier signé — notification D2 (8h45, jours ouvrés)
 # Premier passage : tous les chantiers déjà signés sont enregistrés, rien
 # n'est envoyé.
 #
-# Heure d'été / heure d'hiver : DEUX créneaux, et le job ignore tout appel
-# avant 8h Paris (&pas_avant=8) :
-#   06h45 UTC = 08h45 Paris en été   (07h45 en hiver : ignoré)
-#   07h45 UTC = 08h45 Paris en hiver (09h45 en été : passage sans doublon,
-#                                     les chantiers vus sont déjà enregistrés)
+# Créneau planifié : il n'est PLUS ici. Les « schedule » GitHub ne partaient
+# pas, ou avec des heures de retard (constat du 09/11/2026). C'est la base
+# Supabase qui appelle le dispatcher, à la minute près (8h45 Paris, jours ouvrés,
+# été comme hiver) : job pg_cron « profero_push_nouveaux_chantiers »,
+# supabase/migrations/20261109140000_cron_notifications_push.sql.
+# Ce workflow ne sert plus qu'au lancement à la main.
 #
 # Bouton « Run workflow » : simulation cochée (par défaut) = chantiers signés,
 # ce qui serait notifié et enregistré, destinataires, sans rien envoyer ni écrire.
 #
-# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+# Secret requis : CRON_SECRET (secret GitHub, pour le lancement à la main).
 
 on:
-  schedule:
-    - cron: '45 6 * * 1-5'     # Lun-Ven 06h45 UTC → 08h45 Paris (été)
-    - cron: '45 7 * * 1-5'     # Lun-Ven 07h45 UTC → 08h45 Paris (hiver)
   workflow_dispatch:
     inputs:
       simulation:
@@ -38,16 +36,13 @@ jobs:
       - name: Call /api/cron-dispatcher?job=nouveaux_chantiers
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          EVENEMENT: ${{ github.event_name }}
           SIMULATION: ${{ github.event.inputs.simulation }}
         run: |
           if [ -z "$CRON_SECRET" ]; then
             echo "::error::CRON_SECRET secret manquant"
             exit 1
           fi
-          if [ "$EVENEMENT" = "schedule" ]; then
-            job="nouveaux_chantiers&pas_avant=8"
-          elif [ "$SIMULATION" = "true" ]; then
+          if [ "$SIMULATION" = "true" ]; then
             job="nouveaux_chantiers&simulation=1"
           else
             job="nouveaux_chantiers"

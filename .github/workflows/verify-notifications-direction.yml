@@ -16,6 +16,7 @@ on:
       - 'supabase/functions/_partage/notificationsPushV1.mjs'
       - 'supabase/functions/send-push/index.ts'
       - 'api/cron-dispatcher.js'
+      - 'supabase/migrations/*_cron_notifications_push.sql'
       - 'api/cron-encours-fournisseurs.js'
       - 'api/_cron/cron-notifications-direction.js'
       - 'api/_cron/cron-journal-avancement.js'

@@ -357,7 +357,7 @@ test("20. migration notifications_etat : création seule, policy restrictive seu
 });
 
 // ── 4. Branchements ──────────────────────────────────────────────────────────
-test("19. dispatcher et créneau GitHub (été / hiver, simulation à la main)", () => {
+test("19. dispatcher et créneau pg_cron 8h15 Paris (été / hiver), simulation à la main sur GitHub", () => {
   const disp = lire("api/cron-dispatcher.js");
   assert.match(disp, /require\("\.\/_cron\/cron-factures-a-emettre\.js"\)/);
   assert.match(disp, /factures_a_emettre:\s*\{\s*fenetre:\s*null/);
@@ -365,9 +365,11 @@ test("19. dispatcher et créneau GitHub (été / hiver, simulation à la main)",
     assert.match(disp, new RegExp(`${job}:\\s*\\{`), `job ${job} conservé`);
   }
   const wf = lire(".github/workflows/cron-factures-a-emettre.yml");
-  assert.match(wf, /cron: '15 6 \* \* 1-5'/);
-  assert.match(wf, /cron: '15 7 \* \* 1-5'/);
-  assert.match(wf, /job="factures_a_emettre&pas_avant=8"/, "le créneau planifié ignore les appels avant 8h");
+  // Créneau tenu par la base (pg_cron), plus par GitHub — détail : verif-cron-notifications.mjs.
+  assert.ok(!/^\s*schedule:/m.test(wf), "plus de schedule GitHub");
+  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  assert.match(migr, /'profero_push_factures_a_emettre',\s*'15 6,7 \* \* 1-5'/);
+  assert.match(migr, /cron-dispatcher\?job=factures_a_emettre&pas_avant=8'/, "le créneau planifié ignore les appels avant 8h");
   assert.match(wf, /workflow_dispatch:/);
   assert.match(wf, /job="factures_a_emettre&simulation=1"/, "lancement à la main : simulation");
   assert.match(wf, /cron-dispatcher\?job=\$job/);

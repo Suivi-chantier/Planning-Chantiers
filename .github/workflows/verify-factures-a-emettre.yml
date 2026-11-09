@@ -16,6 +16,7 @@ on:
       - 'supabase/functions/_partage/notificationsPushV1.mjs'
       - 'supabase/migrations/*_notifications_etat.sql'
       - 'api/cron-dispatcher.js'
+      - 'supabase/migrations/*_cron_notifications_push.sql'
       - 'api/_cron/cron-factures-a-emettre.js'
       - 'api/_cron/cron-push-reportes.js'
       - '.github/workflows/cron-factures-a-emettre.yml'

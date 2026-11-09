@@ -6,7 +6,9 @@
 // vivent dans pushRegles.mjs (pur, testé par scripts/verif-notifications-push.mjs).
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { clesVapid, decisionAppelantPush, estCleServeur, extraireJeton } from "./pushRegles.mjs"
+import {
+  clesVapid, decisionAppelantPush, decisionCleServeur, extraireJeton, formeCle, lireDictionnaireCles,
+} from "./pushRegles.mjs"
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -85,12 +87,72 @@ export function clientServeur(): SupabaseClient | null {
   return createClient(url, cleService, { auth: { autoRefreshToken: false, persistSession: false } })
 }
 
+/** Résultats de la validation auprès de Supabase Auth, par empreinte du jeton. */
+const cacheValidation = new Map<string, { ok: boolean; jusqua: number }>()
+const DUREE_CACHE_OK_MS = 5 * 60 * 1000
+const DUREE_CACHE_REFUS_MS = 30 * 1000
+
+async function empreinte(jeton: string): Promise<string> {
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(jeton))
+  return Array.from(new Uint8Array(h), (o) => o.toString(16).padStart(2, "0")).join("")
+}
+
+/**
+ * Dernier recours : seul un détenteur d'une clé secrète (ou service role) de
+ * CE projet obtient 200 sur l'API d'administration d'Auth. Lecture d'une
+ * seule fiche, sans rien en faire. Résultat gardé en mémoire quelques minutes.
+ */
+async function valideAupresDeSupabase(jeton: string): Promise<boolean> {
+  const url = Deno.env.get("SUPABASE_URL")
+  if (!url) return false
+  const cle = await empreinte(jeton)
+  const maintenant = Date.now()
+  const connu = cacheValidation.get(cle)
+  if (connu && connu.jusqua > maintenant) return connu.ok
+  let ok = false
+  try {
+    const rep = await fetch(`${url}/auth/v1/admin/users?per_page=1`, {
+      headers: { apikey: jeton, Authorization: `Bearer ${jeton}` },
+    })
+    ok = rep.status === 200
+    await rep.body?.cancel()
+  } catch {
+    ok = false
+  }
+  if (cacheValidation.size > 50) cacheValidation.clear()
+  cacheValidation.set(cle, { ok, jusqua: maintenant + (ok ? DUREE_CACHE_OK_MS : DUREE_CACHE_REFUS_MS) })
+  return ok
+}
+
 /**
  * Appel de serveur à serveur (dispatcher Vercel) : le jeton « Bearer » doit
- * être la clé service role, déjà connue des deux côtés (Vercel :
- * SUPABASE_SERVICE_ROLE_KEY ; Supabase : injectée dans les Edge Functions).
- * Aucun nouveau secret. Clé absente du serveur → refus (fermé par défaut).
+ * être une clé secrète de CE projet Supabase. Aucun nouveau secret.
+ *   1. égal à SUPABASE_SERVICE_ROLE_KEY (injectée dans les Edge Functions) ;
+ *   2. ou à l'une des clés de SUPABASE_SECRET_KEYS ;
+ *   3. sinon, s'il a la forme d'une clé secrète (JWT service_role, sb_secret_),
+ *      validation auprès de Supabase Auth (pushRegles.decisionCleServeur).
+ * Clé publique, jeton utilisateur, jeton vide → refus (fermé par défaut).
  */
-export function estAppelServeur(req: Request): boolean {
-  return estCleServeur(extraireJeton(req.headers.get("Authorization")), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "")
+export async function estAppelServeur(req: Request): Promise<boolean> {
+  const jeton = extraireJeton(req.headers.get("Authorization"))
+  const decision = decisionCleServeur({
+    jeton,
+    cleService: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    clesSecretes: lireDictionnaireCles(Deno.env.get("SUPABASE_SECRET_KEYS")),
+    clesPubliques: [
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      ...lireDictionnaireCles(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS")),
+    ].filter(Boolean),
+  })
+  if (decision === "accepte") return true
+  if (decision === "refuse" || !jeton) return false
+  return await valideAupresDeSupabase(jeton)
+}
+
+/** Forme des clés serveur vues par la fonction (diagnostic, jamais de valeur). */
+export function diagnosticClesServeur() {
+  return {
+    service_role: formeCle(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")),
+    cles_secretes: lireDictionnaireCles(Deno.env.get("SUPABASE_SECRET_KEYS")).map(formeCle),
+  }
 }

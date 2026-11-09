@@ -398,8 +398,12 @@ await test("14. client ProGBat existant : liste en lecture, fiche locale pré-re
   assert.equal(fiche.pays, "France");
   assert.equal(fiche.code_progbat, "DUPONT ANGERS", "identifiant ProGBat repris, pas regénéré");
   assert.equal(fiche.progbat_client_id, "174");
-  const lib = manquants.map((m) => m.champ);
-  assert.ok(lib.includes("email") && lib.includes("telephone") && lib.includes("prenom"), "ce qui manque (règles Profero) est listé");
+  // Demande de Loris du 07/11 : client relié à ProGBat → les règles Profero
+  // (prénom, e-mail, téléphone) ne bloquent pas ; ce qui manque dans ProGBat
+  // reste visible en note (« Absent dans ProGBat : … »).
+  assert.deepEqual(manquants, [], "client ProGBat existant : rien de bloquant");
+  const notes = A.ficheDepuisTiers(brut).notes.map((m) => m.champ);
+  assert.ok(notes.includes("email") && notes.includes("telephone") && notes.includes("prenom"), "ce que ProGBat n'a pas est listé en note");
   assert.equal(A.ficheDepuisTiers({ ...brut, legalType: 0, businessName: "SCI Fictive", contacts: [{ lastname: "M. Contact" }] }).fiche.raison_sociale, "SCI Fictive");
   const locaux = [];
   let creations = 0;
@@ -412,6 +416,7 @@ await test("14. client ProGBat existant : liste en lecture, fiche locale pré-re
   const depot = {
     async clientParProgbatId(id) { return locaux.find((c) => c.progbat_client_id === String(id)) || null; },
     async creerClientLocal(f) { if (locaux.some((c) => c.progbat_client_id === f.progbat_client_id)) return { ok: false, conflit: true }; creations++; const c = { id: `loc-${creations}`, ...f }; locaux.push(c); return { ok: true, client: c }; },
+    async completerClient(id, patch) { const c = locaux.find((x) => x.id === id); Object.assign(c, patch); return { ok: true, client: { ...c } }; },
   };
   const ctx = { appelant: BUREAU, depot, progbat, maintenant: MAINTENANT };
   const liste = await A.traiterRequeteAutomatisation({ action: "lister_clients_progbat" }, ctx);
@@ -421,7 +426,8 @@ await test("14. client ProGBat existant : liste en lecture, fiche locale pré-re
   const r1 = await A.traiterRequeteAutomatisation({ action: "importer_client_progbat", thirdId: 174, confirmed: true }, ctx);
   assert.equal(r1.body.ok, true);
   assert.equal(r1.body.reutilise, false);
-  assert.ok(r1.body.manquants.length > 0);
+  assert.equal(r1.body.manquants.length, 0, "plus de bandeau « fiche incomplète » pour un client ProGBat");
+  assert.ok(r1.body.notes.length > 0, "les absences ProGBat sont rendues, en note");
   const r2 = await A.traiterRequeteAutomatisation({ action: "importer_client_progbat", thirdId: 174, confirmed: true }, ctx);
   assert.equal(r2.body.reutilise, true, "même client ProGBat : la fiche locale est réutilisée");
   assert.equal(creations, 1);
@@ -443,6 +449,155 @@ await test("14. client ProGBat existant : liste en lecture, fiche locale pré-re
   assert.match(op, /<ChoixClientProgbatModal/);
   assert.match(op, /onProgbat=/);
   assert.match(lire("src/Renovation/ComposantsCommerciaux.jsx"), /<RessemblancesProgbat/);
+});
+
+// ─── 15. Client ProGBat existant : reprise complète (demande de Loris du 07/11) ──
+// Jeu de test, données fictives. Forme d'un tiers relevée en LECTURE le 07/11
+// (GET /company/thirds/{id}) : legalType, legalName, businessName, civility,
+// addresses[] (address, address2, postcode, city, country, email, phone,
+// mobile), contacts[] (lastname, email, phone, mobile) ; aucun champ prénom.
+const NP = await imp("src/Renovation/progbatNomPrenom.mjs");
+const R = await imp("src/Renovation/reglesSaisieProgbat.mjs");
+await test("15a. découpage nom / prénom : « NOM Prénom » ou « Prénom NOM » seulement, sinon nom entier", async () => {
+  const d = NP.decouperNomPrenom;
+  assert.deepEqual([d("TESTEUR Alice").nom, d("TESTEUR Alice").prenom], ["TESTEUR", "Alice"]);
+  assert.deepEqual([d("Jean-Pierre ESSAI").nom, d("Jean-Pierre ESSAI").prenom], ["ESSAI", "Jean-Pierre"]);
+  assert.deepEqual([d("DE LA FICTION Élodie").nom, d("DE LA FICTION Élodie").prenom], ["DE LA FICTION", "Élodie"]);
+  assert.deepEqual([d("D'ESSAI Marc").nom, d("D'ESSAI Marc").prenom], ["D'ESSAI", "Marc"]);
+  for (const ambigu of ["TESTEUR ALICE", "Testeur Alice", "Mr et Mme TESTEUR", "M. TESTEUR", "TESTEUR", "TESTEUR Alice ESSAI", "TESTEUR & Alice", "de TESTEUR Alice", "TESTEUR 2", ""]) {
+    const r = d(ambigu);
+    assert.equal(r.decoupe, false, `« ${ambigu} » est ambigu`);
+    assert.equal(r.prenom, "", `« ${ambigu} » : aucun prénom inventé`);
+    assert.equal(r.nom, ambigu.replace(/\s+/g, " ").trim(), `« ${ambigu} » : nom laissé entier`);
+  }
+});
+
+await test("15b. fiche remplie depuis ProGBat : type, nom, prénom, adresse, e-mail et téléphone (adresse ou contact)", async () => {
+  const part = { id: 151, code: "TESTEUR ANGERS", type: 2, legalType: 1, legalName: "TESTEUR Alice", civility: "Mme",
+    addresses: [{ byDefault: false, address: "9 rue Secondaire", postcode: "44000", city: "Nantes", country: "FR", email: "", phone: "", mobile: "06 00 00 00 09" },
+      { byDefault: true, address: "1 rue Fictive", address2: "Bât. B", postcode: "49000", city: "Angers", country: "FR", email: "", phone: "", mobile: "" }],
+    contacts: [{ byDefault: true, lastname: "TESTEUR Alice", email: "alice@exemple.test", phone: "", mobile: "" }] };
+  const { fiche, manquants, notes } = A.ficheDepuisTiers(part);
+  assert.equal(fiche.type, "particulier");
+  assert.equal(fiche.nom, "TESTEUR");
+  assert.equal(fiche.prenom, "Alice");
+  assert.equal(fiche.adresse, "1 rue Fictive", "adresse par défaut d'abord");
+  assert.equal(fiche.adresse_complement, "Bât. B");
+  assert.equal(fiche.ville, "Angers");
+  assert.equal(fiche.pays, "France");
+  assert.equal(fiche.email, "alice@exemple.test", "e-mail du contact quand l'adresse n'en a pas");
+  assert.equal(fiche.telephone, "06 00 00 00 09", "téléphone d'une autre adresse en repli");
+  assert.deepEqual(manquants, []);
+  assert.deepEqual(notes, []);
+  // Société : raison sociale (businessName), contact
+  const soc = A.ficheDepuisTiers({ id: 152, type: 2, legalType: 0, legalName: "SCI FICTIVE", businessName: "SCI Fictive", addresses: [{ byDefault: true, address: "2 rue Essai", postcode: "49100", city: "Angers", country: "FR", email: "sci@exemple.test", phone: "02 00 00 00 00" }], contacts: [{ byDefault: true, lastname: "M. Contact" }] });
+  assert.equal(soc.fiche.type, "societe");
+  assert.equal(soc.fiche.raison_sociale, "SCI Fictive");
+  assert.equal(soc.fiche.contact_nom, "M. Contact");
+  assert.equal(soc.fiche.telephone, "02 00 00 00 00");
+  // Nom ambigu : entier, prénom vide, et ça ne bloque pas
+  const amb = A.ficheDepuisTiers({ id: 153, type: 2, legalType: 1, legalName: "TESTEUR", addresses: [{ byDefault: true, address: "3 rue Essai", postcode: "49000", city: "Angers", country: "FR" }], contacts: [] });
+  assert.equal(amb.fiche.nom, "TESTEUR");
+  assert.equal(amb.fiche.prenom, "");
+  assert.deepEqual(amb.manquants, []);
+  assert.deepEqual(amb.notes.map((x) => x.court), ["prénom", "e-mail", "téléphone"]);
+  // Repli sur le contact : nom ProGBat « TESTEUR » + contact « TESTEUR Alice »
+  assert.equal(A.ficheDepuisTiers({ id: 154, type: 2, legalType: 1, legalName: "TESTEUR", addresses: [], contacts: [{ byDefault: true, lastname: "TESTEUR Alice" }] }).fiche.prenom, "Alice");
+  // … mais jamais un prénom pris chez un contact d'un AUTRE nom
+  assert.equal(A.ficheDepuisTiers({ id: 155, type: 2, legalType: 1, legalName: "TESTEUR", addresses: [], contacts: [{ byDefault: true, lastname: "AUTRE Paul" }] }).fiche.prenom, "");
+});
+
+await test("15c. une seule liste de règles : prénom / e-mail / téléphone bloquent un NOUVEAU client, pas un client ProGBat", async () => {
+  const nouveau = { type: "particulier", nom: "Testeur", prenom: "", adresse: "1 rue", code_postal: "49000", ville: "Angers", pays: "France", email: "", telephone: "" };
+  const ids = (l) => l.map((m) => m.id).sort();
+  assert.deepEqual(ids(R.controlerFiche("client", nouveau)), ["client_email", "client_prenom", "client_telephone"], "nouveau client : règles Profero bloquantes (lot 2)");
+  assert.deepEqual(R.notesFiche("client", nouveau), [], "nouveau client : pas de note, c'est une erreur");
+  const relie = { ...nouveau, progbat_client_id: "151" };
+  assert.deepEqual(R.controlerFiche("client", relie), [], "client ProGBat : rien de bloquant");
+  assert.equal(R.noteAbsentsProgbat(relie), "Absent dans ProGBat : prénom, e-mail, téléphone");
+  assert.equal(R.estObligatoire("client", "email", nouveau), true);
+  assert.equal(R.estObligatoire("client", "email", relie), false, "pas d'astérisque pour un client ProGBat");
+  // L'adresse reste exigée (ProGBat l'a pour tous ses clients relevés)
+  assert.deepEqual(ids(R.controlerFiche("client", { ...relie, adresse: "" })), ["client_adresse"]);
+  // Les règles Profero sont marquées dans la liste unique, pas ailleurs
+  assert.deepEqual(R.REGLES_SAISIE.filter((r) => r.profero).map((r) => r.id), ["client_prenom", "client_email", "client_telephone"]);
+  // Avant-envoi (construireEnTeteDevis lit la même liste) : chiffrage sans thirdId → règles Profero ; client du projet relié → aucune
+  const P = await imp("src/Renovation/progbatQuotePayload.mjs");
+  const src = sansCommentaires(lire("src/Renovation/progbatQuotePayload.mjs"));
+  assert.match(src, /controlerFiche\("client", clientDepuisProjet\(projet\)/, "l'avant-envoi lit la liste unique");
+  assert.equal(R.clientDepuisProjet({ client_nom: "X", progbat_client_id: "151" }).progbat_client_id, "151");
+  assert.ok(P, "module d'avant-envoi chargé");
+  // L'écran n'a pas de contournement : le bandeau lit controlerFiche, la note lit noteAbsentsProgbat
+  const ecran = sansCommentaires(lire("src/Renovation/OperationCommercial.jsx"));
+  assert.match(ecran, /controlerFiche\("client", cl\)/);
+  assert.ok(!/profero|progbat_client_id/.test(ecran.match(/const manquantsFiche[^\n]*/)[0]), "aucun filtre à l'écran");
+  assert.match(sansCommentaires(lire("src/Renovation/ClientsProgbat.jsx")), /noteAbsentsProgbat\(client\)/);
+  assert.match(lire("src/Renovation/clientsDonnees.js"), /controlerFiche\("client", \{ \.\.\.valeurs, progbat_client_id/);
+});
+
+await test("15d. relecture d'une fiche reliée : complète les champs vides, n'écrase rien, aucune écriture ProGBat", async () => {
+  const tiers = { id: 151, code: "TESTEUR ANGERS", type: 2, legalType: 1, legalName: "TESTEUR Alice", addresses: [{ byDefault: true, address: "1 rue Fictive", postcode: "49000", city: "Angers", country: "FR", email: "", phone: "", mobile: "06 00 00 00 01" }], contacts: [{ byDefault: true, lastname: "TESTEUR Alice", email: "alice@exemple.test" }] };
+  // Fiche créée avant le correctif : nom ProGBat entier, prénom et e-mail vides, téléphone saisi à la main
+  const avant = { id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", type: "particulier", nom: "TESTEUR Alice", prenom: "", adresse: "1 rue Fictive", code_postal: "49000", ville: "Angers", pays: "France", email: "", telephone: "07 99 99 99 99", code_progbat: "TESTEUR ANGERS", progbat_client_id: "151" };
+  assert.equal(A.ficheRelieeIncomplete(avant), true);
+  const { patch } = A.completerDepuisTiers(avant, tiers);
+  assert.deepEqual(patch, { nom: "TESTEUR", prenom: "Alice", email: "alice@exemple.test" }, "téléphone saisi gardé ; nom ProGBat entier mieux rangé");
+  // Nom saisi autrement par l'utilisateur : ni nom ni prénom touchés
+  assert.deepEqual(A.completerDepuisTiers({ ...avant, nom: "Testeur-Martin" }, tiers).patch, { email: "alice@exemple.test" });
+  // Type différent : rien
+  assert.deepEqual(A.completerDepuisTiers({ ...avant, type: "societe" }, tiers).patch, {});
+  // Action serveur
+  const locaux = [{ ...avant }];
+  const appels = [];
+  const ctx = {
+    appelant: BUREAU, maintenant: MAINTENANT,
+    progbat: { async lireTiersUn(id) { appels.push(`GET ${id}`); return id === 151 ? { ok: true, status: 200, data: tiers } : { ok: false, status: 404 }; }, async creerTiers() { throw new Error("ÉCRITURE ProGBat INTERDITE"); } },
+    depot: {
+      async clientParId(id) { return locaux.find((c) => c.id === id) || null; },
+      async completerClient(id, p) { const c = locaux.find((x) => x.id === id); Object.assign(c, p); return { ok: true, client: { ...c } }; },
+    },
+  };
+  assert.equal((await A.traiterRequeteAutomatisation({ action: "relire_client_progbat", clientId: "pas-un-uuid" }, ctx)).body.code, "client_id_invalide");
+  assert.equal((await A.traiterRequeteAutomatisation({ action: "relire_client_progbat", clientId: avant.id }, { ...ctx, appelant: null })).http, 401);
+  const r = await A.traiterRequeteAutomatisation({ action: "relire_client_progbat", clientId: avant.id }, ctx);
+  assert.equal(r.body.ok, true);
+  assert.deepEqual(r.body.champs.sort(), ["email", "nom", "prenom"]);
+  assert.equal(locaux[0].telephone, "07 99 99 99 99");
+  assert.deepEqual(r.body.manquants, []);
+  assert.deepEqual(r.body.notes, []);
+  assert.equal(A.ficheRelieeIncomplete(locaux[0]), false);
+  const r2 = await A.traiterRequeteAutomatisation({ action: "relire_client_progbat", clientId: avant.id }, ctx);
+  assert.deepEqual(r2.body.champs, [], "deuxième relecture : rien à faire");
+  assert.ok(appels.every((a) => a.startsWith("GET")));
+  // Fiche non reliée : refus
+  locaux.push({ ...avant, id: "aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff", progbat_client_id: null });
+  assert.equal((await A.traiterRequeteAutomatisation({ action: "relire_client_progbat", clientId: "aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff" }, ctx)).body.code, "non_relie");
+  // Branchements : adaptateur serveur, bouton, relecture automatique, journal
+  const fn = lire("supabase/functions/progbat-operations/index.ts");
+  assert.match(fn, /async clientParId\(/);
+  assert.match(fn, /async completerClient\(/);
+  assert.match(lire("src/Renovation/ClientsProgbat.jsx"), /Relire depuis ProGBat/);
+  assert.match(lire("src/Renovation/OperationCommercial.jsx"), /useRelectureAutoProgbat\(/);
+  assert.match(lire("src/Renovation/ComposantsCommerciaux.jsx"), /<NoteClientProgbat/);
+  assert.match(lire("src/Renovation/journalMaj.js"), /Client ProGBat existant : toutes ses coordonnées reprises/);
+  assert.deepEqual(verifierCopies(), [], "copies serveur à jour (node scripts/sync-progbat-edge-lib.mjs)");
+});
+
+await test("15e. diagnostic de remplissage : comptes et noms de champs seulement, jamais une valeur", async () => {
+  const D = await imp("src/Renovation/progbatDiagnosticLot4.mjs");
+  const items = [
+    { id: 1, type: 2, legalType: 1, legalName: "TESTEUR Alice", addresses: [{ email: "alice@exemple.test", phone: "" }], contacts: [] },
+    { id: 2, type: 2, legalType: 0, legalName: "SCI FICTIVE", addresses: [], contacts: [{ lastname: "M. Contact" }] },
+  ];
+  const lus = [];
+  const rap = await D.diagnostiquerRemplissageClients({ lire: async (c, { liste }) => { lus.push(c); return liste ? { ok: true, status: 200, data: items } : (/\/(\d+)$/.test(c) ? { ok: true, status: 200, data: items.find((t) => String(t.id) === c.match(/(\d+)$/)[1]) } : { ok: false, status: 404 }); } });
+  assert.equal(rap.details_lus, 2);
+  assert.equal(rap.remplissage_detail["addresses[].email"], 1);
+  assert.equal(rap.remplissage_detail["contacts[] (au moins un)"], 1);
+  assert.equal(rap.decoupage_nom_prenom.decoupes, 1);
+  const texte = JSON.stringify(rap);
+  for (const v of ["alice@exemple.test", "TESTEUR", "SCI FICTIVE", "M. Contact"]) assert.ok(!texte.includes(v), `aucune valeur ne sort (${v})`);
+  assert.ok(lus.every((c) => c.startsWith("/company/thirds")));
 });
 
 console.log(`verif-refonte-lot4 : OK (${n} tests ; faux client HTTP : aucune écriture sans confirmation ni réservation)`);
