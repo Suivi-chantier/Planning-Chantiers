@@ -873,3 +873,55 @@ plus chargé est le mercredi, avec 4 push.
 
 Appareils enregistrés : François Huet, Loris Bessonneau.
 
+
+**09/11/2026, 18h30 — Premier envoi entièrement automatique (relevé en base).**
+Le job `profero_push_point_conducteurs` a tourné à 17h30 UTC (18h30 Paris),
+le passage de 16h30 UTC s'est arrêté sur la garde d'heure comme prévu.
+Envoyé à 18h30:07 : « Point du soir : 6 CR reçus, 1 manquant » (Venceslas)
+et « 1 demande de matériel en attente » (KATHLEEN T2, Steven), push sur les
+téléphones de François et Loris, cloche pour Camille et Matthieu.
+
+## Synthèse de fin de projet (09/11/2026)
+
+**Ce qui a changé**
+- **Conducteurs (et admins, faute de compte conducteur)** : un point du soir
+  à 18h30 sur le téléphone (comptes rendus reçus et manquants, demandes de
+  matériel), les commandes à passer dans les 7 jours (8h05), les chantiers
+  qui passent « à surveiller » ou « critique » (9h05, seulement les
+  aggravations).
+- **Comptable (et admins, au choix de François)** : « factures à émettre »
+  regroupées une fois par jour (8h15, chaque échéance une seule fois) et
+  l'encours fournisseurs du vendredi soir. Les mails existants sont
+  inchangés.
+- **Direction (admins)** : marge à terminaison qui devient négative,
+  nouveau chantier signé (8h45), synthèse de la semaine le lundi (8h30),
+  écart du journal d'avancement (cloche seule).
+- **Ouvriers** : rien, comme voulu.
+- **Pour tous les collaborateurs du bureau** : une cloche avec la boîte de
+  réception, « Mon profil » pour activer le téléphone et couper chaque type,
+  et l'onglet Réglages › Logistique › Notifications pour l'admin (interrupteur
+  général, rôles par type, plage de silence 20h–7h et week-end, suivi).
+
+**Chiffres clés (relevés en base)**
+- Simulation sur 7 jours : 1,7 push par jour au plus (2,4 par jour ouvré),
+  seuil de 3 non atteint.
+- Premiers envois réels le 09/11 : synthèse semaine 45, 14 factures à
+  émettre, 1 commande à passer, point du soir (6 CR, 1 manquant, 1 demande).
+- 2 téléphones enregistrés (François, Loris).
+
+**Points en suspens**
+- **Avant fin 2026** : Supabase abandonne l'ancien format de clé serveur
+  utilisé par Vercel pour appeler `send-push` ; prévoir une clé `sb_secret_`.
+- La demande de matériel de Steven (KATHLEEN T2, 26/10) revient chaque soir
+  tant qu'elle n'est pas traitée.
+- Camille et Matthieu n'ont pas activé les notifications sur leur téléphone
+  (cloche seulement).
+- Devis signés de KATHLEEN T2 et FOUGERAY joints sur l'ancienne étape
+  « Réponse client » : ils ne comptent pas comme signature.
+- DÉPOT et BRIOLLAY « à émettre » avec un prix de vente à 0 €.
+- Le contrôle `verify-refonte-lot4.yml` échoue sur main (hors projet).
+
+**Entrées ajoutées dans `src/Renovation/journalMaj.js`** : notifications sur
+téléphone (profil et test), cloche / préférences / Réglages › Notifications,
+point du soir des conducteurs, alertes chantiers, notifications direction et
+comptable, envois à l'heure exacte.
