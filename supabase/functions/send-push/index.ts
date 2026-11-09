@@ -13,7 +13,8 @@
 //   projet> » (dispatcher Vercel : SUPABASE_SERVICE_ROLE_KEY ; aucun nouveau
 //   secret). Clé acceptée si elle est égale à celle injectée dans la fonction,
 //   listée dans SUPABASE_SECRET_KEYS, ou validée par Supabase Auth
-//   (_partage/pushServeur.estAppelServeur, correctif du 09/11/2026). Relit les réglages (planning_config.notifications_push) à
+//   (_partage/pushServeur.estAppelServeur, correctif du 09/11/2026). Relit
+//   les réglages (planning_config.notifications_push) à
 //   chaque appel, puis le moteur pur _partage/notificationsPushV1.mjs décide :
 //   destinataires par rôle (jamais « ouvrier »), préférences, plage de silence
 //   et report, regroupement (une notification par utilisateur, type et clé :
