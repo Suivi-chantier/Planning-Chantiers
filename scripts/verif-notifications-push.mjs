@@ -224,6 +224,39 @@ test("13. send-push : test ouvert aux collaborateurs, serveur et rattrapage rés
   assert.equal(R.estCleServeur("", ""), false, "clé absente du serveur : refus");
   assert.equal(R.estCleServeur(null, "abc"), false);
   assert.equal(R.estCleServeur("abc", undefined), false);
+  // Appel serveur (09/11/2026 : clé de Vercel ≠ clé injectée dans la fonction).
+  // Exemple issu des tests, données fictives : aucune vraie clé.
+  const jwt = (charge) => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify(charge)).toString("base64url")}.signature-fictive`;
+  const cleService = jwt({ iss: "supabase", role: "service_role", iat: 1 });
+  const autreService = jwt({ iss: "supabase", role: "service_role", iat: 2 });
+  const anon = jwt({ iss: "supabase", role: "anon", iat: 1 });
+  const utilisateur = jwt({ sub: "u-fictif", role: "authenticated" });
+  const secretes = R.lireDictionnaireCles(JSON.stringify({ default: "sb_secret_fictif_1", vercel: "sb_secret_fictif_2" }));
+  const env = { cleService, clesSecretes: secretes, clesPubliques: [anon, "sb_publishable_fictif"] };
+  assert.deepEqual(secretes, ["sb_secret_fictif_1", "sb_secret_fictif_2"]);
+  assert.deepEqual(R.lireDictionnaireCles("pas du json"), []);
+  assert.deepEqual(R.lireDictionnaireCles(undefined), []);
+  assert.deepEqual(R.lireDictionnaireCles('["sb_secret_x"]'), [], "tableau : refusé");
+  assert.equal(R.decisionCleServeur({ jeton: cleService, ...env }), "accepte", "jeton = clé service role");
+  assert.equal(R.decisionCleServeur({ jeton: "sb_secret_fictif_2", ...env }), "accepte", "jeton dans SUPABASE_SECRET_KEYS");
+  assert.equal(R.decisionCleServeur({ jeton: "sb_secret_fictif_2", clesSecretes: secretes }), "accepte", "sans clé service role");
+  assert.equal(R.decisionCleServeur({ jeton: anon, ...env }), "refuse", "clé anon");
+  assert.equal(R.decisionCleServeur({ jeton: anon }), "refuse", "JWT anon même inconnu");
+  assert.equal(R.decisionCleServeur({ jeton: "sb_publishable_fictif", ...env }), "refuse", "clé publishable");
+  assert.equal(R.decisionCleServeur({ jeton: utilisateur, ...env }), "refuse", "jeton utilisateur");
+  assert.equal(R.decisionCleServeur({ jeton: "", ...env }), "refuse", "jeton vide");
+  assert.equal(R.decisionCleServeur({ jeton: null, ...env }), "refuse", "jeton absent");
+  assert.equal(R.decisionCleServeur({ jeton: "", cleService: "" }), "refuse", "tout vide");
+  assert.equal(R.decisionCleServeur({ jeton: "n-importe-quoi", ...env }), "refuse", "format inconnu");
+  assert.equal(R.decisionCleServeur({ jeton: "a.b.c", ...env }), "refuse", "faux JWT");
+  // Clé secrète d'apparence valide mais inconnue de la fonction : Supabase Auth tranche.
+  assert.equal(R.decisionCleServeur({ jeton: autreService, ...env }), "a_verifier");
+  assert.equal(R.decisionCleServeur({ jeton: "sb_secret_inconnue", ...env }), "a_verifier");
+  assert.equal(R.roleDuJeton(utilisateur), "authenticated");
+  assert.equal(R.roleDuJeton("sb_secret_x"), null);
+  assert.equal(R.formeCle(cleService), "jwt:service_role");
+  assert.equal(R.formeCle("sb_secret_fictif_1"), "sb_secret");
+  assert.equal(R.formeCle(""), "absente");
   const t = R.chargeUtileTest();
   assert.equal(t.url, "/");
   assert.ok(t.title && t.body);
@@ -348,11 +381,18 @@ test("21. Edge Functions : JWT exigé, appelant contrôlé avant toute écriture
   assert.match(envoi, /suiteReponseService\(statut\)/);
   // Modes serveur : secret vérifié avant toute lecture.
   const porte = envoi.slice(envoi.indexOf("Deno.serve("));
-  const iSecret = porte.indexOf("if (!estAppelServeur(req)) return");
+  const iSecret = porte.indexOf("if (!(await estAppelServeur(req))) return");
   const iClient = porte.indexOf("clientServeur()");
   assert.ok(iSecret > 0 && iSecret < iClient, "send-push serveur : secret contrôlé avant tout accès");
-  assert.match(lire("supabase/functions/_partage/pushServeur.ts"), /estCleServeur\(extraireJeton\(req\.headers\.get\("Authorization"\)\), Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/);
   const serveur = sansCommentaires(lire("supabase/functions/_partage/pushServeur.ts"));
+  const blocAppel = serveur.slice(serveur.indexOf("export async function estAppelServeur"));
+  assert.match(blocAppel, /decisionCleServeur\(\{/, "décision pure testée ci-dessus");
+  assert.match(blocAppel, /cleService: Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/);
+  assert.match(blocAppel, /lireDictionnaireCles\(Deno\.env\.get\("SUPABASE_SECRET_KEYS"\)\)/);
+  assert.match(blocAppel, /if \(decision === "refuse" \|\| !jeton\) return false/, "refus sans appel réseau");
+  assert.match(serveur, /\/auth\/v1\/admin\/users\?per_page=1/, "dernier recours : Supabase Auth");
+  assert.match(serveur, /ok = rep\.status === 200/, "seul un 200 accepte");
+  assert.ok(!/create_edge_function_secret|console\.log\(.*jeton/.test(serveur), "aucun secret créé ni affiché");
   assert.match(serveur, /rpc\("est_collaborateur_actif"\)/);
   assert.match(serveur, /Deno\.env\.get\("VAPID_PRIVATE_KEY"\)/);
 });

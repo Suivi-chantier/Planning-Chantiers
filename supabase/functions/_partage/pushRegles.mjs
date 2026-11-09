@@ -166,6 +166,78 @@ export function estCleServeur(jeton, cleServeur) {
 }
 
 /**
+ * Lit une variable d'environnement « dictionnaire de clés » de Supabase
+ * (SUPABASE_SECRET_KEYS, SUPABASE_PUBLISHABLE_KEYS) : objet JSON
+ * { "<nom>": "<clé>" }. Illisible ou absente → liste vide (fermé par défaut).
+ * @param {string|null|undefined} texte
+ * @returns {string[]}
+ */
+export function lireDictionnaireCles(texte) {
+  if (!texte) return [];
+  let obj;
+  try { obj = JSON.parse(String(texte)); } catch { return []; }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return [];
+  return Object.values(obj).filter((v) => typeof v === "string" && v.length > 0);
+}
+
+/**
+ * Rôle porté par un jeton au format JWT, lu SANS vérifier la signature (la
+ * vérification reste à la passerelle et à Supabase Auth). Pas un JWT → null.
+ */
+export function roleDuJeton(jeton) {
+  const parties = String(jeton || "").split(".");
+  if (parties.length !== 3 || !parties[1]) return null;
+  try {
+    const b64 = parties[1].replace(/-/g, "+").replace(/_/g, "/");
+    const charge = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+    return typeof charge?.role === "string" ? charge.role : "";
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tranche sur un appel « de serveur à serveur » (send-push, modes serveur et
+ * reportes). Seul un détenteur d'une clé secrète de CE projet doit passer.
+ *   - "accepte"    : jeton égal à la clé service role injectée, ou à l'une des
+ *                    clés de SUPABASE_SECRET_KEYS (comparaisons sans sortie
+ *                    anticipée) ;
+ *   - "refuse"     : jeton vide, clé publique (anon / publishable), jeton
+ *                    utilisateur (JWT dont le rôle n'est pas service_role),
+ *                    format inconnu ;
+ *   - "a_verifier" : JWT service_role ou clé sb_secret_ qui ne correspond à
+ *                    aucune clé connue de la fonction (clé différente d'un
+ *                    côté et de l'autre) → seul Supabase Auth peut trancher,
+ *                    par un appel d'administration qui n'aboutit qu'avec une
+ *                    clé secrète valide du projet (pushServeur.ts).
+ * @param {{ jeton: string|null, cleService?: string, clesSecretes?: string[], clesPubliques?: string[] }} p
+ * @returns {"accepte"|"refuse"|"a_verifier"}
+ */
+export function decisionCleServeur({ jeton, cleService = "", clesSecretes = [], clesPubliques = [] } = {}) {
+  const j = String(jeton || "");
+  if (!j) return "refuse";
+  let accepte = estCleServeur(j, cleService);
+  for (const c of clesSecretes) accepte = estCleServeur(j, c) || accepte;
+  if (accepte) return "accepte";
+  for (const c of clesPubliques) if (estCleServeur(j, c)) return "refuse";
+  if (j.startsWith("sb_secret_")) return "a_verifier";
+  return roleDuJeton(j) === "service_role" ? "a_verifier" : "refuse";
+}
+
+/**
+ * Forme d'une clé, pour le diagnostic (JAMAIS sa valeur) :
+ * "absente", "sb_secret", "sb_publishable", "jwt:<rôle>" ou "autre".
+ */
+export function formeCle(cle) {
+  const c = String(cle || "");
+  if (!c) return "absente";
+  if (c.startsWith("sb_secret_")) return "sb_secret";
+  if (c.startsWith("sb_publishable_")) return "sb_publishable";
+  const role = roleDuJeton(c);
+  return role === null ? "autre" : `jwt:${role || "?"}`;
+}
+
+/**
  * Résumé lisible d'un envoi à plusieurs appareils.
  * @param {Array<{suite: string, ok: boolean}>} resultats
  */

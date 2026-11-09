@@ -9,9 +9,11 @@
 //     (c'est un test demandé à la main).
 //
 // POST { mode: "serveur", type, titre, texte, lien, cle_regroupement?, simulation? }
-//   Réservé au serveur : en-tête « Authorization: Bearer <clé service role> »
-//   (même clé que le dispatcher Vercel, SUPABASE_SERVICE_ROLE_KEY ; aucun
-//   nouveau secret). Relit les réglages (planning_config.notifications_push) à
+//   Réservé au serveur : en-tête « Authorization: Bearer <clé secrète du
+//   projet> » (dispatcher Vercel : SUPABASE_SERVICE_ROLE_KEY ; aucun nouveau
+//   secret). Clé acceptée si elle est égale à celle injectée dans la fonction,
+//   listée dans SUPABASE_SECRET_KEYS, ou validée par Supabase Auth
+//   (_partage/pushServeur.estAppelServeur, correctif du 09/11/2026). Relit les réglages (planning_config.notifications_push) à
 //   chaque appel, puis le moteur pur _partage/notificationsPushV1.mjs décide :
 //   destinataires par rôle (jamais « ouvrier »), préférences, plage de silence
 //   et report, regroupement (une notification par utilisateur, type et clé :
@@ -38,6 +40,8 @@
 // GET : auto-contrôle sans envoi ni secret — vérifie que la bibliothèque
 // charge et chiffre (clés jetables générées à la volée) et dit si les clés
 // VAPID du serveur sont configurées. Sert au contrôle après déploiement.
+// Donne aussi la FORME des clés serveur vues par la fonction (« jwt:service_role »,
+// « sb_secret »…), jamais leur valeur.
 //
 // Bibliothèque : npm:web-push (chiffrement aes128gcm + signature VAPID).
 // Secrets : VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT.
@@ -48,7 +52,7 @@ import webpush from "npm:web-push@3.6.7"
 import { createECDH, randomBytes } from "node:crypto"
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import {
-  clientServeur, corsHeaders, estAppelServeur, identifierAppelant, json, lireClesVapid,
+  clientServeur, corsHeaders, diagnosticClesServeur, estAppelServeur, identifierAppelant, json, lireClesVapid,
 } from "../_partage/pushServeur.ts"
 import {
   chargeUtileTest, resumerEnvoi, suiteReponseService, validerDemandeSendPush,
@@ -412,6 +416,7 @@ Deno.serve(async (req) => {
       ...(chiffrement.erreur ? { chiffrement_erreur: chiffrement.erreur } : {}),
       configure: cles.ok,
       ...(cles.ok ? {} : { manquantes: cles.manquantes }),
+      cles_serveur: diagnosticClesServeur(),
     }, chiffrement.ok ? 200 : 500)
   }
   if (req.method !== "POST") return json({ error: "Méthode non autorisée." }, 405)
@@ -423,7 +428,7 @@ Deno.serve(async (req) => {
 
     if (demande.serveur) {
       // Secret serveur vérifié AVANT toute lecture.
-      if (!estAppelServeur(req)) return json({ error: "Réservé aux appels du serveur." }, 401)
+      if (!(await estAppelServeur(req))) return json({ error: "Réservé aux appels du serveur." }, 401)
       const admin = clientServeur()
       if (!admin) return json({ error: "Configuration serveur incomplète." }, 500)
       return demande.mode === "reportes" ? await modeReportes(admin) : await modeServeur(admin, corps)
