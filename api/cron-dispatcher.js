@@ -2,7 +2,8 @@
 //
 // Plan Vercel Hobby = 12 fonctions serverless maximum, et les crons Vercel
 // natifs sont désactivés sur ce plan depuis fin 2024. Les créneaux vivent donc
-// dans GitHub Actions (.github/workflows/), qui appelle cette unique fonction ;
+// dans GitHub Actions (.github/workflows/) ou, pour les notifications sur
+// téléphone, dans pg_cron (Supabase) ; tous appellent cette unique fonction ;
 // les handlers métier vivent dans api/_cron/, un dossier NON déployé en
 // fonctions. Ajouter une tâche n'ajoute ainsi aucune fonction.
 //
@@ -27,32 +28,26 @@
 //   Lun-Ven 05h UTC        → tableau de bord Invest par mail (?job=)
 //   Tous les jours 21h30 UTC → contrôle du journal d'avancement (?job=)
 //   Lun-Ven 06h15 UTC      → relances devis / acompte         (?job=)
-//   Lun-Ven 05h05 et 06h05 UTC → push reportés (?job=push_reportes) : l'un des
-//     deux tombe à 7h05 Paris selon la saison, l'autre ne trouve rien à faire
-//     (cron-push-reportes.yml)
-//   Lun-Ven 06h15 et 07h15 UTC → push F1 « facture à émettre »
-//     (?job=factures_a_emettre&pas_avant=8) : avant 8h Paris l'appel est
-//     ignoré, donc il part à 8h15 Paris en hiver comme en été ; le second
-//     passage d'été (9h15) ne renvoie rien de nouveau (cron-factures-a-emettre.yml)
-//   Lun-Ven 06h05 et 07h05 UTC → matériaux à commander (?job=push_materiaux) :
-//     celui qui tombe avant 8h Paris ne fait rien, l'autre envoie vers 8h05
-//     (cron-push-materiaux.yml)
-//   Lun-Ven 16h30 et 17h30 UTC → point du soir des conducteurs, C1 + C2
-//     (?job=point_conducteurs&pas_avant=18:30) : avant 18h30 Paris l'appel est
-//     ignoré, donc il part à 18h30 Paris en hiver comme en été ; le second
-//     passage d'été (19h30) voit le point déjà écrit et ne renvoie rien
-//     (cron-point-conducteurs.yml)
-//   Lun-Ven 07h05 et 08h05 UTC → alertes chantiers C4 / C5 / D1
-//     (?job=alertes_chantiers&pas_avant=9) : avant 9h Paris l'appel est
-//     ignoré, donc il part à 9h05 Paris en hiver comme en été ; le second
-//     passage d'été (10h05) ne trouve rien de nouveau (cron-alertes-chantiers.yml)
-//   Lun-Ven 06h45 et 07h45 UTC → D2 « nouveau chantier signé »
-//     (?job=nouveaux_chantiers&pas_avant=8) : avant 8h Paris l'appel est
-//     ignoré, donc il part à 8h45 Paris en hiver comme en été ; le second
-//     passage d'été (9h45) ne trouve rien de nouveau (cron-push-nouveaux-chantiers.yml)
-//   Lundi 06h30 et 07h30 UTC → D3 « synthèse de la semaine »
-//     (?job=synthese_semaine&pas_avant=8) : 8h30 Paris en hiver comme en été,
-//     une notification par semaine (cron-push-synthese-semaine.yml)
+//
+// Notifications sur téléphone : créneaux tenus par la BASE, pas par GitHub.
+// Les « schedule » GitHub de ces 7 tâches ne partaient pas, ou avec des heures
+// de retard (constat du 09/11/2026). Depuis, pg_cron + pg_net (Supabase)
+// appellent `?job=` à la minute près, avec le CRON_SECRET lu dans Supabase
+// Vault (nom `cron_secret`) — supabase/migrations/20261109140000_cron_notifications_push.sql.
+// Chaque job pg_cron est planifié sur les deux heures UTC possibles (été /
+// hiver) et ne fait rien si l'heure de Paris n'est pas la bonne : un seul
+// appel par jour, à l'heure de Paris, été comme hiver. Le `pas_avant` reste
+// passé en seconde garde. Les workflows GitHub du même nom ne servent plus
+// qu'au lancement à la main (simulation par défaut).
+//   Lun-Ven 7h05 Paris   → push reportés        (?job=push_reportes)
+//   Lun-Ven 8h05 Paris   → C3 commandes à passer (?job=push_materiaux ; le job
+//                          ignore lui-même tout appel avant 8h Paris)
+//   Lun-Ven 8h15 Paris   → F1 facture à émettre (?job=factures_a_emettre&pas_avant=8)
+//   Lundi   8h30 Paris   → D3 synthèse de la semaine (?job=synthese_semaine&pas_avant=8)
+//   Lun-Ven 8h45 Paris   → D2 nouveau chantier signé (?job=nouveaux_chantiers&pas_avant=8)
+//   Lun-Ven 9h05 Paris   → C4 / C5 / D1 alertes chantiers (?job=alertes_chantiers&pas_avant=9)
+//   Lun-Ven 18h30 Paris  → C1 + C2 point du soir des conducteurs
+//                          (?job=point_conducteurs&pas_avant=18:30)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");

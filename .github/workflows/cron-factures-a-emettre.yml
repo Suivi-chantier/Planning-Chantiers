@@ -7,22 +7,19 @@ name: Facture à émettre — notification F1 (8h15, jours ouvrés)
 # (src/Renovation/factureAEmettre.mjs). Le MAIL n'est pas envoyé par ce job :
 # il reste envoyé par la fiche chantier, comme avant.
 #
-# Heure d'été / heure d'hiver : un cron GitHub est en UTC. Plutôt qu'un seul
-# créneau à corriger deux fois par an, DEUX créneaux, et le job ignore tout
-# appel avant 8h Paris (&pas_avant=8) :
-#   06h15 UTC = 08h15 Paris en été   (07h15 en hiver : ignoré)
-#   07h15 UTC = 08h15 Paris en hiver (09h15 en été : passage sans doublon,
-#                                     chaque push n'existe qu'une fois)
+# Créneau planifié : il n'est PLUS ici. Les « schedule » GitHub ne partaient
+# pas, ou avec des heures de retard (constat du 09/11/2026). C'est la base
+# Supabase qui appelle le dispatcher, à la minute près (8h15 Paris, jours ouvrés,
+# été comme hiver) : job pg_cron « profero_push_factures_a_emettre »,
+# supabase/migrations/20261109140000_cron_notifications_push.sql.
+# Ce workflow ne sert plus qu'au lancement à la main.
 #
 # Bouton « Run workflow » : simulation cochée (par défaut) = liste de ce qui
 # serait envoyé, échéance par échéance, sans rien envoyer ni écrire.
 #
-# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+# Secret requis : CRON_SECRET (secret GitHub, pour le lancement à la main).
 
 on:
-  schedule:
-    - cron: '15 6 * * 1-5'     # Lun-Ven 06h15 UTC → 08h15 Paris (été)
-    - cron: '15 7 * * 1-5'     # Lun-Ven 07h15 UTC → 08h15 Paris (hiver)
   workflow_dispatch:
     inputs:
       simulation:
@@ -38,16 +35,13 @@ jobs:
       - name: Call /api/cron-dispatcher?job=factures_a_emettre
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          EVENEMENT: ${{ github.event_name }}
           SIMULATION: ${{ github.event.inputs.simulation }}
         run: |
           if [ -z "$CRON_SECRET" ]; then
             echo "::error::CRON_SECRET secret manquant"
             exit 1
           fi
-          if [ "$EVENEMENT" = "schedule" ]; then
-            job="factures_a_emettre&pas_avant=8"
-          elif [ "$SIMULATION" = "true" ]; then
+          if [ "$SIMULATION" = "true" ]; then
             job="factures_a_emettre&simulation=1"
           else
             job="factures_a_emettre"

@@ -5,24 +5,20 @@ name: Notifications reportées (7h05, jours ouvrés)
 # heure de Paris) est écrite tout de suite dans la boîte de réception ; son push
 # part au premier créneau autorisé. Ce créneau envoie ceux dont l'heure est venue.
 #
-# Heure d'été / heure d'hiver : un cron GitHub est en UTC. Plutôt qu'un seul
-# créneau à corriger deux fois par an, DEUX créneaux :
-#   05h05 UTC = 07h05 Paris en été  (06h05 en hiver : rien n'est encore dû,
-#                                     le premier créneau autorisé est 7h00)
-#   06h05 UTC = 07h05 Paris en hiver (08h05 en été : tout est déjà parti)
-# Le job est sans doublon (une notification envoyée quitte l'état « reporté »),
-# donc le passage « inutile » ne fait rien.
+# Créneau planifié : il n'est PLUS ici. Les « schedule » GitHub ne partaient
+# pas, ou avec des heures de retard (constat du 09/11/2026). C'est la base
+# Supabase qui appelle le dispatcher, à la minute près (7h05 Paris, jours ouvrés,
+# été comme hiver) : job pg_cron « profero_push_reportes »,
+# supabase/migrations/20261109140000_cron_notifications_push.sql.
+# Ce workflow ne sert plus qu'au lancement à la main.
 #
 # Bouton « Run workflow » : sans type, rejoue le rattrapage ; avec un type
 # (ex. D2), lance une SIMULATION sans envoi ni écriture sur les vrais
 # utilisateurs (?job=push_simulation&type=…).
 #
-# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+# Secret requis : CRON_SECRET (secret GitHub, pour le lancement à la main).
 
 on:
-  schedule:
-    - cron: '5 5 * * 1-5'      # Lun-Ven 05h05 UTC → 07h05 Paris (été)
-    - cron: '5 6 * * 1-5'      # Lun-Ven 06h05 UTC → 07h05 Paris (hiver)
   workflow_dispatch:
     inputs:
       simulation_type:

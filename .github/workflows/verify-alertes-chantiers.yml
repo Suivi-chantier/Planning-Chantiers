@@ -19,6 +19,7 @@ on:
       - 'src/chantierFinance.mjs'
       - 'supabase/functions/_partage/notificationsPushV1.mjs'
       - 'api/cron-dispatcher.js'
+      - 'supabase/migrations/*_cron_notifications_push.sql'
       - 'api/_cron/cron-alertes-chantiers.js'
       - 'api/_cron/cron-push-reportes.js'
       - '.github/workflows/cron-alertes-chantiers.yml'

@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-11-09",
+    type: "correctif",
+    titre: "Les notifications automatiques partent maintenant à l'heure exacte",
+    pages: [],
+    quoi: "Les notifications sur téléphone envoyées à heure fixe (notifications reportées de la nuit à 7h05, commandes à passer à 8h05, facture à émettre à 8h15, synthèse de la semaine le lundi à 8h30, nouveau chantier signé à 8h45, alertes chantiers à 9h05, point du soir des conducteurs à 18h30) dépendaient d'un planificateur extérieur qui ne garantissait pas l'heure : certaines ne partaient pas du tout, d'autres avec plusieurs heures de retard. Elles sont désormais déclenchées par la base de données de l'application, à la minute près, à l'heure de Paris, en hiver comme en été.",
+    comment: "Rien à faire pour les utilisateurs : les horaires restent les mêmes, du lundi au vendredi (le lundi seulement pour la synthèse de la semaine). Les réglages de chacun (Réglages › Notifications, plage de silence) s'appliquent comme avant. Le déclenchement s'appuie sur une clé d'accès enregistrée une fois dans le coffre-fort de la base : tant qu'elle n'est pas saisie, aucun envoi ne part, et l'absence de clé est signalée dans le suivi des tâches de la base.",
+  },
+  {
     date: "2026-11-07",
     type: "correctif",
     titre: "Client ProGBat existant : toutes ses coordonnées reprises, plus de bandeau rouge « fiche incomplète »",

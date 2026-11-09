@@ -668,7 +668,7 @@ test("38. boîte de réception : appelant identifié, toujours limitée à ses p
   assert.match(code, /vue === "compteur"/);
 });
 
-test("39. rattrapage : job ?job=push_reportes, deux créneaux 7h05 (été / hiver), aucune fonction Vercel ajoutée", () => {
+test("39. rattrapage : job ?job=push_reportes, créneau pg_cron 7h05 Paris (été / hiver), aucune fonction Vercel ajoutée", () => {
   const disp = lire("api/cron-dispatcher.js");
   assert.match(disp, /push_reportes: \{\s*fenetre: null,/);
   assert.match(disp, /require\("\.\/_cron\/cron-push-reportes\.js"\)/);
@@ -678,8 +678,11 @@ test("39. rattrapage : job ?job=push_reportes, deux créneaux 7h05 (été / hive
   assert.match(job, /process\.env\.SUPABASE_SERVICE_ROLE_KEY/);
   assert.ok(!/VITE_SUPABASE_KEY/.test(job), "jamais la clé anon");
   const wf = lire(".github/workflows/cron-push-reportes.yml");
-  assert.match(wf, /cron: '5 5 \* \* 1-5'/);
-  assert.match(wf, /cron: '5 6 \* \* 1-5'/);
+  // Créneau tenu par la base (pg_cron), plus par GitHub — détail : verif-cron-notifications.mjs.
+  assert.ok(!/^\s*schedule:/m.test(wf), "plus de schedule GitHub");
+  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  assert.match(migr, /'profero_push_reportes',\s*'5 5,6 \* \* 1-5'/);
+  assert.match(migr, /cron-dispatcher\?job=push_reportes'/);
   assert.match(wf, /job=push_reportes/);
   // Plafond des 12 fonctions Vercel : rien de nouveau à la racine de api/.
   const fonctions = readdirSync(chemin("api")).filter((f) => !f.startsWith("_"));

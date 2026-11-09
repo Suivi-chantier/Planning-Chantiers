@@ -426,7 +426,7 @@ test("17. le job n'écrit que dans notifications_etat, n'envoie aucun mail", () 
 });
 
 // ── 4. Branchements ──────────────────────────────────────────────────────────
-test("18. dispatcher, créneau GitHub (été / hiver, simulation à la main), workflow de vérification", () => {
+test("18. dispatcher, créneau pg_cron 9h05 Paris (été / hiver), simulation à la main sur GitHub, workflow de vérification", () => {
   const disp = lire("api/cron-dispatcher.js");
   assert.match(disp, /require\("\.\/_cron\/cron-alertes-chantiers\.js"\)/);
   assert.match(disp, /alertes_chantiers:\s*\{\s*fenetre:\s*null/);
@@ -434,9 +434,11 @@ test("18. dispatcher, créneau GitHub (été / hiver, simulation à la main), wo
     assert.match(disp, new RegExp(`${job}:\\s*\\{`), `job ${job} conservé`);
   }
   const wf = lire(".github/workflows/cron-alertes-chantiers.yml");
-  assert.match(wf, /cron: '5 7 \* \* 1-5'/);
-  assert.match(wf, /cron: '5 8 \* \* 1-5'/);
-  assert.match(wf, /job="alertes_chantiers&pas_avant=9"/);
+  // Créneau tenu par la base (pg_cron), plus par GitHub — détail : verif-cron-notifications.mjs.
+  assert.ok(!/^\s*schedule:/m.test(wf), "plus de schedule GitHub");
+  const migr = lire("supabase/migrations/20261109140000_cron_notifications_push.sql");
+  assert.match(migr, /'profero_push_alertes_chantiers',\s*'5 7,8 \* \* 1-5'/);
+  assert.match(migr, /cron-dispatcher\?job=alertes_chantiers&pas_avant=9'/);
   assert.match(wf, /workflow_dispatch:/);
   assert.match(wf, /default: true/);
   assert.match(wf, /job="alertes_chantiers&simulation=1"/);

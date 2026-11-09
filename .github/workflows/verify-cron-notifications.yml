@@ -1,0 +1,20 @@
+name: Verify Créneaux des notifications (pg_cron)
+
+# Sur toutes les demandes de fusion (sans filtre de chemins) : le contrôle
+# « aucune valeur de secret dans le dépôt » porte sur tout le dépôt.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Créneaux des notifications — 7 jobs pg_cron à l'heure de Paris (été / hiver), plus de schedule GitHub, aucun secret dans le dépôt
+        run: node scripts/verif-cron-notifications.mjs

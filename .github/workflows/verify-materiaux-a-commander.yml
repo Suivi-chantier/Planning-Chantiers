@@ -6,6 +6,7 @@ on:
       - 'src/Renovation/materiauxACommanderV1.mjs'
       - 'src/Renovation/materiauxACommanderV1.js'
       - 'api/cron-dispatcher.js'
+      - 'supabase/migrations/*_cron_notifications_push.sql'
       - 'api/_cron/cron-recap-commandes.js'
       - 'api/_cron/cron-push-materiaux.js'
       - 'api/_cron/cron-push-reportes.js'
