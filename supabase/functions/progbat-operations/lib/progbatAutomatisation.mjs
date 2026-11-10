@@ -364,6 +364,49 @@ export function construireCorpsChantier({ thirdId = null, projet = {}, client = 
   return { ok: erreurs.length === 0, corps, erreurs, sans_responsable: mid == null };
 }
 
+// ─── Code du chantier ProGBat : toujours unique (correctif du 10/11/2026) ────
+// ProGBat refuse (409 « A business already exists with this code ») un code
+// déjà porté par un autre chantier. Deux chantiers de l'application pour le
+// même client et la même référence (ex. deux « … — Communs ») produisaient le
+// même code généré. Le serveur lit donc les codes existants (GET
+// /company/business) et prend le premier libre : base, « base 2 », « base 3 »…
+
+/** Clé de comparaison d'un code : sans casse, sans accents, sans espaces. */
+export function cleCodeProgbat(code) {
+  return str(code).normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, "");
+}
+
+/**
+ * Premier code libre : `base` s'il n'est pas pris, sinon `base 2`, `base 3`…
+ *   codesExistants : codes des chantiers ProGBat (chaînes), comparés par cleCodeProgbat.
+ * "" si la base est vide.
+ */
+export function codeChantierLibre(base, codesExistants = []) {
+  const b = str(base).replace(/\s+/g, " ");
+  if (!b) return "";
+  const pris = new Set((Array.isArray(codesExistants) ? codesExistants : []).map(cleCodeProgbat).filter(Boolean));
+  if (!pris.has(cleCodeProgbat(b))) return b;
+  for (let i = 2; i < 10000; i++) {
+    const c = `${b} ${i}`;
+    if (!pris.has(cleCodeProgbat(c))) return c;
+  }
+  return "";
+}
+
+/** Identifiant du chantier ProGBat qui porte déjà ce code (liste lue), sinon null. */
+export function chantierPortantCode(code, affaires = []) {
+  const k = cleCodeProgbat(code);
+  if (!k) return null;
+  const a = (Array.isArray(affaires) ? affaires : []).find((x) => cleCodeProgbat(x?.code) === k);
+  return a ? idProgbat(a.id) : null;
+}
+
+/** Message d'un code refusé par ProGBat (409), avec le n° du chantier qui le porte s'il est connu. */
+export function messageCodePris(code, businessId = null) {
+  const id = idProgbat(businessId);
+  return `Un chantier ProGBat porte déjà ce code : « ${str(code)} »${id != null ? ` (chantier ProGBat n° ${id})` : ""}. Rien n'a été créé dans ProGBat ; relancer « Créer le chantier dans ProGBat » : un autre code sera proposé.`;
+}
+
 /** Corps de POST /company/quotes/{quoteId}/advance-bill. */
 export function construireCorpsAcompte() {
   return { advanceRate: TAUX_ACOMPTE };
@@ -547,7 +590,7 @@ export function controlerAppelant(appelant) {
  *   envoyer()    : fait le POST (adaptateur), appelé UNE fois au plus
  * → { statut, rep, reservationId, message }
  */
-export async function ecrireAvecReservation({ cible, cle, corps, hash, appelant, depot, envoyer, maintenant }) {
+export async function ecrireAvecReservation({ cible, cle, corps, hash, appelant, depot, envoyer, maintenant, reessayer409 = null, decrireEchec = null }) {
   const reservation = await depot.reserverEcriture({
     cible, cle: String(cle), statut: "creating", payload_hash: hash,
     created_by: appelant?.id ?? null, created_by_email: str(appelant?.email) || null,
@@ -561,21 +604,35 @@ export async function ecrireAvecReservation({ cible, cle, corps, hash, appelant,
         : `Réservation impossible (${nettoyerMessage(reservation?.erreur)}) : rien n'a été envoyé à ProGBat.`,
     };
   }
-  const rep = await envoyer(corps);
+  let envoye = corps;
+  let rep = await envoyer(envoye);
+  const details = { endpoint: ENDPOINTS[cible] };
+  // Conflit (409) : UN seul nouvel essai, sous la MÊME réservation, si
+  // l'appelant sait proposer un autre corps (chantier : code suivant).
+  if (rep && !rep.ok && Number(rep.status) === 409 && typeof reessayer409 === "function") {
+    const autre = await reessayer409(rep, envoye);
+    if (autre && typeof autre === "object") {
+      details.reessai_409 = { code_refuse: str(envoye?.code) || null, code_essaye: str(autre?.code) || null };
+      envoye = autre;
+      rep = await envoyer(envoye);
+    }
+  }
   const statut = classerResultat(rep);
   const fin = new Date(maintenant.getTime()).toISOString();
+  const echec = statut === "created" ? null : ((typeof decrireEchec === "function" ? decrireEchec(rep, envoye) : null) || messageEchec(cible, rep));
   const patch = {
     statut, http_status: rep?.status ?? null, finished_at: fin,
     progbat_id: statut === "created" ? idProgbat(rep.data.id) : null,
-    progbat_code: statut === "created" ? (str(rep.data.code) || null) : null,
-    message: statut === "created" ? null : messageEchec(cible, rep),
+    progbat_code: statut === "created" ? (str(rep.data.code) || str(envoye?.code) || null) : null,
+    message: echec,
   };
+  if (details.reessai_409) patch.details = details;
   const maj = await depot.majEcriture(reservation.id, patch);
   if (!maj?.ok && statut === "created") {
     // Créé dans ProGBat mais pas noté : on le dit, on ne rejoue rien.
     return { statut: "uncertain", rep, reservationId: reservation.id, message: `Créé dans ProGBat (identifiant ${patch.progbat_id}) mais l'enregistrement dans Profero a échoué : NE PAS recréer, signaler l'identifiant ${patch.progbat_id}.` };
   }
-  return { statut, rep, reservationId: reservation.id, message: patch.message, progbat_id: patch.progbat_id, progbat_code: patch.progbat_code };
+  return { statut, rep, reservationId: reservation.id, message: patch.message, progbat_id: patch.progbat_id, progbat_code: patch.progbat_code, corps: envoye, reessai_409: details.reessai_409 || null };
 }
 
 // ─── Point d'entrée de l'Edge Function progbat-operations ────────────────────
@@ -597,7 +654,8 @@ export async function ecrireAvecReservation({ cible, cle, corps, hash, appelant,
  *   lireTiers(type) → { ok, items } | { ok: false, status, message }
  *   lireTiersUn(id) → { ok, data } | ...
  *   creerTiers(corps) → réponse POST
- *   creerAffaire(corps) → réponse POST
+ *   lireAffaires() → { ok, items } | ...   (GET /company/business : codes existants)
+ *   creerAffaire(corps) → réponse POST (au plus 2 : nouvel essai unique sur 409)
  *   lireYards(businessId) → { ok, items } | ...
  *   lireDevis(quoteId) → { ok, data } | ...
  *   facturesDuDevis(quoteId) → { ok, items } | ...   (lecture des factures)
@@ -719,18 +777,62 @@ export async function traiterRequeteAutomatisation(requete = {}, { appelant, dep
     if (!chantier) return non("chantier_absent", "Chiffrage non rattaché à un chantier.");
     const mid = idProgbat(managers[chargeAffairesEffectifId(chantier, operation)]);
     const c = construireCorpsChantier({ thirdId: client?.progbat_client_id, projet, client: client || {}, clientAffichage: affichageClient(client), managerId: mid });
-    const hash = empreinte("chantier", c.corps);
+    // Garde anti-doublon PAR CHANTIER de l'application : déjà relié
+    // (chantiers.progbat_business_id) ou réservation active (cle = chantiers.id).
     const blocage = evaluerBlocage("chantier", resumerEcriture(ecritures.chantier, maintenant), { dejaLie: idProgbat(chantier.progbat_business_id) });
+    // Code unique : lecture des codes existants (GET /company/business) et
+    // premier code libre. Sans lecture possible, aucune création.
+    const codeBase = str(c.corps.code);
+    let codeInfo = null;
+    let affaires = [];
+    const lireAffaires = async () => {
+      const r = typeof progbat.lireAffaires === "function" ? await progbat.lireAffaires() : { ok: false, status: 0, message: "lecture non branchée" };
+      return r?.ok ? { ok: true, items: Array.isArray(r.items) ? r.items : [] } : { ok: false, raison: `Lecture des chantiers ProGBat impossible (${r?.status === 403 ? "droit ProGBat manquant : business.read (403)" : nettoyerMessage(r?.message) || `erreur ${r?.status || "réseau"}`}) : le code du chantier ne peut pas être vérifié, aucune création possible pour l'instant.` };
+    };
+    if (!blocage.bloque && codeBase) {
+      const la = await lireAffaires();
+      if (!la.ok) {
+        if (action === "creer_chantier") return non("lecture_impossible", la.raison);
+        c.erreurs.push(la.raison); c.ok = false;
+      } else {
+        affaires = la.items;
+        const libre = codeChantierLibre(codeBase, affaires.map((a) => a?.code));
+        if (!libre) { c.erreurs.push("Aucun code de chantier ProGBat libre trouvé."); c.ok = false; }
+        else {
+          c.corps.code = libre;
+          if (libre !== codeBase) {
+            const pris = chantierPortantCode(codeBase, affaires);
+            codeInfo = `Le code « ${codeBase} » est déjà utilisé dans ProGBat${pris != null ? ` (chantier ProGBat n° ${pris})` : ""} : ce chantier prendra le code « ${libre} ».`;
+          }
+        }
+      }
+    }
+    const hash = empreinte("chantier", c.corps);
     const info = c.sans_responsable ? "Correspondance du chargé d'affaires avec ProGBat inconnue : le chantier ProGBat sera créé sans responsable (Réglages → Outils → ProGBat : chargés d'affaires)." : null;
-    if (action === "preparer_chantier") return ok({ aucune_ecriture: true, corps: c.corps, erreurs: c.erreurs, hash, blocage: blocage.bloque ? blocage : null, info, endpoint: ENDPOINTS.chantier, droit: DROITS.chantier });
+    if (action === "preparer_chantier") return ok({ aucune_ecriture: true, corps: c.corps, erreurs: c.erreurs, hash, blocage: blocage.bloque ? blocage : null, info, code_chantier: str(c.corps.code) || null, code_info: codeInfo, endpoint: ENDPOINTS.chantier, droit: DROITS.chantier });
     if (requete.confirmed !== true) return non("confirmation_requise", "Confirmation explicite requise.");
     if (blocage.bloque) return non(blocage.code, blocage.message);
     if (!c.ok) return non("chantier_incomplet", `Informations incomplètes : ${c.erreurs.join(" ; ")}`);
-    if (str(requete.expectedHash) !== hash) return non("hash_different", "Les informations du chantier ont changé depuis l'aperçu : relire l'aperçu puis confirmer.");
-    const w = await ecrireAvecReservation({ cible: "chantier", cle: chantier.id, corps: c.corps, hash, appelant, depot, envoyer: (corps) => progbat.creerAffaire(corps), maintenant });
+    if (str(requete.expectedHash) !== hash) return non("hash_different", "Les informations du chantier ont changé depuis l'aperçu (le code ProGBat a peut-être dû changer) : relire l'aperçu puis confirmer.");
+    // 409 malgré la vérification (chantier créé entre-temps dans ProGBat) :
+    // UN seul nouvel essai avec le code libre suivant, sous la même réservation.
+    let conflitId = null;
+    const reessayer409 = async (_rep, envoye) => {
+      const la = await lireAffaires();
+      if (la.ok) affaires = la.items;
+      const suivant = codeChantierLibre(codeBase, [...affaires.map((a) => a?.code), str(envoye?.code)]);
+      return suivant ? { ...envoye, code: suivant } : null;
+    };
+    const decrireEchec = (rep, envoye) => {
+      if (Number(rep?.status) !== 409) return null;
+      conflitId = chantierPortantCode(envoye?.code, affaires);
+      return messageCodePris(envoye?.code, conflitId);
+    };
+    const w = await ecrireAvecReservation({ cible: "chantier", cle: chantier.id, corps: c.corps, hash, appelant, depot, envoyer: (corps) => progbat.creerAffaire(corps), maintenant, reessayer409, decrireEchec });
     await rafraichir();
     if (w.statut === "refuse") return non("reservation_refusee", w.message);
-    if (w.statut !== "created") return { http: 200, body: { ok: false, action, code: w.statut === "uncertain" ? "etat_incertain" : "progbat_refus", statut: w.statut, error: w.message, progbat_status: w.rep?.status ?? null, a_faire_par_loris: w.rep?.status === 403 ? `Ajouter le droit ${DROITS.chantier}` : null, etapes: etat() }, journal: { action, projectId, statut: w.statut, http: w.rep?.status ?? 0 } };
+    if (w.statut !== "created") return { http: 200, body: { ok: false, action, code: w.statut === "uncertain" ? "etat_incertain" : w.rep?.status === 409 ? "code_deja_pris" : "progbat_refus", statut: w.statut, error: w.message, progbat_status: w.rep?.status ?? null, conflit_business_id: conflitId, a_faire_par_loris: w.rep?.status === 403 ? `Ajouter le droit ${DROITS.chantier}` : null, etapes: etat() }, journal: { action, projectId, statut: w.statut, http: w.rep?.status ?? 0, reessai_409: !!w.reessai_409 } };
+    c.corps = w.corps || c.corps;
     const businessId = w.progbat_id;
     // Yard : dans la réponse, sinon relecture (GET uniquement).
     let yard = extraireYard({ reponse: w.rep?.data, yardLabel: c.corps.yardLabel });
@@ -744,7 +846,7 @@ export async function traiterRequeteAutomatisation(requete = {}, { appelant, dep
     if (yard.yardId != null) await depot.enregistrerYard(chantier.id, yard);
     const report = reportProjets(ctx.projetsChantier || [projet], { thirdId: client?.progbat_client_id, businessId, yardId: yard.yardId });
     if (report.length) await depot.majProjets(report);
-    return ok({ statut: "created", businessId, yardId: yard.yardId, yard_raison: yard.raison || null, info, message: `Chantier créé dans ProGBat (n° ${businessId}${yard.yardId ? `, chantier technique ${yard.yardId}` : ""}).` }, { statut: "created", businessId, yardId: yard.yardId });
+    return ok({ statut: "created", businessId, yardId: yard.yardId, yard_raison: yard.raison || null, info, code_chantier: chantier.progbat_business_code, message: `Chantier créé dans ProGBat (n° ${businessId}, code « ${chantier.progbat_business_code} »${yard.yardId ? `, chantier technique ${yard.yardId}` : ""}).${w.reessai_409 ? ` Le code « ${w.reessai_409.code_refuse} » venait d'être pris dans ProGBat : le code suivant a été utilisé.` : ""}` }, { statut: "created", businessId, yardId: yard.yardId, reessai_409: !!w.reessai_409 });
   }
 
   // ── relecture du yard d'un chantier ProGBat déjà créé (GET uniquement) ──

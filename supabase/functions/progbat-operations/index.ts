@@ -21,6 +21,7 @@ import { traiterRequeteAutomatisation, nettoyerMessage, CLE_MANAGERS } from "./l
 // importer_client_progbat, relire_client_progbat (07/11 : complète les champs
 // vides d'une fiche reliée) — LECTURE ProGBat seulement.
 // LECTURES (GET) : /company/thirds?type=2|4, /company/thirds/{id},
+//   /company/business (codes existants : code de chantier toujours unique),
 //   /company/business/{id}/yards, /company/quotes/{id}, /company/bills.
 //
 // Jetons : PROGBAT_PRIVATE_ACCESS_TOKEN (celui des devis) pour les écritures et
@@ -247,6 +248,9 @@ serve(async (req) => {
       },
       async lireTiersUn(id: number) { return await appel("GET", `/company/thirds/${encodeURIComponent(String(id))}`, jeton) },
       async creerTiers(corps: unknown) { cacheTiers.clear(); return await appel("POST", "/company/thirds", jeton, corps) },
+      // Codes des chantiers ProGBat existants (10/11) : le code d'un nouveau
+      // chantier est choisi libre AVANT l'écriture (plus de 409 « code déjà pris »).
+      async lireAffaires() { return await lireTout("/company/business") },
       async creerAffaire(corps: unknown) { return await appel("POST", "/company/business", jeton, corps) },
       async lireYards(businessId: number) { return await lireTout(`/company/business/${encodeURIComponent(String(businessId))}/yards`) },
       async lireDevis(quoteId: number) { return await lire(`/company/quotes/${encodeURIComponent(String(quoteId))}`) },
