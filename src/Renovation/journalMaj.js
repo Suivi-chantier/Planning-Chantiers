@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-11-10",
+    type: "correctif",
+    titre: "« Créer le chantier dans ProGBat » : plus d'erreur « conflit (409) » quand deux chantiers ont le même nom",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Deux chantiers différents d'un même client, nommés pareil (par exemple deux « Communs » chez le même propriétaire), recevaient le même code ProGBat. ProGBat refuse deux chantiers avec le même code : le second échouait avec « ProGBat signale un conflit (409) ». Le code est maintenant toujours unique : si le code prévu est déjà pris dans ProGBat, le chantier prend le même code suivi de « 2 », puis « 3 », etc.",
+    comment: "Rien à faire en plus : au clic sur « Créer le chantier dans ProGBat », l'application regarde les codes déjà utilisés dans ProGBat et l'aperçu affiche le code qui sera vraiment donné (avec une phrase en orange s'il a fallu ajouter un numéro). Si un autre chantier prend ce code dans ProGBat juste avant la confirmation, l'application réessaie une seule fois avec le numéro suivant. Si cela échoue encore, le message dit clairement « Un chantier ProGBat porte déjà ce code » avec un bouton pour ouvrir ce chantier dans ProGBat ; il suffit de relancer. Un chantier de l'application ne crée toujours jamais deux chantiers dans ProGBat : un chantier déjà relié ne recrée rien.",
+  },
+  {
     date: "2026-11-09",
     type: "amelioration",
     titre: "Toute l'application charge ses données plus vite (Opérations, Bilan de semaine, fiches chantier, finances…)",

@@ -74,7 +74,7 @@ export default function ProgbatClientChantier({ T, acc, projetId, onEtat, onChan
     try {
       const rep = await appelerProgbatOperations({ projectId: projetId, ...body });
       appliquer(rep);
-      setMessage({ ok: !!rep?.ok, texte: rep?.message || rep?.error || (rep?.ok ? "Fait." : "Échec."), aFaire: rep?.a_faire_par_loris || null });
+      setMessage({ ok: !!rep?.ok, texte: rep?.message || rep?.error || (rep?.ok ? "Fait." : "Échec."), aFaire: rep?.a_faire_par_loris || null, conflitBusinessId: rep?.conflit_business_id || null });
       if (rep?.ok) apres?.(rep);
       if (rep?.ok && (rep.thirdId || rep.businessId || rep.yardId)) onChange?.();
       return rep;
@@ -169,7 +169,7 @@ export default function ProgbatClientChantier({ T, acc, projetId, onEtat, onChan
               </>
             ) : e.chantier.prerequis ? <div style={{ color: T.textMuted }}>{e.chantier.prerequis}</div> : (
               <>
-                <div style={{ color: T.textMuted }}>Nom : <b>{etat.generes?.nom_chantier || "—"}</b> · code : <b>{etat.generes?.code_chantier || "—"}</b>.</div>
+                <div style={{ color: T.textMuted }}>Nom : <b>{etat.generes?.nom_chantier || "—"}</b> · code prévu : <b>{etat.generes?.code_chantier || "—"}</b> (vérifié dans ProGBat à l'aperçu : un code déjà pris reçoit « 2 », « 3 »…).</div>
                 {e.chantier.sans_responsable && <div style={{ color: "#f5a623", fontWeight: 600, marginTop: 4 }}>Chargé d'affaires sans correspondance ProGBat : le chantier sera créé sans responsable (Réglages → Outils → ProGBat : chargés d'affaires).</div>}
                 <button onClick={() => preparer("chantier")} disabled={occupe} style={{ ...btnStyle(T, acc, true, occupe), marginTop: 6 }}>Créer le chantier dans ProGBat</button>
               </>
@@ -185,6 +185,9 @@ export default function ProgbatClientChantier({ T, acc, projetId, onEtat, onChan
           <span>{message.texte}{message.aFaire ? ` — À faire par Loris : ${message.aFaire}.` : ""}</span>
         </div>
       )}
+      {message?.conflitBusinessId && (
+        <div>{lien(lienProgbat("chantier", message.conflitBusinessId))}</div>
+      )}
 
       {apercu && (
         <div style={{ marginTop: 10, border: `2px solid ${acc.accent}`, borderRadius: RADIUS.lg, padding: "10px 12px", background: T.card }}>
@@ -195,6 +198,7 @@ export default function ProgbatClientChantier({ T, acc, projetId, onEtat, onChan
             Écriture dans la comptabilité ProGBat ({apercu.rep.endpoint}, droit {apercu.rep.droit}). Une seule création possible : un nouvel essai est bloqué tant que celle-ci n'est pas terminée ou vérifiée.
           </div>
           {apercu.rep.info && <div style={{ fontSize: FONT.xs.size + 1, color: "#f5a623", fontWeight: 600, marginBottom: 6 }}>{apercu.rep.info}</div>}
+          {apercu.cible === "chantier" && apercu.rep.code_chantier && <div style={{ fontSize: FONT.xs.size + 1, color: T.text, marginBottom: 6 }}>Code du chantier dans ProGBat : <b>{apercu.rep.code_chantier}</b>{apercu.rep.code_info ? <span style={{ color: "#f5a623", fontWeight: 600 }}> — {apercu.rep.code_info}</span> : null}</div>}
           <pre style={{ margin: 0, fontSize: 11, background: T.bg || "transparent", border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: 8, whiteSpace: "pre-wrap", color: T.text, maxHeight: 220, overflow: "auto" }}>{JSON.stringify(apercu.rep.corps, null, 2)}</pre>
           {apercu.rep.erreurs?.length > 0 && <div style={{ color: "#e15a5a", fontWeight: 700, fontSize: FONT.xs.size + 1, marginTop: 6 }}>Impossible : {apercu.rep.erreurs.join(" ; ")}</div>}
           {apercu.rep.blocage && <div style={{ color: "#e15a5a", fontWeight: 700, fontSize: FONT.xs.size + 1, marginTop: 6 }}>{apercu.rep.blocage.message}</div>}

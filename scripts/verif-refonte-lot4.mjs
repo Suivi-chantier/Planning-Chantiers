@@ -43,7 +43,7 @@ const TIERS = [
   { id: 502, code: "TESTEUR ST TESTVILLE", type: 2, legalName: "TESTEUR Alice", addresses: [{ byDefault: true, address: "1 rue de l'Essai", postcode: "49000", city: "Saint-Testville", email: "alice@exemple.test", phone: "0600000001" }] },
 ];
 
-function creerMonde({ client = clientFictif(), projet = projetFictif(), chantier = chantierFictif(), operation = operationFictive(), tiers = TIERS, reponses = {}, cycle = null, factures = [], billsProgbat = [], managers = {} } = {}) {
+function creerMonde({ client = clientFictif(), projet = projetFictif(), chantier = chantierFictif(), operation = operationFictive(), tiers = TIERS, reponses = {}, cycle = null, factures = [], billsProgbat = [], managers = {}, affaires = [] } = {}) {
   const etat = { client, projet, chantier, operation, ecritures: [], appels: [], yards: [], projets: [projet], requete: null };
   const reserve = (cible, cle) => etat.ecritures.find((e) => e.cible === cible && e.cle === String(cle) && e.statut === "creating");
   // ── Faux client HTTP ProGBat : la garde est ICI ──
@@ -56,7 +56,12 @@ function creerMonde({ client = clientFictif(), projet = projetFictif(), chantier
     async lireTiers(type) { etat.appels.push(`GET thirds?type=${type}`); return reponses.lireTiers || { ok: true, items: tiers.filter((t) => t.type === type) }; },
     async lireTiersUn(id) { etat.appels.push(`GET thirds/${id}`); const t = tiers.find((x) => x.id === id); return t ? { ok: true, status: 200, data: t } : { ok: false, status: 404, message: "" }; },
     async creerTiers(corps) { garde("client", etat.client.id); etat.appels.push("POST thirds"); etat.dernierCorps = corps; return reponses.creerTiers || { ok: true, status: 200, data: { id: 900, code: corps.code } }; },
-    async creerAffaire(corps) { garde("chantier", etat.chantier.id); etat.appels.push("POST business"); etat.dernierCorps = corps; return reponses.creerAffaire || { ok: true, status: 201, data: { id: 300, code: corps.code } }; },
+    async lireAffaires() { etat.appels.push("GET business"); return typeof reponses.lireAffaires === "function" ? reponses.lireAffaires() : reponses.lireAffaires || { ok: true, items: affaires }; },
+    async creerAffaire(corps) {
+      garde("chantier", etat.chantier.id); etat.appels.push("POST business"); etat.dernierCorps = corps; (etat.corpsEnvoyes ||= []).push(corps);
+      if (Array.isArray(reponses.creerAffaireSuite)) return reponses.creerAffaireSuite.shift();
+      return reponses.creerAffaire || { ok: true, status: 201, data: { id: 300, code: corps.code } };
+    },
     async lireYards(id) { etat.appels.push(`GET business/${id}/yards`); return reponses.lireYards || { ok: true, items: [{ id: 410, businessId: id, label: "T2 - R+1" }] }; },
     async lireDevis(id) { etat.appels.push(`GET quotes/${id}`); return reponses.lireDevis || { ok: true, status: 200, data: { id, status: 1, statusDate: "2026-11-05" } }; },
     async facturesDuDevis(id) { etat.appels.push(`GET bills quote=${id}`); return reponses.facturesDuDevis || { ok: true, items: billsProgbat }; },
@@ -273,6 +278,91 @@ await test("7. chantier ProGBat : client d'abord, yard dans la réponse ou relu,
   assert.equal(d.autorise, false);
   assert.equal(d.contournement, true);
   assert.deepEqual(d.droits_manquants, ["business.write"]);
+});
+
+// ─── 7b. Code du chantier ProGBat toujours unique (correctif du 10/11) ──────
+await test("7b. code du chantier ProGBat : premier code libre, aperçu = code envoyé, un seul nouvel essai sur 409, jamais deux chantiers", async () => {
+  // Fonction pure : base, puis « base 2 », « base 3 »… ; casse et espaces ignorés.
+  assert.equal(A.codeChantierLibre("TESTEUR ST TESTVILLE COMMUNS", []), "TESTEUR ST TESTVILLE COMMUNS");
+  assert.equal(A.codeChantierLibre("TESTEUR ST TESTVILLE COMMUNS", ["autre"]), "TESTEUR ST TESTVILLE COMMUNS");
+  assert.equal(A.codeChantierLibre("TESTEUR ST TESTVILLE COMMUNS", ["testeur st  testville communs"]), "TESTEUR ST TESTVILLE COMMUNS 2");
+  assert.equal(A.codeChantierLibre("TESTEUR ST TESTVILLE COMMUNS", ["TESTEUR ST TESTVILLE COMMUNS", " Testeur St Testville Communs 2 "]), "TESTEUR ST TESTVILLE COMMUNS 3");
+  assert.equal(A.codeChantierLibre("ABC", ["ABC", "ABC2"]), "ABC 3", "« ABC 2 » et « ABC2 » : même code");
+  assert.equal(A.codeChantierLibre("ABC", ["ABC", "ABC 3"]), "ABC 2", "le premier trou est pris");
+  assert.equal(A.codeChantierLibre("", ["ABC"]), "");
+  assert.equal(A.chantierPortantCode("abc 2", [{ id: 7, code: "ABC 2" }]), 7);
+  assert.match(A.messageCodePris("ABC", 7), /Un chantier ProGBat porte déjà ce code : « ABC » \(chantier ProGBat n° 7\)/);
+
+  const c = clientFictif(); c.progbat_client_id = "502";
+  const base = "TESTEUR ST TESTVILLE T2 R+1";
+  // Code déjà pris : l'aperçu montre le code réellement utilisé, c'est lui qui part.
+  const w = creerMonde({ client: c, affaires: [{ id: 128, code: base }] });
+  const p = await w.appeler({ action: "preparer_chantier" });
+  assert.equal(p.body.code_chantier, `${base} 2`);
+  assert.equal(p.body.corps.code, `${base} 2`);
+  assert.match(p.body.code_info, /déjà utilisé dans ProGBat \(chantier ProGBat n° 128\)/);
+  const r = await w.appeler({ action: "creer_chantier", confirmed: true, expectedHash: p.body.hash });
+  assert.equal(r.body.ok, true, r.body.error);
+  assert.equal(w.etat.dernierCorps.code, `${base} 2`);
+  assert.equal(w.etat.chantier.progbat_business_code, `${base} 2`);
+  assert.equal(posts(w.etat).length, 1);
+  // Chantier déjà relié : rien n'est relu ni recréé.
+  const r2 = await w.appeler({ action: "creer_chantier", confirmed: true, expectedHash: p.body.hash });
+  assert.equal(r2.body.code, "deja_lie");
+  assert.equal(posts(w.etat).length, 1, "un chantier de l'application ne crée JAMAIS deux chantiers ProGBat");
+
+  // Code libre à l'aperçu, pris entre-temps → hash différent : nouvel aperçu exigé.
+  const affairesCourse = [];
+  const wc = creerMonde({ client: c, reponses: { lireAffaires: () => ({ ok: true, items: [...affairesCourse] }) } });
+  const pc = await wc.appeler({ action: "preparer_chantier" });
+  assert.equal(pc.body.code_chantier, base);
+  affairesCourse.push({ id: 140, code: base });
+  assert.equal((await wc.appeler({ action: "creer_chantier", confirmed: true, expectedHash: pc.body.hash })).body.code, "hash_different");
+  assert.equal(posts(wc.etat).length, 0);
+
+  // 409 malgré tout (course) : UN nouvel essai, code suivant, même réservation.
+  const w409 = creerMonde({ client: c, reponses: { creerAffaireSuite: [{ ok: false, status: 409, message: "A business already exists with this code." }, { ok: true, status: 201, data: { id: 301 } }] } });
+  const p9 = await w409.appeler({ action: "preparer_chantier" });
+  const r9 = await w409.appeler({ action: "creer_chantier", confirmed: true, expectedHash: p9.body.hash });
+  assert.equal(r9.body.ok, true, r9.body.error);
+  assert.deepEqual(w409.etat.corpsEnvoyes.map((x) => x.code), [base, `${base} 2`]);
+  assert.equal(w409.etat.appels.filter((a) => a === "RESERVE chantier").length, 1, "une seule réservation pour les deux essais");
+  assert.equal(w409.etat.ecritures.length, 1);
+  assert.equal(w409.etat.ecritures[0].statut, "created");
+  assert.equal(w409.etat.ecritures[0].progbat_code, `${base} 2`);
+  assert.equal(w409.etat.ecritures[0].details.reessai_409.code_refuse, base);
+  assert.equal(w409.etat.chantier.progbat_business_code, `${base} 2`);
+  assert.match(r9.body.message, /code suivant/);
+
+  // 409 deux fois : arrêt, message clair, lien vers le chantier qui porte le code s'il est connu.
+  // Lectures 1 (aperçu) et 2 (création) : rien ; après le 409 : deux codes pris entre-temps.
+  let lectures = 0;
+  const w2x = creerMonde({ client: c, reponses: {
+    lireAffaires: () => ({ ok: true, items: ++lectures <= 2 ? [] : [{ id: 150, code: base }, { id: 151, code: `${base} 2` }] }),
+    creerAffaireSuite: [{ ok: false, status: 409, message: "A business already exists with this code." }, { ok: false, status: 409, message: "A business already exists with this code." }, { ok: true, status: 201, data: { id: 999 } }],
+  } });
+  const p2x = await w2x.appeler({ action: "preparer_chantier" });
+  const r2x = await w2x.appeler({ action: "creer_chantier", confirmed: true, expectedHash: p2x.body.hash });
+  assert.equal(r2x.body.ok, false);
+  assert.equal(r2x.body.code, "code_deja_pris");
+  assert.equal(posts(w2x.etat).length, 2, "un seul nouvel essai, jamais plus");
+  assert.deepEqual(w2x.etat.corpsEnvoyes.map((x) => x.code), [base, `${base} 3`], "relecture après le 409 : le code suivant tient compte des nouveaux codes");
+  assert.match(r2x.body.error, /Un chantier ProGBat porte déjà ce code : « TESTEUR ST TESTVILLE T2 R\+1 3 »/);
+  assert.equal(w2x.etat.ecritures[0].statut, "failed", "échec net : un nouvel essai reste possible");
+  assert.equal(w2x.etat.chantier.progbat_business_id, null);
+
+  // Lecture des codes impossible : aucune création.
+  const wl = creerMonde({ client: c, reponses: { lireAffaires: { ok: false, status: 403, message: "" } } });
+  const pl = await wl.appeler({ action: "preparer_chantier" });
+  assert.ok(pl.body.erreurs.some((e) => /Lecture des chantiers ProGBat impossible/.test(e)));
+  assert.equal((await wl.appeler({ action: "creer_chantier", confirmed: true, expectedHash: pl.body.hash })).body.code, "lecture_impossible");
+  assert.equal(posts(wl.etat).length, 0);
+
+  // Adaptateur serveur : lecture des codes par GET /company/business, réservation par chantier.
+  const idx = lire("supabase/functions/progbat-operations/index.ts");
+  assert.match(idx, /async lireAffaires\(\) \{ return await lireTout\("\/company\/business"\) \}/);
+  assert.match(lire("src/Renovation/progbatAutomatisation.mjs"), /cible: "chantier", cle: chantier\.id/);
+  assert.match(lire("src/Renovation/ProgbatClientChantier.jsx"), /lienProgbat\("chantier", message\.conflitBusinessId\)/);
 });
 
 // ─── 8. Facture d'acompte ───────────────────────────────────────────────────
