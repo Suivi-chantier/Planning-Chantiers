@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-11-11",
+    type: "correctif",
+    titre: "Opérations : fin du bandeau rouge « phasages : Failed to fetch » et des montants à 0 €",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "La page Opérations téléchargeait tous les phasages (environ 2,5 Mo) d'un seul bloc. Avec une connexion un peu instable, le téléchargement était coupé : la page affichait « Sources en erreur… phasages : TypeError: Failed to fetch », Vendu HT et marge à 0 €, avancement à 0 % et « logements sans phasage » sur chaque fiche.",
+    comment: "Rien à faire : les phasages sont maintenant lus par petits paquets de 10. Un paquet coupé est relancé automatiquement jusqu'à deux fois. Si la connexion reste coupée, le bandeau rouge s'affiche toujours, pour ne jamais montrer des chiffres incomplets comme s'ils étaient justes. La même relance automatique s'applique aux autres pages qui lisent leurs données par paquets (pointages, lignes de commande…).",
+  },
+  {
     date: "2026-11-10",
     type: "correctif",
     titre: "« Créer le chantier dans ProGBat » : plus d'erreur « conflit (409) » quand deux chantiers ont le même nom",

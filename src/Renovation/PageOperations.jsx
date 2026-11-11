@@ -231,7 +231,11 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         loadOperations(),
         // select("*") volontaire : évite d'échouer si une colonne manque dans
         // le schéma de cette instance (même précaution que la fiche Chantier).
-        supabase.from("phasages").select("*"),
+        // Lu par petites tranches de 10 phasages (11/11/2026) : la table pèse
+        // ~2,5 Mo (ouvrages + plan de travaux) ; d'un seul bloc, une connexion
+        // instable coupait le téléchargement (« Failed to fetch ») et toute la
+        // page tombait à 0 €. Une tranche coupée est relancée automatiquement.
+        lireToutParTranches((a, b) => supabase.from("phasages").select("*").order("id").range(a, b), 10),
         fetchTout("pointages", "*"),
         fetchTout("commande_lignes",
           "id, libelle, reference, quantite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at, fournisseur_nom)"),
