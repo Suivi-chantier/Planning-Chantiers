@@ -9,6 +9,11 @@
 // si renseignée ; sinon repli sur les utilisateurs actifs admin + comptable.
 //
 // Idempotence : 1 envoi max par jour (planning_config.encours_mail_state).
+//
+// Notification F2 (projet docs/projets/notifications-push.md, tâche 8) : après
+// le mail, un push court « Encours fournisseurs : X € HT à payer » vers la
+// page de l'encours, tiré du MÊME calcul (src/Renovation/encoursFournisseursV1.mjs).
+// `?simulation=1` : calcule le total et le texte du push, sans mail ni push.
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur, enTetesAppelServeur } = require("./_lib/autorisationServeur");
@@ -16,31 +21,20 @@ const { verifierAppelServeur, enTetesAppelServeur } = require("./_lib/autorisati
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-function eur(n) {
-  return (parseFloat(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-function moisLabel(ym) {
-  if (!ym || ym.length < 7) return "Sans date";
-  const [y, m] = ym.split("-");
-  return `${MOIS_FR[parseInt(m, 10) - 1] || m} ${y}`;
-}
-const normNom = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
 
-// Date d'échéance (AAAA-MM-JJ) selon le mode du fournisseur.
-function echeanceISO(docISO, mode) {
-  if (!docISO) return docISO || "";
-  const d = new Date(docISO + "T00:00:00");
-  if (isNaN(d.getTime())) return docISO;
-  if (mode === "30j") { d.setDate(d.getDate() + 30); }
-  else if (mode === "echeance") {
-    // 30j fin de mois : fin du mois de la facture, PUIS + 30 jours
-    // (facture du 01/07 -> 31/07 -> + 30 j = 30/08, payable en août).
-    const fdm = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-    fdm.setDate(fdm.getDate() + 30);
-    return fdm.toISOString().slice(0, 10);
-  } else { return docISO; }
-  return d.toISOString().slice(0, 10);
+// Calcul de l'encours (échéances, regroupement par mois, total à payer) :
+// src/Renovation/encoursFournisseursV1.mjs, partagé avec la notification F2.
+// Déplacé sans réécriture le 06/11/2026 (projet notifications-push, tâche 8).
+let _encours = null;
+async function moduleEncours() {
+  if (!_encours) {
+    const [calcul, direction] = await Promise.all([
+      import("../src/Renovation/encoursFournisseursV1.mjs"),
+      import("../src/Renovation/notificationsDirectionV1.mjs"),
+    ]);
+    _encours = { ...calcul, contenuPushF2V1: direction.contenuPushF2V1 };
+  }
+  return _encours;
 }
 
 async function envoyerMail(req, to, subject, html) {
@@ -59,10 +53,11 @@ async function envoyerMail(req, to, subject, html) {
 
 // ─── LOGIQUE MÉTIER (réutilisable par le dispatcher) ─────────────────────────
 async function runEncoursFournisseurs(req, supabase, t) {
+  const simulation = ["1", "true", "oui"].includes(String(req?.query?.simulation || "").toLowerCase());
   // 1) Idempotence : 1 envoi max par jour
   const { data: stateRow } = await supabase.from("planning_config")
     .select("value").eq("key", "encours_mail_state").maybeSingle();
-  if (stateRow?.value?.date === t.dateFr) {
+  if (!simulation && stateRow?.value?.date === t.dateFr) {
     return { skipped: "already_sent_today", date: t.dateFr };
   }
 
@@ -78,48 +73,18 @@ async function runEncoursFournisseurs(req, supabase, t) {
       .neq("statut", "archivee").limit(2000),
   ]);
 
-  const modeById = {}, modeByNom = {};
-  (fournQ.data || []).forEach(f => { modeById[f.id] = f.mode_paiement || ""; if (f.nom) modeByNom[normNom(f.nom)] = f.mode_paiement || ""; });
-  const modeOf = (id, nom) => modeById[id] || modeByNom[normNom(nom)] || "";
-
-  // mois -> fournisseur -> { saisi, facture, paye }
-  const moisMap = new Map();
-  const add = (mois, fournisseur, champ, montant) => {
-    const m = mois || "____";
-    if (!moisMap.has(m)) moisMap.set(m, new Map());
-    const pfMap = moisMap.get(m);
-    if (!pfMap.has(fournisseur)) pfMap.set(fournisseur, { nom: fournisseur, saisi: 0, facture: 0, paye: 0 });
-    pfMap.get(fournisseur)[champ] += montant;
-  };
-
-  (cmdQ.data || []).forEach(c => {
-    if (c.source === "migration") return;
-    const montant = c.montant_ht != null ? Number(c.montant_ht)
-      : (c.lignes || []).reduce((s, l) => s + (Number(l.prix_total) || 0), 0);
-    if (!montant) return;
-    const docISO = c.date_doc || (c.created_at || "").slice(0, 10);
-    const paye = c.statut_facturation === "facture";
-    const dueISO = paye ? docISO : echeanceISO(docISO, modeOf(c.fournisseur_id, c.fournisseur_nom));
-    add((dueISO || "").slice(0, 7), c.fournisseur_nom || "Sans fournisseur", paye ? "paye" : "saisi", montant);
-  });
-  (factQ.data || []).forEach(f => {
-    const montant = Number(f.montant_ht) || 0;
-    if (!montant) return;
-    const docISO = f.date_facture || (f.created_at || "").slice(0, 10);
-    const dueISO = echeanceISO(docISO, modeOf(f.fournisseur_id, f.fournisseur_nom));
-    add((dueISO || "").slice(0, 7), f.fournisseur_nom || "Sans fournisseur", "facture", montant);
+  const E = await moduleEncours();
+  const { eurEncours: eur, moisLabel, aPayerOf } = E;
+  const { mois, totalAPayer } = E.calculerEncoursFournisseursV1({
+    fournisseurs: fournQ.data || [], commandes: cmdQ.data || [], factures: factQ.data || [],
   });
 
-  const aPayerOf = (pf) => (pf.facture > 0 ? pf.facture : pf.saisi);
-  const mois = [...moisMap.entries()]
-    .map(([m, pfMap]) => {
-      const fourns = [...pfMap.values()].sort((a, b) => aPayerOf(b) - aPayerOf(a));
-      const aPayer = fourns.reduce((s, pf) => s + aPayerOf(pf), 0);
-      return { mois: m, fourns, aPayer };
-    })
-    .sort((a, b) => b.mois.localeCompare(a.mois))
-    .slice(0, 6); // 6 mois les plus récents
-  const totalAPayer = mois.reduce((s, g) => s + g.aPayer, 0);
+  // Simulation (?simulation=1) : ni mail, ni push, ni état écrit.
+  if (simulation) {
+    return { simulation: true, date: t.dateFr, mois: mois.length, total_a_payer: totalAPayer,
+      detail_mois: mois.map(g => ({ mois: g.mois, a_payer: g.aPayer, fournisseurs: g.fourns.length })),
+      notification_f2: E.contenuPushF2V1({ mois, totalAPayer, dateParis: t.dateIso }) };
+  }
 
   if (mois.length === 0) {
     await supabase.from("planning_config").upsert({ key: "encours_mail_state", value: { date: t.dateFr, skipped: "empty" } }, { onConflict: "key" });
@@ -137,7 +102,9 @@ async function runEncoursFournisseurs(req, supabase, t) {
     const { data: users } = await supabase.from("utilisateurs").select("email, role, actif").eq("actif", true).in("role", ["admin", "comptable"]);
     dests = (users || []).map(u => u.email).filter(routable);
   }
-  if (dests.length === 0) return { skipped: "no_recipients", date: t.dateFr };
+  if (dests.length === 0) {
+    return { skipped: "no_recipients", date: t.dateFr, push_f2: await envoyerPushF2(E, mois, totalAPayer, t) };
+  }
 
   // 4) HTML
   const baseUrl = process.env.APP_BASE_URL || "https://planning-chantiers.vercel.app";
@@ -197,11 +164,32 @@ async function runEncoursFournisseurs(req, supabase, t) {
       { onConflict: "key" }
     );
   }
+  // 5) Push F2 (projet notifications-push, tâche 8), APRÈS le mail : même
+  //    total, quel que soit le résultat du mail (les destinataires sont
+  //    réglés à part, dans Réglages › Notifications).
+  const push_f2 = await envoyerPushF2(E, mois, totalAPayer, t);
   return {
     date: t.dateFr, sent: r.ok, status: r.status,
     error: r.ok ? null : (r.data?.error || `HTTP ${r.status}`),
     destinataires: dests.length, mois: mois.length, total_a_payer: totalAPayer,
+    push_f2,
   };
+}
+
+// Notification F2 : un push court qui renvoie vers la page de l'encours. Un
+// échec n'empêche jamais le mail (clé « erreur », pas « error »). Rejouer le
+// même jour ne crée aucun doublon (clé de regroupement F2-<date de Paris>).
+async function envoyerPushF2(E, mois, totalAPayer, t) {
+  const n = E.contenuPushF2V1({ mois, totalAPayer, dateParis: t.dateIso });
+  if (!n) return { notifications: 0 };
+  try {
+    const { appelerSendPush } = require("./_cron/cron-push-reportes.js");
+    const r = await appelerSendPush({ mode: "serveur", ...n });
+    return { notifications: 1, titre: n.titre, ecrites_en_boite: r?.ecrites_en_boite || 0, envoyes: r?.envoyes || 0,
+      echecs: r?.echecs || 0, bloque_par: r?.resume?.bloque_par || null };
+  } catch (e) {
+    return { notifications: 0, erreur: e.message };
+  }
 }
 
 // Handler direct (test manuel : /api/cron-encours-fournisseurs)

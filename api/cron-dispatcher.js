@@ -2,7 +2,8 @@
 //
 // Plan Vercel Hobby = 12 fonctions serverless maximum, et les crons Vercel
 // natifs sont désactivés sur ce plan depuis fin 2024. Les créneaux vivent donc
-// dans GitHub Actions (.github/workflows/), qui appelle cette unique fonction ;
+// dans GitHub Actions (.github/workflows/) ou, pour les notifications sur
+// téléphone, dans pg_cron (Supabase) ; tous appellent cette unique fonction ;
 // les handlers métier vivent dans api/_cron/, un dossier NON déployé en
 // fonctions. Ajouter une tâche n'ajoute ainsi aucune fonction.
 //
@@ -26,6 +27,30 @@
 //   Lun-Ven 02h UTC        → veille échéances Invest        (fenêtre)
 //   Lun-Ven 05h UTC        → tableau de bord Invest par mail (?job=)
 //   Tous les jours 21h30 UTC → contrôle du journal d'avancement (?job=)
+//   Lun-Ven 06h15 UTC      → relances devis / acompte         (?job=)
+//
+// Notifications sur téléphone : créneaux tenus par la BASE, pas par GitHub.
+// Les « schedule » GitHub de ces 7 tâches ne partaient pas, ou avec des heures
+// de retard (constat du 09/11/2026). Depuis, pg_cron + pg_net (Supabase)
+// appellent `?job=` à la minute près, avec une clé lue dans Supabase Vault
+// (nom `cron_secret`) — supabase/migrations/20261109134233_cron_notifications_push.sql.
+// La valeur rangée dans le Vault est celle de CRON_SECRET_BASE, une clé
+// distincte de CRON_SECRET (dont la valeur n'est plus lisible dans Vercel) :
+// ce dispatcher, et lui seul, accepte l'une ou l'autre (voir le handler).
+// Chaque job pg_cron est planifié sur les deux heures UTC possibles (été /
+// hiver) et ne fait rien si l'heure de Paris n'est pas la bonne : un seul
+// appel par jour, à l'heure de Paris, été comme hiver. Le `pas_avant` reste
+// passé en seconde garde. Les workflows GitHub du même nom ne servent plus
+// qu'au lancement à la main (simulation par défaut).
+//   Lun-Ven 7h05 Paris   → push reportés        (?job=push_reportes)
+//   Lun-Ven 8h05 Paris   → C3 commandes à passer (?job=push_materiaux ; le job
+//                          ignore lui-même tout appel avant 8h Paris)
+//   Lun-Ven 8h15 Paris   → F1 facture à émettre (?job=factures_a_emettre&pas_avant=8)
+//   Lundi   8h30 Paris   → D3 synthèse de la semaine (?job=synthese_semaine&pas_avant=8)
+//   Lun-Ven 8h45 Paris   → D2 nouveau chantier signé (?job=nouveaux_chantiers&pas_avant=8)
+//   Lun-Ven 9h05 Paris   → C4 / C5 / D1 alertes chantiers (?job=alertes_chantiers&pas_avant=9)
+//   Lun-Ven 18h30 Paris  → C1 + C2 point du soir des conducteurs
+//                          (?job=point_conducteurs&pas_avant=18:30)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");
@@ -36,6 +61,13 @@ const { runRecapCommandes }    = require("./_cron/cron-recap-commandes.js");
 const { runInvestEcheances }   = require("./_cron/cron-invest-echeances.js");
 const { runInvestTableauBord } = require("./_cron/cron-invest-tableau-bord.js");
 const { runJournalAvancement } = require("./_cron/cron-journal-avancement.js");
+const { runRelancesCycleVie }  = require("./_cron/cron-relances-cycle-vie.js");
+const { runPushReportes, runPushSimulation } = require("./_cron/cron-push-reportes.js");
+const { runFacturesAEmettre } = require("./_cron/cron-factures-a-emettre.js");
+const { runPushMateriaux }     = require("./_cron/cron-push-materiaux.js");
+const { runPointConducteurs }  = require("./_cron/cron-point-conducteurs.js");
+const { runAlertesChantiers }  = require("./_cron/cron-alertes-chantiers.js");
+const { runNouveauxChantiers, runSyntheseSemaine } = require("./_cron/cron-notifications-direction.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -75,14 +107,97 @@ const TACHES = {
   // compte les écarts entre l'état des tâches et le journal. Par `?job=` seulement.
   journal_avancement: {
     fenetre: null,
-    run: (req, supabase) => runJournalAvancement(req, supabase),
+    // Écart ≠ 0 : notification D4 dans la boîte des admins, sans push.
+    run: (req, supabase, t) => runJournalAvancement(req, supabase, t),
+  },
+  // Relances e-mail du cycle de vie (Refonte Opérations, lot 3) : devis non
+  // signé, facture d'acompte non réglée. Par `?job=` seulement. Interrupteur
+  // dans Réglages → Relances, ÉTEINT par défaut : éteint, rien ne part.
+  relances_cycle_vie: {
+    fenetre: null,
+    run: (req, supabase, t) => runRelancesCycleVie(req, supabase, t, envoyerMail),
+  },
+  // Notifications sur téléphone (projet notifications-push) : envoie les push
+  // reportés par la plage de silence dont l'heure est venue. Par `?job=`
+  // seulement ; passe par l'Edge Function send-push (mode « reportes »).
+  push_reportes: {
+    fenetre: null,
+    run: () => runPushReportes(),
+  },
+  // Simulation sans envoi ni écriture d'un type de notification sur les vrais
+  // utilisateurs : `?job=push_simulation&type=D2`. Par `?job=` seulement.
+  push_simulation: {
+    fenetre: null,
+    run: (req) => runPushSimulation(req),
+  },
+  // Push F1 « facture à émettre » (projet notifications-push, tâche 7) : même
+  // détection que la fiche chantier (factureAEmettre.mjs). N'envoie QUE le
+  // push ; le mail reste envoyé par la fiche, comme avant. Par `?job=`
+  // seulement ; `&simulation=1` liste sans rien envoyer ni écrire.
+  factures_a_emettre: {
+    fenetre: null,
+    run: (req, supabase, t) => runFacturesAEmettre(req, supabase, t),
+  },
+  // Notification C3 « Commandes à passer » : même liste que la page (tâche 10),
+  // seules les commandes nouvellement à passer, une notification regroupée par
+  // jour ; rien de nouveau = aucun envoi. `&simulation=1` : sans envoi. Par `?job=` seulement.
+  push_materiaux: {
+    fenetre: null,
+    run: (req, supabase, t) => runPushMateriaux(req, supabase, t),
+  },
+  // Point du soir des conducteurs à 18h30 (C1 comptes rendus + C2 demandes de
+  // matériel), une seule notification par personne. Même règle « ouvriers
+  // attendus » que le rappel du compte rendu. `&simulation=1` : sans envoi ni
+  // écriture ; `&date=` en simulation seulement. Par `?job=` seulement.
+  point_conducteurs: {
+    fenetre: null,
+    run: (req, supabase, t) => runPointConducteurs(req, supabase, t),
+  },
+  // Notifications C4 / C5 / D1 (projet notifications-push, tâche 6) : niveaux
+  // d'alerte recalculés avec la chaîne de la page Alertes (alertesEcranV1),
+  // comparés à l'état déjà vu (notifications_etat) ; seules les AGGRAVATIONS
+  // partent, une notification par type et par passage. Premier passage :
+  // référence enregistrée, rien d'envoyé. `&simulation=1` : sans écriture ni
+  // envoi. Par `?job=` seulement.
+  alertes_chantiers: {
+    fenetre: null,
+    run: (req, supabase, t) => runAlertesChantiers(req, supabase, t),
+  },
+  // Notification D2 « nouveau chantier signé » (projet notifications-push,
+  // tâche 8) : étape « Devis signé » validée, une notification regroupée par
+  // passage, chaque chantier une seule fois (notifications_etat). Premier
+  // passage : référence enregistrée, rien d'envoyé. `&simulation=1` : sans
+  // écriture ni envoi. Par `?job=` seulement.
+  nouveaux_chantiers: {
+    fenetre: null,
+    run: (req, supabase, t) => runNouveauxChantiers(req, supabase, t),
+  },
+  // Notification D3 « synthèse de la semaine » (tâche 8) : bandeau du Bilan
+  // semaine de la semaine écoulée, mêmes fonctions que l'écran. Relevé absent :
+  // la notification le dit. `&simulation=1` (et `&semaine=AAAA-Www`) : sans
+  // envoi. Par `?job=` seulement.
+  synthese_semaine: {
+    fenetre: null,
+    run: (req, supabase, t) => runSyntheseSemaine(req, supabase, t),
   },
 };
 
 module.exports = async function handler(req, res) {
-  // Auth — fermée par défaut : sans CRON_SECRET configuré, la route refuse
+  // Auth — fermée par défaut : sans aucun secret configuré, la route refuse
   // (500) au lieu de s'ouvrir. Voir api/_lib/autorisationServeur.js.
-  const acces = verifierAppelServeur(req);
+  //
+  // Deux clés acceptées, ICI SEULEMENT :
+  //   - CRON_SECRET      : créneaux GitHub Actions et lancements à la main ;
+  //   - CRON_SECRET_BASE : appels pg_cron depuis Supabase (notifications sur
+  //     téléphone), qui lisent leur clé dans le Vault. Clé distincte, car la
+  //     valeur de CRON_SECRET n'est plus lisible dans Vercel et ne pouvait
+  //     donc pas être recopiée dans le Vault.
+  // Les autres routes (send-email, snapshots, relevés journaliers, encours
+  // fournisseurs…) n'acceptent que CRON_SECRET. Le jeton reçu ne sert qu'à
+  // cette vérification : quand un job appelle une autre route (ex.
+  // /api/send-email), il utilise CRON_SECRET (enTetesAppelServeur), jamais le
+  // jeton entrant. CRON_SECRET_BASE n'ouvre donc rien d'autre que ce dispatcher.
+  const acces = verifierAppelServeur(req, [process.env.CRON_SECRET, process.env.CRON_SECRET_BASE]);
   if (!acces.ok) return res.status(acces.status).json({ error: acces.error });
 
   const t = parisNow();

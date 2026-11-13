@@ -1,0 +1,20 @@
+name: Verify Filet PWA
+
+# Filet anti-écran-blanc d'index.html (panne du 2026-11-06).
+# Déclenché sur toute PR (pas de filtre de branche : cf. piège des PR empilées).
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Filet anti-ecran-blanc - message visible au deuxieme echec
+        run: node scripts/verif-filet-pwa.mjs

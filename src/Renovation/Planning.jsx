@@ -1,4 +1,5 @@
 import PlanningExportModal from "./PlanningExportModal";
+import { lienGoogleAgenda, dateGoogle } from "./agendaGoogle";
 import CellModal from "./CellModal";
 import BandeauAReplanifier from "./BandeauAReplanifier";
 import { PanneauLignesALier, cellulesDepuisCarte } from "./LiaisonLignePlanning";
@@ -11,6 +12,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getWeekId, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
 import { useIsMobile } from "./Navigation";
+import { filtrerChantiersActifs } from "./chantierActif";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileSection } from "../mobileUI";
 import { syncDatePrevueTache } from "./phasagePlanning";
@@ -51,7 +53,8 @@ const toIsoDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2
 // ─── PAGE PLANNING ────────────────────────────────────────────────────────────
 function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicules = [], cells, setCells, commandes, setCommandes, notesData, setNotesData, weekId, view, setView, year, week, setYear, setWeek, T, branch = "renovation" }) {
   // Un chantier marqué "Terminé" (dans la page Chantiers) disparaît du planning hebdo.
-  const chantiers = useMemo(() => chantiersAll.filter(c => c.statut !== "termine"), [chantiersAll]);
+  // Règle unique : estChantierActif() (src/Renovation/chantierActif.mjs).
+  const chantiers = useMemo(() => filtrerChantiersActifs(chantiersAll), [chantiersAll]);
   const isMobile = useIsMobile();
   const acc = getBranchAccent(branch);
   // Vue forcée à "planifie" — les vues "réel" et "bilan" ont été retirées
@@ -372,11 +375,8 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     const mon = new Date(jan4);
     mon.setDate(jan4.getDate() - (((jan4.getDay() || 7) - 1)) + (week - 1) * 7);
     const d = new Date(mon); d.setDate(mon.getDate() + dayIndex);
-    const pad = n => String(n).padStart(2,'0');
-    const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+    const dateStr = dateGoogle(d);
     const endHour = dayIndex <= 2 ? '173000' : '163000';
-    const startDt = `${dateStr}T073000`;
-    const endDt = `${dateStr}T${endHour}`;
     const taches = (cell.taches || []).filter(t => t.text?.trim());
     const lignes = taches.length
       ? taches.map(t => `• ${t.text}${t.duree ? ` (${t.duree}h)` : ''}${t.ouvriers?.length ? ` → ${t.ouvriers.join(', ')}` : ' → tous'}`)
@@ -386,13 +386,13 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     const descLines = [...lignes];
     if (cell.reel) descLines.push('', 'Réalisé :', cell.reel);
     descLines.push('', 'Compte rendu : https://planning-chantiers.vercel.app/rapport#rapport');
-    const params = new URLSearchParams({
-      action: 'TEMPLATE', text: title, dates: `${startDt}/${endDt}`,
-      details: descLines.join('\n'), ctz: 'Europe/Paris',
+    // Lien fabriqué par le module unique agendaGoogle.mjs (aussi utilisé par
+    // les étapes « visite » du cycle de vie du chantier).
+    return lienGoogleAgenda({
+      titre: title, debut: `${dateStr}T073000`, fin: `${dateStr}T${endHour}`,
+      details: descLines.join('\n'),
+      invites: (cell.ouvriers || []).map(n => ouvrierEmails?.[n]).filter(Boolean),
     });
-    const emails = (cell.ouvriers || []).map(n => ouvrierEmails?.[n]).filter(Boolean);
-    if (emails.length) params.append('add', emails.join(','));
-    return `https://calendar.google.com/calendar/render?${params.toString()}`;
   };
 
   const handlePrint = () => setExportOpen(true);

@@ -22,7 +22,8 @@ import { libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
 import { semaineISOv1 } from "./planningEngineDataHelpersV1.js";
 import { libellePointAttentionV1, libelleMotifsV1, etatPointsAttentionV1, ETAT_RELEVE_ABSENT, ETAT_DERIVES } from "./pointsAttentionV1.js";
 import { suiviPointsAttentionV1, libelleSuiviV1, libelleDerivesArreteesV1 } from "./suiviPointsAttentionV1.js";
-import { preparerSemainesRelevesJournaliersV2, COLONNES_RELEVES_ALERTES_V2, dimancheSemaineISOV2 } from "./pointsAttentionDonneesV1.js";
+import { preparerSemainesRelevesJournaliersV2, dimancheSemaineISOV2 } from "./pointsAttentionDonneesV1.js";
+import { chargerRelevesRetenusV2 } from "./chargerRelevesAlertes";
 import { alertesMargesV2 } from "./alertesMargesV2.js";
 import { bilanSemaineEmailV1 } from "./bilanSemaineEmailV1.js";
 // Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
@@ -149,6 +150,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
   // sélectionnée (le filtre de semaine s'applique à TOUTES les sources).
   const [cells, setCells] = useState({});
   const [cellsLoading, setCellsLoading] = useState(false);
+  // Phasages lus UNE fois pour la page (≈ 2,5 Mo) : la progression de la
+  // semaine et les finances en partagent la même réponse (06/11/2026).
+  const phasagesLecture = useRef(null);
+  // Promise.resolve : une requête Supabase relance l'appel à CHAQUE .then ;
+  // la promesse, elle, ne l'exécute qu'une fois.
+  const lirePhasages = () => (phasagesLecture.current ||= Promise.resolve(supabase.from("phasages").select("*")));
   useEffect(() => {
     if (!weekId) return;
     let cancelled = false;
@@ -411,7 +418,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       const [phasagesQ, snapshotsQ, journalQ] = await Promise.all([
         // plan_travaux contient meta.prix_vendu (montant du devis).
         // Sert au calcul "delta % → delta €" affiché à côté de la progression.
-        supabase.from("phasages").select("chantier_id, plan_travaux, ouvrages").not("chantier_id", "is", null),
+        lirePhasages().then(q => ({ ...q, data: (q.data || []).filter(ph => ph.chantier_id != null) })),
         // Relevés JOURNALIERS (option A de Loris, 24/10/2026 : l'historique
         // d'avancement du vendredi n'est plus écrit). Le plus récent d'abord ;
         // un jour à l'avancement inconnu (avant le journal) est ignoré.
@@ -542,7 +549,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     (async () => {
       try {
         const [phQ, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, matQ, cfgFG] = await Promise.all([
-          supabase.from("phasages").select("*"),
+          lirePhasages(),
           supabase.from("planning_config").select("value").eq("key", "taux_horaires").maybeSingle(),
           supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle(),
           supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
@@ -588,15 +595,13 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         })();
         // Pointages + lignes de commande : PAGINÉS (la limite Supabase de
         // 1 000 lignes par requête tronquerait les chantiers volumineux).
+        // Tranches lues en parallèle et triées par id (sans tri, deux tranches
+        // peuvent se recouvrir ou sauter des lignes).
         const fetchTout = async (table, select) => {
-          const out = [];
-          for (let from = 0; ; from += 1000) {
-            const { data, error } = await supabase.from(table).select(select).range(from, from + 999);
-            if (error) { console.warn(`Bilan finances: ${table}`, error.message); break; }
-            out.push(...(data || []));
-            if (!data || data.length < 1000) break;
-          }
-          return out;
+          const { data, error } = await lireToutParTranches((a, b) =>
+            supabase.from(table).select(select).order("id").range(a, b));
+          if (error) console.warn(`Bilan finances: ${table}`, error.message);
+          return data;
         };
         const [pts, cls, achatsQ] = await Promise.all([
           fetchTout("pointages", "*"),
@@ -1104,19 +1109,11 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       const plusAncienne = dimancheSemaineISOV2(semainesAttention[semainesAttention.length - 1]);
       const fin = dimancheSemaineISOV2(weekId);
       const debut = (() => { const d = new Date(`${plusAncienne}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 27); return d.toISOString().slice(0, 10); })();
-      const data = [];
-      for (let de = 0; ; de += 1000) {
-        const { data: page, error } = await supabase
-          .from("chantier_releves_journaliers")
-          .select(COLONNES_RELEVES_ALERTES_V2)
-          .gte("date_releve", debut).lte("date_releve", fin)
-          .order("date_releve", { ascending: true }).order("chantier_id", { ascending: true })
-          .range(de, de + 999);
-        if (cancelled) return;
-        if (error) { console.warn("Points d'attention : load", error.message); return; }
-        data.push(...(page || []));
-        if (!page || page.length < 1000) break;
-      }
+      // Seuls les relevés retenus (dernier par chantier et par semaine) sont
+      // téléchargés en entier : ≈ 300 lignes au lieu de ≈ 2 500 (06/11/2026).
+      const { data, error } = await chargerRelevesRetenusV2({ debut, fin, weekIds: semainesAttention });
+      if (cancelled) return;
+      if (error) { console.warn("Points d'attention : load", error.message); return; }
       setSnapshotsCharges(true);
       setSnapshotsAttention(preparerSemainesRelevesJournaliersV2({ lignes: data, weekIds: semainesAttention }));
     })();

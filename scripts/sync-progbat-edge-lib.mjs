@@ -18,7 +18,15 @@ export const CIBLES = Object.freeze({
   "progbat-library-inventory": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatInventaire.mjs"],
   "progbat-library-sync": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatInventaire.mjs", "progbatLibrarySync.mjs"],
   "progbat-library-categories": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatInventaire.mjs", "progbatCategoryDispatch.mjs"],
-  "progbat-quote": ["codeOuvrage.mjs", "chiffragePricing.mjs", "multiOuvrages.mjs", "progbatQuotePayload.mjs", "progbatQuoteServeur.mjs"],
+  // reglesSaisieProgbat.mjs : la liste unique des règles de saisie (Refonte
+  // Opérations, lot 2), lue par construireEnTeteDevis côté serveur aussi.
+  "progbat-quote": ["codeOuvrage.mjs", "chiffragePricing.mjs", "multiOuvrages.mjs", "reglesSaisieProgbat.mjs", "progbatQuotePayload.mjs", "progbatQuoteServeur.mjs"],
+  // Refonte Opérations, lot 4 : client → chantier ProGBat → acompte (écritures
+  // sur bouton, réservées) et lecture du statut des devis (tâche planifiée).
+  // cycleVieReprise.mjs : même lecture de l'étape « Devis signé » que la fiche.
+  // progbatNomPrenom.mjs : découpage « NOM Prénom » d'un client ProGBat (07/11).
+  "progbat-operations": ["progbatNomPrenom.mjs", "reglesSaisieProgbat.mjs", "cycleVieReprise.mjs", "progbatStatutDevis.mjs", "progbatAutomatisation.mjs"],
+  "progbat-devis-statut-cron": ["progbatNomPrenom.mjs", "progbatStatutDevis.mjs", "progbatDiagnosticLot4.mjs"],
   "progbat-library-cadences": ["codeOuvrage.mjs", "progbatCadences.mjs", "progbatCadencesServeur.mjs"],
   "progbat-yards-list": ["progbatYards.mjs"],
   // Diagnostic de pré-synchronisation (lecture seule) : il réutilise les règles

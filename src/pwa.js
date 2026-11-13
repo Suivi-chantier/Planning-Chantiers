@@ -39,7 +39,7 @@ function maybeApply() {
 }
 
 // ── Previews Vercel : jamais pilotées par le service worker ─────────────────
-function isVercelPreviewHost() {
+export function isVercelPreviewHost() {
   if (typeof window === 'undefined') return false
   const host = String(window.location.hostname || '').toLowerCase()
   if (!host.endsWith('.vercel.app')) return false

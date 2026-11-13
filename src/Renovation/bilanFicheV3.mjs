@@ -210,7 +210,7 @@ export function methodeBilanV3() {
   const garder = ["venduHT", "heuresVendues", "heuresReelles", "margePrev", "margeAvancement", "margeATerminaison", "margeProbable", "cascadeDevisProbable", "eurParHeureDevis", "budgetRestant", "materiauxEnAvance", "deriveLotHeuresEuros", "heuresSansLot"];
   const finance = METHODE_CALCUL.filter(m => garder.includes(m.cle)).map(m => ({ titre: m.label, texte: m.formule }));
   return [
-    { titre: "Période et comparaison", texte: "Le Bilan compare deux relevés journaliers : celui du dernier jour travaillé avant la période et celui du dernier jour travaillé de la période (jour travaillé = au moins une heure pointée dans l'entreprise). Une donnée inconnue à ces dates reste « pas encore disponible », jamais 0." },
+    { titre: "Période et comparaison", texte: "Le Bilan compare deux relevés journaliers. Pour une semaine : celui du vendredi de la semaine précédente et celui du vendredi de la semaine (samedi ou dimanche s'il y a eu du travail), même pour une semaine de 4 jours. Pour un mois ou des dates libres : celui du dernier jour travaillé avant la période et celui du dernier jour travaillé de la période (jour travaillé = au moins une heure pointée dans l'entreprise). Le relevé lu est le dernier écrit à cette date ou avant. Une donnée inconnue à ces dates reste « pas encore disponible », jamais 0." },
     { titre: "Production de la période", texte: "Production cumulée (Σ prix HT des ouvrages × avancement exact, sans arrondi) au relevé de fin − production cumulée au relevé de départ." },
     { titre: "Marge de la période", texte: "Marge à l'avancement au relevé de fin − marge à l'avancement au relevé de départ : les périodes s'additionnent exactement à la marge cumulée." },
     { titre: "Écart à la marge devis", texte: "Marge probable − marge prévue au devis : ce que le chantier perd (ou gagne) par rapport à ce que le devis laissait espérer. Le bandeau compare les totaux sur les chantiers où les deux marges sont connues ; les pourcentages sont rapportés au vendu HT (« — » si le vendu est nul)." },
@@ -219,12 +219,38 @@ export function methodeBilanV3() {
   ];
 }
 
+// Cascade affichée seulement pour les chantiers qui décrochent (projet « Bilan
+// détaillé », étape 6, 06/11/2026) : marge probable en baisse de plus du seuil
+// sur la période, ou pastille rouge. Sinon une ligne, calculée ici :
+//   - |évolution| ≤ seuil      → « Marge probable stable (−X €) » ou « (+X €) » (écart signé) ;
+//   - hausse de plus du seuil  → « Marge probable en hausse (+X €) » ;
+//   - évolution inconnue (pas de relevé de départ) → la cascade reste affichée :
+//     on ne peut pas affirmer que la marge est stable.
+// X = valeur absolue de l'évolution, arrondie à l'euro, au format du PDF.
+const fmtEurFiche = v => `${Math.round(v).toLocaleString("fr-FR")}\u202f€`; // même espace insécable fine que les euros du PDF
+export function affichageCascadeV3({ evolutionMargeProbable, couleurPastille, seuilBaisse = 500 } = {}) {
+  const seuil = num(seuilBaisse) ?? 500;
+  const evo = num(evolutionMargeProbable);
+  if (couleurPastille === "rouge") return { afficherCascade: true, motif: "pastille rouge", texte: null };
+  if (evo == null) return { afficherCascade: true, motif: "évolution inconnue", texte: null };
+  if (evo < -seuil) return { afficherCascade: true, motif: "marge probable en baisse", texte: null };
+  if (evo > seuil) return { afficherCascade: false, motif: "marge probable en hausse", texte: `Marge probable en hausse (+${fmtEurFiche(evo)})` };
+  // Écart signé (décision de Loris du 06/11/2026) : « stable (−217 €) » dit
+  // que c'est une petite baisse, « stable (+98 €) » une petite hausse. Même
+  // format que les euros signés du PDF (seuil 0,5 €, signe moins « − »).
+  const r = Math.round(Math.abs(evo));
+  const signe = evo > 0.5 ? "+" : evo < -0.5 ? "−" : "";
+  return { afficherCascade: false, motif: "marge probable stable", texte: `Marge probable stable (${signe}${fmtEurFiche(r)})` };
+}
+
 /** Assemble la fiche d'un chantier pour le PDF détaillé. */
 // En tête de fiche (choix de Loris du 26/10/2026) : « du devis au probable »
 // (cascadeMargeDevisReleve, lue dans le relevé de fin), puis le constat à date
 // et la période, lus dans la synthèse du Bilan (mêmes chiffres que la page 1).
-export function margesFicheV3(synthese, releveFin, baremeFG = null) {
+export function margesFicheV3(synthese, releveFin, baremeFG = null, seuilBaisse = 500) {
   return {
+    affichage: affichageCascadeV3({ evolutionMargeProbable: synthese?.evolutionMargeProbable,
+      couleurPastille: synthese?.pastille?.couleur, seuilBaisse }),
     cascade: cascadeMargeDevisReleve(releveFin, baremeFG),
     constat: { margeAvancement: synthese?.margeAvancement ?? null, materiauxEnAvance: synthese?.materiauxEnAvance ?? null },
     periode: { production: synthese?.production ?? null, margePeriode: synthese?.margePeriode ?? null },
@@ -233,7 +259,7 @@ export function margesFicheV3(synthese, releveFin, baremeFG = null) {
 
 export function ficheChantierV3({ synthese, releveFin, ouvrages, journal, pointages, periode, bornes,
   photosChoisies = [], commentairesCoches = [], syntheseRelue = "", seuilSansLotPct = 10,
-  baremeFG = null, journalComplet = undefined, commandeLignes = undefined, achatsTermines = [], lotsConfig = [] }) {
+  baremeFG = null, journalComplet = undefined, commandeLignes = undefined, achatsTermines = [], lotsConfig = [], seuilBaisse = 500 }) {
   const { lots, aVenir, sansLotAlerte } = lotsFicheV3(releveFin, { seuilSansLotPct });
   const lotsLabels = Object.fromEntries(listeSure(releveFin?.lots).map(l => [l.id, l.label]));
   const detailMat = materiauxParLotALaDateV3({ ouvrages, journalComplet, commandeLignes, achatsTermines, lots: lotsConfig, dateFin: bornes.dateFin });
@@ -241,7 +267,7 @@ export function ficheChantierV3({ synthese, releveFin, ouvrages, journal, pointa
     chantierId: synthese.chantierId, nom: synthese.nom,
     synthese: str(syntheseRelue) || null,
     presences: presencesV3({ pointages, chantierId: synthese.chantierId, debut: periode.debut, fin: periode.fin }),
-    marges: margesFicheV3(synthese, releveFin, baremeFG),
+    marges: margesFicheV3(synthese, releveFin, baremeFG, seuilBaisse),
     lots, aVenir, sansLotAlerte,
     materiaux: materiauxFicheV3(releveFin, detailMat),
     tachesParLot: tachesParLotV3({ ouvrages, journal, dateDepart: bornes.dateDepart, dateFin: bornes.dateFin, lotsLabels }),

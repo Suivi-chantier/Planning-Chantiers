@@ -55,6 +55,7 @@ import { confirmPerteMassive } from "../guards";
 import { useDirtyGuard } from "../hooks";
 import LibelleEditable from "./LibelleEditable";
 import { PiecesPanel, BarreSelectionPieces, DuplicationPieces, BadgePiece } from "./PiecesPhasage";
+import PreparationChantier from "./PreparationChantier";
 import { piecesDuPhasage, rattacherTaches, detacherPiece, filtrerParPiece, grouperParPiece, SANS_PIECE } from "./piecesPhasageV1";
 import { libelleOuvrage, libelleOuvrageDevis, nomTache, nomTacheDevis, aLibellePerso, aNomPerso, textesTache, tacheCorrespond, patchLibelleOuvrage, patchNomTache } from "./libellesPhasageV1";
 // Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
@@ -438,6 +439,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // Pièces du chantier (CR-2) : panneau, filtre / regroupement de la colonne
   // Tâches, sélection multiple pour rattacher, duplication par pièce.
   const [piecesOuvert, setPiecesOuvert] = useState(false);
+  // Parcours « Préparer le chantier » (plein écran) ouvert ou non.
+  const [preparationOuverte, setPreparationOuverte] = useState(false);
   // Répartition en % ouverte : id de l'ouvrage (null = fermée).
   const [repartitionOuvrageId, setRepartitionOuvrageId] = useState(null);
   const [pieceFiltre, setPieceFiltre] = useState("");
@@ -1227,18 +1230,21 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // le state React. Sans sub realtime en V2, le state local peut être
   // périmé si V1 a modifié plan_travaux entretemps — et écrire l'ancien
   // state wiperait tout le travail V1 (incident du 2026-06-03).
+  // Renvoie false si rien n'a pu être mis en file (pas de phasage, relecture
+  // en échec, sauvegarde en pause pour conflit), true sinon.
   const saveMeta = async (patch) => {
-    if (!chantierId) return;
+    if (!chantierId) return false;
     const p = await ensurePhasage();
-    if (!p?.id) return;
+    if (!p?.id) return false;
     const { data: fresh, error: fetchErr } = await supabase.from("phasages")
       .select("plan_travaux").eq("id", p.id).maybeSingle();
-    if (fetchErr) { console.warn("saveMeta fetch:", fetchErr.message); return; }
+    if (fetchErr) { console.warn("saveMeta fetch:", fetchErr.message); return false; }
     const currentPlan = fresh?.plan_travaux || {};
     const newMeta = { ...(currentPlan.meta || {}), ...patch };
     const newPlan = { ...currentPlan, meta: newMeta };
     setPhasage(prev => ({ ...prev, plan_travaux: newPlan }));
     enregistrer({ plan_travaux: newPlan });
+    return !fileRef.current.conflit;
   };
 
   // Saisie des champs « Suivi direction » : chaque frappe déclenchait un
@@ -2915,6 +2921,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               <Icon as={FileDown} size={14}/>
               PDF {viewMode === "gantt" ? "Gantt" : viewMode === "previsionnel" ? "Prévisionnel" : viewMode === "chrono" ? "Planning" : viewMode === "rang" ? "Rang" : ""}
             </button>
+            <button onClick={() => setPreparationOuverte(true)}
+              title="Parcours guidé : pièces du logement, puis répartition des ouvrages par pièce"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "8px 14px", borderRadius: RADIUS.md,
+                border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+              }}>
+              Préparer le chantier
+            </button>
             {resumeHorsDevis.taches.length > 0 && (
               <button onClick={() => setHorsDevisOuvert(true)}
                 title="Tâches hors devis : réaffecter, intégrer, avenant ou geste commercial"
@@ -4120,6 +4136,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: FONT.sm.size, color: T.text }}>
                       <span>Prévu <strong>{fmtEur(env.enveloppe)} €</strong></span>
                       <span>Commandé <strong>{fmtEur(env.commandes)} €</strong></span>
+                      {env.declares > 0.005 && <span>Déclaré commandé (à saisir) <strong>{fmtEur(env.declares)} €</strong></span>}
+                      {env.plusNecessaire > 0.005 && <span title="Ouvrages dont toutes les tâches sont à 100 % : plus rien à acheter pour eux">Ouvrages terminés <strong>−{fmtEur(env.plusNecessaire)} €</strong></span>}
                       <span>Reste à commander <strong style={{ color: env.achatsTermines ? "#22c55e" : T.text }}>{fmtEur(env.reste)} €</strong></span>
                     </div>
                     {env.depassement && (
@@ -4403,6 +4421,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         );
       })()}
 
+      {/* ── Parcours « Préparer le chantier » (plein écran) ── */}
+      {preparationOuverte && (
+        <PreparationChantier chantierNom={chantier?.nom || ""} chantierId={chantierId} meta={phasage?.plan_travaux?.meta || {}}
+          logementsOperation={chantier?.operation_id ? chantiers.filter(c => c.operation_id === chantier.operation_id && c.id !== chantierId) : []}
+          ouvrages={ouvrages} auteur={profil?.nom || profil?.email || null}
+          heuresPointees={pointagesParTache} conflit={!!conflitInfo} etatSauvegarde={autoSaveStatus}
+          onSaveMeta={saveMeta} onOuvragesChange={updateOuvrages}
+          onFermer={() => setPreparationOuverte(false)} T={T}/>
+      )}
       {/* ── Modale édition tâche ── */}
       {piecesOuvert && (
         <PiecesPanel pieces={pieces} onChange={setPieces} onSupprimer={supprimerPieceChantier}

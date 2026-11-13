@@ -732,7 +732,8 @@ test("33. écriture de rattachement : payload borné, UPDATE contrôlé, aucun e
 
 test("34. écran : l'import manuel disparaît sur une échéance couverte par ProGBat", () => {
   assert.match(ECRAN, /\{!f && !pg && \(/, "import manuel seulement sans facture ProGBat");
-  assert.match(ECRAN, /Facturée dans ProGBat — import manuel inutile\./);
+  assert.ok(!ECRAN.includes("import manuel inutile"), "le texte « import manuel inutile » a disparu");
+  assert.match(ECRAN, /Facture émise dans ProGBat\./);
   // Le bandeau bascule sur l'équivalent HT, et le dit.
   assert.match(ECRAN, /const bandeau = croisement\.actif \?/);
   assert.match(ECRAN, /Équivalent HT <strong>selon l'échéancier<\/strong>/);
@@ -740,6 +741,35 @@ test("34. écran : l'import manuel disparaît sur une échéance couverte par Pr
   for (const source of [ECRAN, lire("src/Renovation/facturesProgbatAffichage.mjs")]) {
     assert.ok(!/\/\s*1[.,]2\b/.test(source), "aucune division par 1,2 : le HT ne se reconstitue pas");
     assert.ok(!/montant_ttc\s*\/\s*\(?1\s*\+/.test(source), "aucun HT déduit d'un taux de TVA");
+  }
+});
+
+test("34 bis. écran : bouton « Voir la facture » vers ProGBat (id API, repli si inconnu)", async () => {
+  const { lienProgbat } = await import(new URL("../src/Renovation/progbatLiens.mjs", import.meta.url).href);
+  // Le bouton passe par le module unique, avec l'id API (progbat_bill_id).
+  assert.match(ECRAN, /import \{ lienProgbat \} from "\.\/progbatLiens\.js";/);
+  assert.match(ECRAN, /lienProgbat\("facture", billId/);
+  assert.ok(!ECRAN.includes("app.progbat.com"), "aucune adresse ProGBat en dur");
+  // Sur l'échéance : un bouton par facture ProGBat rattachée, avec son id API.
+  assert.match(ECRAN, /pg && pg\.entrees\.map\([\s\S]{0,120}<BoutonFactureProgbat[\s\S]{0,80}billId=\{e\?\.facture\?\.progbat_bill_id\}/);
+  // Sur chaque carte de la liste « Factures ProGBat ».
+  assert.match(ECRAN, /<BoutonFactureProgbat billId=\{facture\.progbat_bill_id\}/);
+  // Libellés : « Voir la facture », et le repli le dit.
+  assert.match(ECRAN, /lien\.repli\s*\n?\s*\? "Ouvrir la liste des factures"/);
+  assert.match(ECRAN, /`Voir la facture/);
+  assert.match(ECRAN, /title=\{lien\.titre\}/);
+  assert.match(ECRAN, /target="_blank" rel="noopener noreferrer"/);
+  // Comportement du module : id API 511 → la facture ; id inconnu → la liste.
+  const ok = lienProgbat("facture", 511);
+  assert.equal(ok.repli, false);
+  assert.match(ok.url, /\/bills\/511$/);
+  assert.match(ok.titre, /PROFERO RENOVATION/);
+  for (const inconnu of [null, undefined, "", "F-260067"]) {
+    const r = lienProgbat("facture", inconnu);
+    assert.equal(r.repli, true, `repli pour ${inconnu}`);
+    assert.match(r.url, /\/bills$/);
+    assert.match(r.titre, /PROFERO RENOVATION/);
+    assert.match(r.titre, /liste des factures/);
   }
 });
 

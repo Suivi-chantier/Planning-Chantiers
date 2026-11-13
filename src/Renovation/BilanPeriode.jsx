@@ -11,7 +11,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { lireToutParTranches } from "./lectureParTranches";
-import { getCurrentWeek, getWeekId } from "../constants";
+import { getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
+import { estChantierActif } from "./chantierActif";
 import { useReglagesMarges } from "./reglagesMarges";
 import { alertesMargesV2 } from "./alertesMargesV2.js";
 import { COLONNES_RELEVES_ALERTES_V2 } from "./pointsAttentionDonneesV1.js";
@@ -19,7 +20,7 @@ import {
   periodeSemaineV3, periodeMoisV3, periodeLibreV3, bornesComparaisonV3, ajouterJoursV3, semaineIsoV3,
   indexerRelevesV3, releveAuPlusTardV3, syntheseChantiersV3, bandeauV3, activiteChantiersV3,
   preselectionChantiersV3, ligneSansActiviteV3, avertissementsExportV3, LEGENDE_PASTILLES_V3,
-  COULEURS_PASTILLES_V3, fmtJourV3, resumeSansActiviteV3,
+  COULEURS_PASTILLES_V3, fmtJourV3, resumeSansActiviteV3, nbChantiersV3, texteProgressionAvancementV3,
 } from "./bilanPeriodeV3.js";
 import { documentBilanV3 } from "./bilanPdfV3.js";
 import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3 } from "./bilanFicheV3.js";
@@ -39,7 +40,12 @@ const CHANTIERS_EXCLUS = ["DÉPOT"];
 const COLONNES_LEGERES = "chantier_id, chantier_nom, date_releve, avancement, vendu_ht, heures_vendues, heures_reelles, "
   + "production_cumulee, marge_avancement, marge_terminaison, marge_probable, budget_restant, materiaux_en_avance, "
   + "heures_sans_lot, pct_sans_lot, chantier_repris, statut_completude, cr_manquants";
-const COLONNES_COMPLETES = `${COLONNES_RELEVES_ALERTES_V2}, materiaux_en_avance, materiaux_imputes, mat_reel, mat_prev, mo_reel, fg, reste_a_commander, couts_par_nature, cr_manquants`;
+// Relevés complets des deux jours comparés. mo_prev (main-d'œuvre prévue) sert
+// à la marge prévue au devis (margePrevueDevisReleve) ; reste_a_faire_h à la
+// cascade « du devis au probable » des fiches (cascadeMargeDevisReleve). Sans
+// elles, « marge devis inconnue » partout (corrigé le 06/11/2026). Contrôle :
+// scripts/verif-bilan-periode.mjs (colonnes lues par ces deux fonctions).
+const COLONNES_COMPLETES = `${COLONNES_RELEVES_ALERTES_V2}, materiaux_en_avance, materiaux_imputes, mat_reel, mat_prev, mo_prev, mo_reel, fg, reste_a_faire_h, reste_a_commander, couts_par_nature, cr_manquants`;
 
 const fmtEur = v => (v == null ? "—" : `${Math.round(v).toLocaleString("fr-FR")} €`);
 const fmtEurSigne = v => (v == null ? "—" : `${v > 0.5 ? "+" : v < -0.5 ? "−" : ""}${Math.round(Math.abs(v)).toLocaleString("fr-FR")} €`);
@@ -356,6 +362,12 @@ async function telechargerPdf(html, nomFichier) {
   conteneur.innerHTML = html;
   document.body.appendChild(conteneur);
   try {
+    // html2canvas ne rend que les polices déjà chargées : Barlow (texte) et
+    // Barlow Condensed (titres, chiffres), liées dans index.html, sont
+    // attendues avant la capture ; en cas d'échec, repli Arial.
+    try {
+      await Promise.all(["400 11px Barlow", "600 11px Barlow", "700 11px Barlow", "800 20px 'Barlow Condensed'"].map(f => document.fonts.load(f)));
+    } catch { /* repli Arial */ }
     const html2pdf = (await import("html2pdf.js")).default;
     const opts = {
       margin: [12, 10, 14, 10], filename: nomFichier, image: { type: "jpeg", quality: 0.95 },
@@ -405,7 +417,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
   const basculer = (id, valeur) => setChoix(c => ({ cle: periode.cle, valeurs: { ...(c.cle === periode.cle ? c.valeurs : {}), [id]: valeur } }));
 
   const enCours = useMemo(() => (chantiers || [])
-    .filter(c => c && c.id && !CHANTIERS_EXCLUS.includes(c.nom) && c.statut !== "termine")
+    .filter(c => estChantierActif(c) && !CHANTIERS_EXCLUS.includes(c.nom))
     .sort((a, b) => String(a.nom).localeCompare(String(b.nom), "fr")), [chantiers]);
 
   const calcul = useMemo(() => {
@@ -419,7 +431,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     const alertes = alertesMargesV2({ snapshotsCourants: pick(bornes.dateFin), snapshotsPrecedents: pick(bornes.dateDepart), seuils: reglages.seuilsMarges });
     const alertesParChantier = Object.fromEntries(alertes.lignes.map(l => [l.chantier_id, l.alertes.map(a => ({ ...a, motif: a.motif }))]));
     const synthese = syntheseChantiersV3({ releves: idx, chantiers: retenus, bornes, periode, alertesParChantier,
-      seuilBaisse: reglages.seuilsMarges?.alerteBaisseMargeProbableEuros ?? 500, baremeFG: reglages.baremeFG });
+      seuilBaisse: reglages.seuilsMarges?.alerteBaisseMargeProbableEuros ?? 500, baremeFG: reglages.baremeFG, seuils: reglages.seuilsMarges });
     const noms = Object.fromEntries(enCours.map(c => [c.id, c.nom]));
     const avertissements = avertissementsExportV3({ periode, chantierIds: retenus.map(c => c.id), rapports, relevesLignes: releves, noms });
     const bandeau = bandeauV3({ synthese, nbComptesRendusNonValides: avertissements.nbNonValides });
@@ -476,6 +488,8 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
 
   // ── Version détaillée : préparation par le conducteur (par période) ──
   const [detaillee, setDetaillee] = useState(false);
+  // Méthode de calcul : plus jointe par défaut (projet « Bilan détaillé », étape 7).
+  const [joindreMethode, setJoindreMethode] = useState(false);
   const [prep, setPrep] = useState({ cle: null, syntheses: {}, photos: {}, commentaires: {}, ia: {} });
   const prepPeriode = prep.cle === periode?.cle ? prep : { cle: periode?.cle, syntheses: {}, photos: {}, commentaires: {}, ia: {} };
   const majPrep = (champ, id, valeur) => setPrep(pr => {
@@ -519,6 +533,8 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     prevuRealise: calcul.prevuRealise,
     finsPrevues: finsPrevues || undefined,
     genereLe: new Date().toLocaleDateString("fr-FR"),
+    // Logo du héros (charte des documents Profero) : URL absolue, comme les autres documents.
+    logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
     ...(detaillee && preparation ? {
       fiches: calcul.synthese.map(s => {
         const idx = indexerRelevesV3(donnees.releves);
@@ -532,11 +548,13 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
           seuilSansLotPct: reglages.seuilsMarges?.alerteSansLotPct ?? 10, baremeFG: reglages.baremeFG,
           journalComplet: det.journalPar ? (det.journalPar[s.chantierId] || []) : undefined,
           commandeLignes: det.commandesPar ? (det.commandesPar[s.chantierId] || []) : undefined,
-          achatsTermines: det.achatsPar?.[s.chantierId] || [], lotsConfig: det.lotsConfig || [] });
+          achatsTermines: det.achatsPar?.[s.chantierId] || [], lotsConfig: det.lotsConfig || [],
+          seuilBaisse: reglages.seuilsMarges?.alerteBaisseMargeProbableEuros ?? 500 });
         return { ...fiche, horsDevis: texteHorsDevisV2(horsDevis.parChantier[s.chantierId]) };
       }),
       gestesCommerciaux: texteGestesPeriodeV2(horsDevis.gestes) || undefined,
-      methode: methodeBilanV3(),
+      // Annexe seulement si la case est cochée : le même HTML part au PDF et à l'archive.
+      ...(joindreMethode ? { methode: methodeBilanV3() } : {}),
     } : {}),
   });
   const exporter = async () => {
@@ -615,8 +633,8 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
 
       {calcul && (<>
         <div style={{ fontSize: 12, color: T.textSub, marginBottom: 10 }}>
-          Comparaison du <strong>{fmtJourV3(donnees.bornes.dateDepart)}</strong> (dernier jour travaillé avant la période)
-          au <strong>{fmtJourV3(donnees.bornes.dateFin)}</strong> (dernier jour travaillé de la période)
+          Comparaison du <strong>{fmtJourV3(donnees.bornes.dateDepart)}</strong> ({donnees.bornes.libelleDepart || "dernier jour travaillé avant la période"})
+          au <strong>{fmtJourV3(donnees.bornes.dateFin)}</strong> ({donnees.bornes.libelleFin || "dernier jour travaillé de la période"})
           {donnees.bornes.sansJourTravaille ? " — aucun jour travaillé sur la période" : ""}.
         </div>
 
@@ -633,7 +651,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
             return [
               ["Production de la période", fmtEur(b.production), T.text, []],
               ["Marge de la période", fmtEurSigne(b.margePeriode), couleurSigne(b.margePeriode, T), [`${fmtPctSur(b.margePeriodePct)} de la production`]],
-              [b.nbChantiersHorsComparaison > 0 ? `Marge probable (${b.nbChantiersComparables} chantiers)` : "Marge probable, tous chantiers",
+              [b.nbChantiersHorsComparaison > 0 ? `Marge probable (${nbChantiersV3(b.nbChantiersComparables)})` : "Marge probable, tous chantiers",
                 fmtEurSigne(b.margeProbableTotale), couleurSigne(b.margeProbableTotale, T), [
                 `${fmtPctSur(b.margeProbableTotalePct)} du vendu · devis ${fmtEurSigne(b.margeDevisTotale)} (${fmtPctSur(b.margeDevisTotalePct)})`,
                 b.evolutionMargeProbable == null ? "évolution sur la période : —" : `${fleche(b.evolutionMargeProbable)} ${fmtEurSigne(b.evolutionMargeProbable)} sur la période, tous chantiers`,
@@ -678,7 +696,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
                       ))}
                     </td>
                     {s.disponible ? (<>
-                      <td>{fmtPct(s.avancement)}</td>
+                      <td>{fmtPct(s.avancement)}<div style={{ fontSize: 10, color: T.textMuted }}>{texteProgressionAvancementV3(s.avancement, s.avancementDepart)}</div></td>
                       <td>{fmtEur(s.vendu)}</td>
                       <td style={{ color: couleurSigne(s.margeDevis, T) }}>{fmtEurSigne(s.margeDevis)}<div style={{ fontSize: 10, color: T.textMuted }}>{s.margeDevisSansMateriaux ? "sans matériaux prévus" : fmtPctSur(s.margeDevisPct)}</div></td>
                       <td style={{ color: couleurSigne(s.margeProbable, T) }}>{fmtEurSigne(s.margeProbable)}<div style={{ fontSize: 10, color: T.textMuted }}>{fmtPctSur(s.margeProbablePct)}</div></td>
@@ -828,6 +846,11 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
               <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>
                 <input type="checkbox" checked={detaillee} onChange={e => setDetaillee(e.target.checked)}/> Version détaillée
               </label>
+              {detaillee && (
+                <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>
+                  <input type="checkbox" checked={joindreMethode} onChange={e => setJoindreMethode(e.target.checked)}/> Joindre la méthode de calcul
+                </label>
+              )}
               <button style={btn(true)} disabled={export_.enCours} onClick={exporter}>{export_.enCours ? "Génération…" : "Télécharger le PDF"}</button>
             </div>
           </div>

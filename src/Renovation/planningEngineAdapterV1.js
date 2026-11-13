@@ -13,6 +13,7 @@ import { CONSTRAINT_TYPES, normaliserContraintePlanning } from "./planningConstr
 import { calculerRangs, predecesseursEffectifs } from "./rang.js";
 import { nomTache } from "./libellesPhasageV1.mjs";
 import { regleGroupe } from "./planningRulesV1.js";
+import { estChantierActif } from "./chantierActif.mjs";
 import { CONFIANCE_GROUPE_V1, infererGroupeExecutionV1 } from "./planningGroupInferenceV1.js";
 import {
   calculerCapaciteRessourcePourDate,
@@ -393,7 +394,7 @@ export function preparerSimulationPlanningGlobalV1({
       warnings.push({ type: "phasage_hors_referentiel", chantier_id: chantierId, explication: "Phasage ignoré car son chantier n'existe plus dans le référentiel courant." });
       continue;
     }
-    if (chantier?.statut === "termine") continue;
+    if (chantier && !estChantierActif(chantier)) continue;   // règle unique (chantierActif.mjs)
 
     const ouvrages = Array.isArray(ph?.ouvrages) ? ph.ouvrages : [];
     if (!ouvrages.length) continue;

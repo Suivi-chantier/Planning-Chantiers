@@ -8,7 +8,9 @@
 //   - présélection : chantier sans activité décoché, chantier avec seulement
 //     une commande coché, décochage manuel conservé pour la période ;
 //   - avertissement : comptes rendus non validés + journées incomplètes ;
-//   - version direction : aucun commentaire brut d'ouvrier.
+//   - version direction : aucun commentaire brut d'ouvrier ;
+//   - Bilan détaillé (06/11/2026) : fiabilité, tendance 6 semaines et
+//     fourchette de la marge probable.
 //
 //   node scripts/verif-bilan-periode.mjs
 import assert from "node:assert/strict";
@@ -20,7 +22,7 @@ import * as C from "../src/Renovation/bilanClotureV3.mjs";
 import * as A from "../src/Renovation/bilanArchiveV3.mjs";
 import { etatMateriauxOuvrageV1 } from "../src/Renovation/commandesOuvrageV1.mjs";
 import { readFileSync as lireFichier } from "node:fs";
-import { computeChantierFinance, margePrevueDevisReleve } from "../src/chantierFinance.mjs";
+import { computeChantierFinance, margePrevueDevisReleve, normaliserSeuilsMarges, SEUILS_MARGES_DEFAUT } from "../src/chantierFinance.mjs";
 import { MOTIF_LOT_EN_DERIVE, MOTIF_HEURES_SANS_LOT, MOTIF_DEPASSEMENT_ENVELOPPE, MOTIF_MARGE_PROBABLE_EN_BAISSE } from "../src/Renovation/pointsAttentionV1.mjs";
 import { createRequire } from "node:module";
 const require_ = createRequire(import.meta.url);
@@ -47,9 +49,28 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); n++; };
   // Semaine de 4 jours : lundi→jeudi travaillés ; la précédente aussi.
   const jours = ["2026-10-12", "2026-10-15", "2026-10-19", "2026-10-22"];
   const b = B.bornesComparaisonV3(p, jours);
-  eq([b.dateDepart, b.dateFin], ["2026-10-15", "2026-10-22"], "jeudi 15/10 → jeudi 22/10");
+  // Décision du 09/11/2026 : une semaine s'arrête au VENDREDI, même de 4 jours.
+  eq([b.dateDepart, b.dateFin], ["2026-10-16", "2026-10-23"], "semaine : vendredi 16/10 → vendredi 23/10");
+  ok(b.dernierJourTravaille === "2026-10-22" && b.finJourTravaille, "dernier jour travaillé gardé (jeudi 22/10)");
+  const samedi = B.bornesComparaisonV3(p, [...jours, "2026-10-24"]);
+  ok(samedi.dateFin === "2026-10-24", "samedi travaillé : la semaine va jusqu'au samedi");
   const vide = B.bornesComparaisonV3(p, []);
-  ok(vide.sansJourTravaille && vide.dateFin === "2026-10-25" && vide.dateDepart === "2026-10-18", "sans jour travaillé : bornes calendaires, signalé");
+  ok(vide.sansJourTravaille && vide.dateFin === "2026-10-23" && vide.dateDepart === "2026-10-16", "sans jour travaillé : vendredis, signalé");
+  // Mois / dates libres : dernier jour travaillé, inchangé.
+  const m = B.bornesComparaisonV3(B.periodeMoisV3("2026-10"), ["2026-09-29", "2026-10-29"]);
+  eq([m.dateDepart, m.dateFin], ["2026-09-29", "2026-10-29"], "mois : derniers jours travaillés");
+}
+
+// ── Progression de l'avancement sur la période (09/11/2026) ──────────────
+{
+  const t = B.texteProgressionAvancementV3;
+  eq([t(44, 39), t(44, 43.5), t(44, 44), t(40, 42), t(44, null), t(null, 30)],
+    ["+5\u00a0pts sur la période", "+0,5\u00a0pt sur la période", "±0\u00a0pt sur la période", "−2\u00a0pts sur la période", "évolution : —", "évolution : —"],
+    "progression de l'avancement (données fictives) : points gagnés, départ inconnu → « — », jamais +0");
+  const pdf = lireFichier(new URL("../src/Renovation/bilanPdfV3.mjs", import.meta.url), "utf8");
+  const ecran = lireFichier(new URL("../src/Renovation/BilanPeriode.jsx", import.meta.url), "utf8");
+  ok(pdf.includes("texteProgressionAvancementV3(s.avancement, s.avancementDepart)") && ecran.includes("texteProgressionAvancementV3(s.avancement, s.avancementDepart)"),
+    "progression : même texte à l'écran et dans le PDF (un seul module)");
 }
 
 // ── Synthèse par chantier ───────────────────────────────────────────────────
@@ -148,7 +169,7 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   const detaillee = documentBilanV3(d, { detaillee: true });
   ok(detaillee.includes("rien fait"), "version détaillée : seulement les commentaires cochés (passés explicitement)");
   ok(direction.includes("Pastilles"), "légende des pastilles présente");
-  ok(documentBilanV3({ ...d, synthese: [{ ...synthese[0], disponible: false, pastille: { couleur: "gris" }, mentions: [] }] }).includes("colspan=\"7\" class=\"gris\">relevé pas encore disponible"),
+  ok(documentBilanV3({ ...d, synthese: [{ ...synthese[0], disponible: false, pastille: { couleur: "gris" }, mentions: [] }] }).includes("colspan=\"8\" class=\"gris\">relevé pas encore disponible"),
     "chantier sans relevé : « relevé pas encore disponible » dans le PDF");
   ok(!direction.includes("<script"), "aucun script dans le document");
   const xss = documentBilanV3({ ...d, synthese: [{ ...synthese[0], nom: "<img src=x onerror=1>" }] });
@@ -188,7 +209,10 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(F.materiauxFicheV3({ mat_reel: 1 }).parNatureDisponible === false, "relevé sans ventilation : signalée indisponible");
   eq(fiche.synthese, "Cloisons de la chambre terminées.", "synthèse = texte relu");
   const html = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], fiches: [fiche], methode: F.methodeBilanV3() }, { detaillee: true });
-  ok(html.includes("Méthode de calcul") && html.includes("Marge de la période") && html.includes("Davy 4 j"), "PDF détaillé : fiches + annexe méthode");
+  ok(html.includes("Méthode de calcul") && html.includes("Marge de la période") && html.includes("Davy 4 j"), "PDF détaillé : fiches + annexe méthode (quand elle est jointe)");
+  const sansMethode = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], fiches: [fiche] }, { detaillee: true });
+  ok(!sansMethode.includes("Méthode de calcul") && sansMethode.includes("Davy 4 j"), "PDF détaillé : sans méthode jointe, pas d'annexe (case décochée par défaut)");
+  ok(fiche.marges.affichage.afficherCascade && /Du devis au probable/.test(sansMethode), "fiche sans évolution connue : la cascade reste affichée");
   ok(!html.includes("Kev traîne"), "commentaire non coché absent du PDF détaillé");
   const direction = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], fiches: [fiche] }, { detaillee: false });
   ok(!direction.includes("vis de 25") && !direction.includes("Kev traîne"), "version direction : aucun commentaire, même coché");
@@ -290,8 +314,8 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(A.rectificationsV3({ archives: reexport, releves: relApres, periode: P }).length === 0, "le dernier export de la période fait foi");
   // La période courante n'est jamais « rectifiée ».
   ok(A.rectificationsV3({ archives, releves: relApres, periode: W42 }).length === 0, "pas de rectification de la période en cours");
-  const html = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], rectifications: r });
-  ok(/Rectifications/.test(html) && /−150/.test(html), "ligne « Rectifications » dans le PDF");
+  const html = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], rectifications: r }, { detaillee: true });
+  ok(/Rectifications/.test(html) && /−150/.test(html), "ligne « Rectifications » dans le PDF détaillé");
   // Prévu / réalisé : 30 h prévues par le bilan W42 pour W43.
   const syn43 = [{ chantierId: "a", nom: "A", heuresPeriode: 26 }];
   const pr = A.prevuRealiseV3({ archives, periode: P, synthese: syn43 });
@@ -311,7 +335,11 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   eq([e1.liens.length, e1.aCommander.map(x => x.materiau_id), e1.marques.map(x => x.materiau_id), e1.dateBesoin],
     [3, ["m3"], ["m2"], "2026-10-28"], "règle d'un ouvrage : à commander, marqué commandé, date de besoin");
   // Même règle dans la page « Commandes à passer » (même chiffre = même service).
-  const pageCmd = lireFichier(new URL("../src/Renovation/PagePlanningCommandes.jsx", import.meta.url), "utf8");
+  // Depuis la tâche 10 (notifications push), la liste de la page vit dans
+  // commandesAPasserV1.mjs, importé par la page : on lit les deux.
+  const pageCmdSeule = lireFichier(new URL("../src/Renovation/PagePlanningCommandes.jsx", import.meta.url), "utf8");
+  const pageCmd = pageCmdSeule + lireFichier(new URL("../src/Renovation/commandesAPasserV1.mjs", import.meta.url), "utf8");
+  ok(/from "\.\/commandesAPasserV1\.js"/.test(pageCmdSeule), "Commandes à passer importe commandesAPasserV1");
   ok(pageCmd.includes("etatMateriauxOuvrageV1(") && !/const matCommandes = new Set/.test(pageCmd), "Commandes à passer utilise la même règle");
   const o2 = ouv("o2", "2026-11-20", [{ materiau_id: "m4" }]); // besoin après la semaine qui vient
   const FEN = { debut: "2026-10-26", fin: "2026-11-01" };
@@ -349,8 +377,8 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(parId.b.glissementJours === null && parId.b.texteGlissement.includes("01/11/2026"), "passé au-delà de l'horizon : pas de nombre de jours inventé");
   ok(parId.c.glissementJours === null && /pas de fin au bilan/.test(parId.c.texteGlissement), "pas de fin au bilan précédent : dit comme tel");
   ok(parId.d.glissementJours === 0 && /inchangée/.test(parId.d.texteGlissement), "même date : inchangée (0 jour connu)");
-  const html = documentBilanV3({ periode: P43, bornes: {}, bandeau: {}, synthese: [], alertes: [], finsPrevues: avec });
-  ok(/Fin prévisionnelle/.test(html) && html.includes("+3 j"), "fin prévisionnelle et glissement dans le PDF");
+  const html = documentBilanV3({ periode: P43, bornes: {}, bandeau: {}, synthese: [], alertes: [], finsPrevues: avec }, { detaillee: true });
+  ok(/Fin prévisionnelle/.test(html) && html.includes("+3 j"), "fin prévisionnelle et glissement dans le PDF détaillé");
 }
 
 // ── PDF direction retravaillé (choix de Loris du 26/10/2026) ────────────────
@@ -436,6 +464,329 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   const det = documentBilanV3(d, { detaillee: true });
   ok(dir.includes("2 chantiers en cours sans activité") && !dir.includes("X, Y") && det.includes("X, Y"), "liste des chantiers sans activité : version détaillée seulement");
   ok(!dir.includes("mar. 21/10") && det.includes("mar. 21/10"), "détail des journées incomplètes : version détaillée seulement");
+}
+
+// ── Bilan détaillé : fiabilité de la marge probable (données fictives) ──────
+{
+  const N = " ";
+  eq([SEUILS_MARGES_DEFAUT.fiabiliteAvancementFaiblePct, SEUILS_MARGES_DEFAUT.fiabiliteAvancementBonPct,
+    SEUILS_MARGES_DEFAUT.fiabiliteCouvertureFaiblePct, SEUILS_MARGES_DEFAUT.fiabiliteCouvertureBonnePct], [25, 60, 30, 70],
+    "fiabilité (données fictives) : seuils par défaut 25 / 60 / 30 / 70");
+  ok(normaliserSeuilsMarges({ fiabiliteAvancementBonPct: "50" }).fiabiliteAvancementBonPct === 50
+    && normaliserSeuilsMarges({ fiabiliteCouvertureBonnePct: "abc" }).fiabiliteCouvertureBonnePct === 70,
+    "fiabilité (données fictives) : seuils réglables, valeur illisible → défaut");
+  const lot = (id, hrp, prov, av = 40) => ({ id, label: id, avancement: av, avancementExact: av, heuresRestantesPrevues: hrp, provenanceCoefficient: prov });
+
+  // Chantier neuf : 0 % avancé, aucun coefficient constaté.
+  const neuf = B.fiabiliteMargeProbableV3({ avancement: 0, lots: [lot("a", 100, "aucune", 0), lot("b", 50, "historique", 0)] });
+  ok(neuf.niveau === "faible" && neuf.noteAvancement === "faible" && neuf.noteCouverture === "faible",
+    "fiabilité (données fictives) : chantier neuf → faible");
+  eq(neuf.raison, `0${N}% avancé · coefficients constatés sur 0${N}% des heures restantes`, "fiabilité (données fictives) : raison du chantier neuf");
+
+  // Chantier à 80 % tout constaté (un lot terminé ignoré, un lot neutralisé compté).
+  const c80 = B.fiabiliteMargeProbableV3({ avancement: 80, lots: [lot("a", 30, "constatee", 70), lot("b", 10, "neutralisee", 60), lot("c", 0, "aucune", 100)] });
+  ok(c80.niveau === "bonne" && c80.couverturePct === 100, "fiabilité (données fictives) : chantier à 80 % tout constaté → bonne");
+  eq(c80.raison, `80${N}% avancé · coefficients constatés sur 100${N}% des heures restantes`, "fiabilité (données fictives) : raison à 80 %");
+
+  // Chantier à 50 % tout « aucune ».
+  const c50 = B.fiabiliteMargeProbableV3({ avancement: 50, lots: [lot("a", 40, "aucune"), lot("b", 20, "aucune")] });
+  ok(c50.niveau === "faible" && c50.noteAvancement === "moyenne" && c50.noteCouverture === "faible",
+    "fiabilité (données fictives) : chantier à 50 % tout « aucune » → faible (la plus basse des deux)");
+
+  // Chantier sans heures restantes : couverture bonne, l'avancement décide.
+  const fini = B.fiabiliteMargeProbableV3({ avancement: 100, lots: [lot("a", 0, "constatee", 100), lot("b", 0, "aucune", 100)] });
+  ok(fini.niveau === "bonne" && fini.couverturePct === null, "fiabilité (données fictives) : aucune heure restante → bonne");
+  eq(fini.raison, `100${N}% avancé · aucune heure restante`, "fiabilité (données fictives) : raison sans heure restante");
+  ok(B.fiabiliteMargeProbableV3({ avancement: 40, lots: [] }).niveau === "moyenne", "fiabilité (données fictives) : sans lot à 40 % → moyenne (avancement)");
+
+  // « historique » ne compte pas comme couvert (décision de Loris).
+  const hist = B.fiabiliteMargeProbableV3({ avancement: 70, lots: [lot("a", 60, "historique"), lot("b", 40, "constatee")] });
+  ok(hist.couverturePct === 40 && hist.niveau === "moyenne", "fiabilité (données fictives) : coefficient historique non compté (40 % couverts → moyenne)");
+  eq(hist.raison, `70${N}% avancé · coefficients constatés sur 40${N}% des heures restantes`, "fiabilité (données fictives) : raison avec historique");
+
+  // Bornes : 25 et 60 % → moyenne ; 30 % couverts → moyenne ; 70 % → bonne.
+  ok(B.fiabiliteMargeProbableV3({ avancement: 25, lots: [] }).noteAvancement === "moyenne"
+    && B.fiabiliteMargeProbableV3({ avancement: 60, lots: [] }).noteAvancement === "moyenne"
+    && B.fiabiliteMargeProbableV3({ avancement: 24.9, lots: [] }).noteAvancement === "faible", "fiabilité (données fictives) : bornes d'avancement");
+  ok(B.fiabiliteMargeProbableV3({ avancement: 90, lots: [lot("a", 30, "constatee"), lot("b", 70, "aucune")] }).noteCouverture === "moyenne"
+    && B.fiabiliteMargeProbableV3({ avancement: 90, lots: [lot("a", 70, "constatee"), lot("b", 30, "aucune")] }).noteCouverture === "bonne",
+    "fiabilité (données fictives) : bornes de couverture (30 % moyenne, 70 % bonne)");
+  // Seuils réglés.
+  ok(B.fiabiliteMargeProbableV3({ avancement: 50, lots: [], seuils: { fiabiliteAvancementBonPct: 45 } }).niveau === "bonne",
+    "fiabilité (données fictives) : seuil d'avancement réglé pris en compte");
+
+  // Avancement inconnu : jamais traité comme 0.
+  const inc = B.fiabiliteMargeProbableV3({ avancement: null, lots: [lot("a", 10, "constatee")] });
+  ok(inc.niveau === null && /inconnue/.test(inc.raison), "fiabilité (données fictives) : avancement inconnu → fiabilité inconnue, pas « faible »");
+  ok(B.fiabiliteMargeProbableV3({ avancement: 50, lots: [{ id: "a", avancement: null }] }).niveau === null,
+    "fiabilité (données fictives) : heures restantes illisibles → fiabilité inconnue");
+}
+
+// ── Bilan détaillé : tendance 6 semaines (données fictives) ─────────────────
+{
+  eq(B.finsSemainesTendanceV3("2026-11-01"), ["2026-09-27", "2026-10-04", "2026-10-11", "2026-10-18", "2026-10-25", "2026-11-01"],
+    "tendance (données fictives) : 6 dimanches jusqu'à la fin de la période");
+  eq(B.finsSemainesTendanceV3("n'importe quoi"), [], "tendance (données fictives) : date illisible → aucune semaine");
+  const fins = B.finsSemainesTendanceV3("2026-11-01");
+  const r = (d, mp) => ({ chantier_id: "t", date_releve: d, marge_probable: mp });
+  // Référence (20/09) 1000 ; S1 1000.5 (= à 1 € près) ; S2 1200 (▲) ; S3 aucun relevé
+  // dans la semaine (le relevé au plus tard reste celui de S2 → =) ; S4 900 (▼) ;
+  // S5 marge inconnue (·) ; S6 950 (▲ face à S4).
+  const idx = B.indexerRelevesV3([r("2026-09-18", 1000), r("2026-09-25", 1000.5), r("2026-10-02", 1200),
+    r("2026-10-16", 900), r("2026-10-22", null), r("2026-10-30", 950)]);
+  const t = B.tendanceMargeProbableV3({ releves: idx.get("t"), finsSemaines: fins });
+  eq(t.valeurs, [1000.5, 1200, 1200, 900, null, 950], "tendance (données fictives) : marge probable au plus tard à chaque fin de semaine");
+  eq(t.symboles, ["=", "▲", "=", "▼", "·", "▲"], "tendance (données fictives) : ▲ ▼ = avec seuil 1 €, « · » si inconnue");
+  ok(t.semaines[2].releveDansLaSemaine === false && t.semaines[1].releveDansLaSemaine === true, "tendance (données fictives) : semaine sans relevé signalée");
+  ok(t.reference === 1000 && t.evolution === -50, "tendance (données fictives) : évolution totale = 950 − 1 000 = −50 €");
+  // Chantier qui démarre dans la fenêtre : rien avant → « · », évolution depuis la 1re valeur.
+  const idx2 = B.indexerRelevesV3([r("2026-10-14", 500), r("2026-10-28", 700)]);
+  const t2 = B.tendanceMargeProbableV3({ releves: idx2.get("t"), finsSemaines: fins });
+  eq(t2.symboles, ["·", "·", "·", "·", "=", "▲"], "tendance (données fictives) : semaines sans relevé → « · », 1re valeur sans comparaison → « · »");
+  ok(t2.evolution === 200 && t2.texteSymboles === "····=▲", "tendance (données fictives) : évolution depuis la première valeur connue");
+  const t3 = B.tendanceMargeProbableV3({ releves: [], finsSemaines: fins });
+  ok(t3.evolution === null && t3.valeurs.every(v => v === null) && t3.texteSymboles === "······", "tendance (données fictives) : aucun relevé → évolution inconnue, jamais 0");
+  const t4 = B.tendanceMargeProbableV3({ releves: B.indexerRelevesV3([r("2026-10-30", 300)]).get("t"), finsSemaines: fins });
+  ok(t4.evolution === null, "tendance (données fictives) : une seule valeur → évolution inconnue");
+}
+
+// ── Bilan détaillé : fourchette de la marge probable (données fictives) ─────
+{
+  const N = " ";
+  eq(B.fourchetteMargeProbableV3({ margeProbable: 8400, margeTerminaison: 11200 }).texte, `entre +8${N}400${N}€ et +11${N}200${N}€`,
+    "fourchette (données fictives) : « entre +8 400 € et +11 200 € »");
+  eq(B.fourchetteMargeProbableV3({ margeProbable: 11200, margeTerminaison: 8400 }).texte, `entre +8${N}400${N}€ et +11${N}200${N}€`,
+    "fourchette (données fictives) : bornes triées");
+  eq(B.fourchetteMargeProbableV3({ margeProbable: -1500, margeTerminaison: 2000 }).texte, `entre −1${N}500${N}€ et +2${N}000${N}€`,
+    "fourchette (données fictives) : borne négative");
+  const egal = B.fourchetteMargeProbableV3({ margeProbable: 5000, margeTerminaison: 5001 });
+  ok(egal.texte === "pas de dérive en cours" && egal.sansDerive, "fourchette (données fictives) : égales à 1 € près → pas de dérive en cours");
+  ok(B.fourchetteMargeProbableV3({ margeProbable: 5000, margeTerminaison: 5001.5 }).texte.startsWith("entre"), "fourchette (données fictives) : écart de 1,50 € → fourchette");
+  ok(B.fourchetteMargeProbableV3({ margeProbable: null, margeTerminaison: 5000 }).texte === "—"
+    && B.fourchetteMargeProbableV3({ margeProbable: 5000, margeTerminaison: undefined }).texte === "—"
+    && B.fourchetteMargeProbableV3({}).connue === false, "fourchette (données fictives) : inconnue → « — », jamais 0");
+}
+
+// ── Bilan détaillé : synthèse « où va chaque chantier » (données fictives) ──
+{
+  const N = "\u202f";
+  const P44 = B.periodeSemaineV3("2026-W44"); // 26/10 → 01/11
+  const BOR = B.bornesComparaisonV3(P44, ["2026-10-22", "2026-10-29"]); // fin = ven. 30/10 (semaine arrêtée au vendredi)
+  const lot2 = (id, h, prov, av = 40) => ({ id, label: id, avancementExact: av, heuresRestantesPrevues: h, provenanceCoefficient: prov });
+  const r = (id, d, o = {}) => rel(id, d, { mat_prev: 1000, mo_prev: 3000, ...o });
+  // Chantier « a » : un relevé chaque semaine sauf celle qui finit le 15/10 (aucun relevé du 09/10 au 15/10) ;
+  // chantier « s » sans marge à terminaison ni heures restantes lisibles (fourchette et fiabilité inconnues) ; « g » sans relevé.
+  const releves = B.indexerRelevesV3([
+    r("a", "2026-09-17", { marge_probable: 1000 }),
+    r("a", "2026-09-24", { marge_probable: 1100 }),
+    r("a", "2026-10-01", { marge_probable: 1000 }),
+    r("a", "2026-10-08", { marge_probable: 1000 }),
+    r("a", "2026-10-22", { marge_probable: 1300, production_cumulee: 5000, marge_avancement: 1000 }),
+    r("a", "2026-10-29", { avancement: 70, marge_probable: 1600, marge_terminaison: 2000, production_cumulee: 6000, marge_avancement: 1300,
+      heures_reelles: 60, budget_restant: 4200, lots: [lot2("m", 80, "constatee"), lot2("p", 20, "aucune")] }),
+    r("s", "2026-10-22"),
+    r("s", "2026-10-29", { marge_terminaison: null, lots: [{ id: "x", label: "X", avancement: null }] }), // heures restantes illisibles
+  ]);
+  const syn = B.syntheseChantiersV3({ releves, chantiers: [{ id: "a", nom: "A" }, { id: "s", nom: "S" }, { id: "g", nom: "G" }], bornes: BOR, periode: P44 });
+  const [a, sInc] = syn;
+  // Semaine arrêtée au vendredi (09/11/2026) : points de tendance = vendredis.
+  eq(a.tendance.semaines.map(x => x.date), ["2026-09-25", "2026-10-02", "2026-10-09", "2026-10-16", "2026-10-23", "2026-10-30"],
+    "synthèse détaillée (données fictives) : le dernier point de la tendance est le dernier jour retenu de la période");
+  eq(a.tendance.symbolesAffiches, ["▲", "▼", "=", "·", "▲", "▲"], "synthèse détaillée (données fictives) : « · » pour la semaine sans relevé");
+  ok(a.tendance.evolution === 600 && a.margePeriodePct === 30, "synthèse détaillée (données fictives) : évolution 1 600 − 1 000 et marge de la période en % de la production");
+  ok(a.fiabilite.niveau === "bonne" && a.fourchette.texte === `entre +1${N}600${N}€ et +2${N}000${N}€`, "synthèse détaillée (données fictives) : fiabilité et fourchette par chantier");
+  ok(sInc.fourchette.texte === "—" && sInc.fiabilite.niveau === null, "synthèse détaillée (données fictives) : fourchette et fiabilité inconnues");
+
+  const bandeau = B.bandeauV3({ synthese: syn });
+  const d = { periode: P44, bornes: BOR, bandeau, synthese: syn, alertes: [], genereLe: "06/11/2026" };
+  const det = documentBilanV3(d, { detaillee: true });
+  const dir = documentBilanV3(d, { detaillee: false });
+  // Tableau de synthèse détaillé : 9 colonnes dans l'ordre (marge à terminaison
+  // juste avant la marge probable, 06/11/2026), ligne TOTAL en tête.
+  const tetes = ["Chantier", "Avancement", "Généré cette semaine", "Marge de la semaine", "Marge à terminaison", "Marge probable", "Fourchette", "Fiabilité", "Tendance 6 semaines"];
+  const thead = det.slice(det.indexOf("<thead>"), det.indexOf("</thead>"));
+  const enTetes = [...thead.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+  eq(enTetes, tetes, "PDF détaillé (données fictives) : 9 colonnes de la synthèse, dans l'ordre");
+  const corps = det.slice(det.indexOf("<tbody>"), det.indexOf("</tbody>"));
+  const lignes = corps.split("<tr").slice(1);
+  ok(/<td>TOTAL<\/td>/.test(lignes[0]) && lignes[0].includes(`1${N}000${N}€`), "PDF détaillé (données fictives) : ligne TOTAL en tête, production reprise du bandeau");
+  ok(lignes[0].includes("+300") && lignes[0].includes("30" + N + "%"), "PDF détaillé (données fictives) : marge de la période du TOTAL reprise du bandeau");
+  ok(lignes[1].includes("▲▼=·▲▲") && lignes[1].includes(`+600${N}€`) && lignes[1].includes("bonne"), "PDF détaillé (données fictives) : tendance « · » et évolution, fiabilité");
+  ok(lignes[2].includes("inconnue") && /<td class="n retour">—<\/td>/.test(lignes[2]), "PDF détaillé (données fictives) : « — » pour la fourchette, fiabilité « inconnue »");
+  ok(lignes[3].includes("relevé pas encore disponible"), "PDF détaillé (données fictives) : chantier sans relevé signalé");
+  // Version mois : libellés « sur la période ».
+  ok(documentBilanV3({ ...d, periode: B.periodeMoisV3("2026-10") }, { detaillee: true }).includes("Généré sur la période"), "PDF détaillé (données fictives) : libellé adapté au mois");
+  // Détail des marges : budget restant et €/h avec repère devis, une phrase par marge.
+  const marges = det.slice(det.indexOf("<h2>Détail des marges</h2>"));
+  ok(marges.includes("Budget restant") && marges.includes("€ produits / h") && marges.includes(`+4${N}200${N}€`) && marges.includes("devis 100"),
+    "PDF détaillé (données fictives) : détail des marges avec budget restant et €/h (repère devis)");
+  const theadM = marges.slice(marges.indexOf("<thead>"), marges.indexOf("</thead>"));
+  eq([...theadM.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]), ["Chantier", "Production", "Marge de la période", "Marge à l'avancement",
+    "Marge à terminaison", "Marge probable", "Matériaux en avance", "Budget restant", "€ produits / h"], "PDF détaillé (données fictives) : colonnes du détail des marges");
+  ok(det.indexOf("<h2>Détail des marges</h2>") < det.indexOf("<h2>Alertes</h2>"), "PDF détaillé (données fictives) : détail des marges juste après la synthèse, avant les alertes");
+  // Version direction : tableau « Devis → probable », sans les colonnes de la version détaillée.
+  ok(dir.includes("Vendu HT") && dir.includes("Écart / devis") && dir.includes("Sur la période"), "PDF direction (données fictives) : tableau « Devis → probable » inchangé");
+  ok(!dir.includes("Fourchette") && !dir.includes("Fiabilité") && !dir.includes("Tendance 6 semaines") && !dir.includes("TOTAL")
+    // « Généré » : seulement dans le héros (bloc jaune, date de génération), jamais dans les tableaux.
+    && !dir.slice(dir.indexOf("<table")).includes("Généré") && !dir.includes("Détail des marges") && !dir.includes("Budget restant"), "PDF direction (données fictives) : aucune nouvelle colonne");
+}
+
+// ── Tâche 5 du projet « Bilan détaillé » (06/11/2026) ──────────────────────
+// 1) Contrôle statique : la page Bilan charge toutes les colonnes de relevé
+//    que lisent la marge prévue au devis (margePrevueDevisReleve, appelée par
+//    syntheseChantiersV3) et la cascade « du devis au probable »
+//    (cascadeMargeDevisReleve). Sans mo_prev, la marge devis était « inconnue »
+//    partout dans le Bilan alors que la colonne est remplie en base.
+{
+  const src = p => lireFichier(new URL(p, import.meta.url), "utf8");
+  const page = src("../src/Renovation/BilanPeriode.jsx");
+  const finance = src("../src/chantierFinance.mjs");
+  const periodeV3 = src("../src/Renovation/bilanPeriodeV3.mjs");
+  const alertesSrc = src("../src/Renovation/pointsAttentionDonneesV1.mjs");
+  const colonnesDe = txt => new Set(txt.split(",").map(c => c.trim()).filter(Boolean));
+  // COLONNES_RELEVES_ALERTES_V2 : chaîne concaténée dans pointsAttentionDonneesV1.mjs.
+  const mAl = alertesSrc.match(/export const COLONNES_RELEVES_ALERTES_V2 =([\s\S]*?);/);
+  ok(!!mAl, "statique : COLONNES_RELEVES_ALERTES_V2 trouvée");
+  const alertesCols = [...mAl[1].matchAll(/"([^"]*)"/g)].map(m => m[1]).join("");
+  const mC = page.match(/const COLONNES_COMPLETES = `([^`]*)`;/);
+  ok(!!mC, "statique : COLONNES_COMPLETES trouvée dans BilanPeriode.jsx");
+  const chargees = colonnesDe(mC[1].replace("${COLONNES_RELEVES_ALERTES_V2}", alertesCols));
+  // Colonnes lues (« releve.x ») dans le corps des deux fonctions de chantierFinance.
+  const corpsFonction = (txt, nom) => {
+    const i = txt.indexOf(`export function ${nom}(`);
+    const j = txt.indexOf("\nexport ", i + 1);
+    return i < 0 ? "" : txt.slice(i, j < 0 ? undefined : j);
+  };
+  const lues = new Set();
+  for (const nom of ["margePrevueDevisReleve", "cascadeMargeDevisReleve"]) {
+    const corps = corpsFonction(finance, nom);
+    ok(corps.length > 0, `statique : ${nom} trouvée dans chantierFinance.mjs`);
+    for (const m of corps.matchAll(/\breleve\.([a-z_]+)/g)) lues.add(m[1]);
+  }
+  // syntheseChantiersV3 lit aussi fin?.mat_prev (marge devis sans matériaux prévus).
+  for (const m of corpsFonction(periodeV3, "syntheseChantiersV3").matchAll(/\bfin\?\.([a-z_]+)/g)) lues.add(m[1]);
+  ok(["vendu_ht", "mo_prev", "mat_prev", "heures_vendues", "date_releve", "reste_a_faire_h"].every(c => lues.has(c)),
+    "statique : colonnes de la marge devis et de la cascade repérées");
+  const manquantes = [...lues].filter(c => !chargees.has(c));
+  eq(manquantes, [], "statique : BilanPeriode charge toutes les colonnes lues pour la marge devis et la cascade (dont mo_prev)");
+}
+
+// 2) Libellé court de la fiabilité et pluriel — exemple issu des tests, données fictives.
+{
+  const N = "\u202f";
+  const lot = (h, prov, o = {}) => ({ avancement: 50, heuresRestantesPrevues: h, provenanceCoefficient: prov, ...o });
+  const f1 = B.fiabiliteMargeProbableV3({ avancement: 43.2, lots: [lot(70, "constatee"), lot(30, "aucune")] });
+  eq(B.libelleCourtFiabiliteV3(f1, 43.2), `43${N}% avancé · 70${N}% constaté`, "fiabilité : libellé court « 43 % avancé · 70 % constaté »");
+  ok(f1.raison === `43${N}% avancé · coefficients constatés sur 70${N}% des heures restantes`, "fiabilité : la phrase complète reste dans raison");
+  const f2 = B.fiabiliteMargeProbableV3({ avancement: 100, lots: [] });
+  eq(B.libelleCourtFiabiliteV3(f2, 100), `100${N}% avancé · aucune heure restante`, "fiabilité : libellé court sans heure restante");
+  eq(B.libelleCourtFiabiliteV3(B.fiabiliteMargeProbableV3({ avancement: null, lots: [] }), null), "avancement inconnu", "fiabilité : avancement inconnu, rien d'inventé");
+  const f4 = B.fiabiliteMargeProbableV3({ avancement: 30, lots: [{ avancement: 10 }] });
+  eq(B.libelleCourtFiabiliteV3(f4, 30), `30${N}% avancé · heures restantes illisibles`, "fiabilité : heures restantes illisibles signalées");
+  ok(B.libelleCourtFiabiliteV3(f1, 43.2).length <= 30, "fiabilité : libellé court (2 lignes au plus)");
+  eq([0, 1, 2, 7].map(B.nbChantiersV3), ["0 chantier", "1 chantier", "2 chantiers", "7 chantiers"], "pluriel : 0 et 1 au singulier");
+
+  // 3) PDF détaillé : mention du TOTAL seulement si le total ne couvre pas tous
+  //    les chantiers affichés ; plus de saut de page forcé avant les alertes.
+  const P44 = B.periodeSemaineV3("2026-W44");
+  const BOR = B.bornesComparaisonV3(P44, ["2026-10-22", "2026-10-29"]);
+  const rel = (id, date, o = {}) => ({ chantier_id: id, chantier_nom: id.toUpperCase(), date_releve: date, avancement: 50,
+    vendu_ht: 10000, heures_vendues: 100, heures_reelles: 40, production_cumulee: 5000, marge_avancement: 1000,
+    marge_terminaison: 2000, marge_probable: 1500, budget_restant: 6000, mat_prev: 1000, mo_prev: 3000, chantier_repris: false, ...o });
+  const doc = (releves, chantiers) => {
+    const syn = B.syntheseChantiersV3({ releves: B.indexerRelevesV3(releves), chantiers, bornes: BOR, periode: P44 });
+    const d = { periode: P44, bornes: BOR, bandeau: B.bandeauV3({ synthese: syn }), synthese: syn, alertes: [] };
+    return { det: documentBilanV3(d, { detaillee: true }), dir: documentBilanV3(d, { detaillee: false }), bandeau: d.bandeau };
+  };
+  const tousComparables = doc([rel("a", "2026-10-22"), rel("a", "2026-10-29"), rel("b", "2026-10-29")], [{ id: "a", nom: "A" }, { id: "b", nom: "B" }]);
+  ok(tousComparables.bandeau.margeProbableTotale === 3000, "TOTAL (données fictives) : marge probable totale des 2 chantiers");
+  ok(!tousComparables.det.includes("comme le bandeau"), "TOTAL (données fictives) : pas de mention quand tous les chantiers sont dans le total");
+  const unSurDeux = doc([rel("a", "2026-10-29"), rel("b", "2026-10-29", { mo_prev: null })], [{ id: "a", nom: "A" }, { id: "b", nom: "B" }]);
+  ok(unSurDeux.det.includes(`<div class="gris petit retour">1 chantier, comme le bandeau</div>`), "TOTAL (données fictives) : « 1 chantier, comme le bandeau » sur une 2e ligne, au singulier");
+  ok(unSurDeux.det.includes("Marge probable (1 chantier)") && !unSurDeux.det.includes("(1 chantiers)"), "bandeau (données fictives) : « 1 chantier » au singulier");
+  const aucun = doc([rel("a", "2026-10-29", { mo_prev: null })], [{ id: "a", nom: "A" }]);
+  ok(aucun.det.includes("Marge probable (0 chantier)") && aucun.det.includes("0 chantier, comme le bandeau"), "bandeau et TOTAL (données fictives) : « 0 chantier » au singulier");
+  const avantAlertes = h => h.slice(Math.max(0, h.indexOf("<h2>Alertes</h2>") - 60), h.indexOf("<h2>Alertes</h2>"));
+  ok(!avantAlertes(tousComparables.det).includes(`class="saut"`), "PDF détaillé (données fictives) : pas de saut de page forcé avant les alertes");
+  ok(avantAlertes(tousComparables.dir).includes(`class="saut"`), "PDF direction (données fictives) : saut de page avant les alertes conservé");
+  ok(tousComparables.det.includes(`<table class="synthese-detaillee">`) && tousComparables.det.includes(`<col style="width:21%">`)
+    && (tousComparables.det.match(/<col style="width:(\d+)%">/g) || []).map(c => Number(c.match(/\d+/)[0])).reduce((a, b) => a + b, 0) === 100,
+    "PDF détaillé (données fictives) : 9 largeurs de colonnes fixées, 100 % au total");
+}
+
+// ── Marge à terminaison dans les deux PDF, version direction allégée ────────
+// Demande de Loris du 06/11/2026. Exemple issu des tests, données fictives.
+{
+  const N = "\u202f";
+  const P44 = B.periodeSemaineV3("2026-W44");
+  const BOR = B.bornesComparaisonV3(P44, ["2026-10-22", "2026-10-29"]);
+  const rel = (id, date, o = {}) => ({ chantier_id: id, chantier_nom: id.toUpperCase(), date_releve: date, avancement: 50,
+    vendu_ht: 10000, heures_vendues: 100, heures_reelles: 40, production_cumulee: 5000, marge_avancement: 1000,
+    marge_terminaison: 2000, marge_probable: 1500, budget_restant: 6000, mat_prev: 1000, mo_prev: 3000, chantier_repris: false, ...o });
+  const docs = (releves, chantiers, extra = {}) => {
+    const syn = B.syntheseChantiersV3({ releves: B.indexerRelevesV3(releves), chantiers, bornes: BOR, periode: P44 });
+    const d = { periode: P44, bornes: BOR, bandeau: B.bandeauV3({ synthese: syn }), synthese: syn, alertes: [], ...extra };
+    return { syn, bandeau: d.bandeau, det: documentBilanV3(d, { detaillee: true }), dir: documentBilanV3(d, { detaillee: false }) };
+  };
+  const entetes = (html, debut = 0) => {
+    const i = html.indexOf("<thead>", debut);
+    return [...html.slice(i, html.indexOf("</thead>", i)).matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+  };
+  const avant = (liste, a, b) => liste.indexOf(a) >= 0 && liste.indexOf(a) + 1 === liste.indexOf(b);
+
+  // A : 2 000 à terminaison ; B : 2 500 ; C : marge devis inconnue (hors total) avec 9 000 à terminaison.
+  const jeu = docs([rel("a", "2026-10-29"), rel("b", "2026-10-29", { marge_terminaison: 2500, marge_probable: 1800 }),
+    rel("c", "2026-10-29", { mo_prev: null, marge_terminaison: 9000 })], [{ id: "a", nom: "A" }, { id: "b", nom: "B" }, { id: "c", nom: "C" }]);
+  ok(jeu.syn[0].margeTerminaison === 2000 && jeu.syn[0].margeTerminaisonPct === 20, "synthèse (données fictives) : marge à terminaison lue dans le relevé, en % du vendu");
+  ok(avant(entetes(jeu.dir), "Marge à terminaison", "Marge probable"), "PDF direction (données fictives) : « Marge à terminaison » juste avant « Marge probable »");
+  ok(avant(entetes(jeu.det), "Marge à terminaison", "Marge probable"), "PDF détaillé (données fictives) : « Marge à terminaison » juste avant « Marge probable »");
+  // Total à terminaison : exactement les chantiers de la marge probable totale (C exclu des deux).
+  ok(jeu.bandeau.nbChantiersComparables === 2 && jeu.bandeau.margeProbableTotale === 3300 && jeu.bandeau.margeTerminaisonTotale === 4500,
+    "bandeau (données fictives) : total à terminaison sur les 2 mêmes chantiers que la marge probable totale (C hors des deux)");
+  ok(jeu.bandeau.margeTerminaisonTotalePct === 22.5 && jeu.bandeau.margeProbableTotalePct === 16.5, "bandeau (données fictives) : pourcentages sur le même vendu");
+  // Case dédiée (09/11/2026) : « Marge à terminaison (2 chantiers) » juste avant la marge probable.
+  const caseTerm = h => { const i = h.indexOf(`<div class="l">Marge à terminaison (2 chantiers)</div>`); return i >= 0 && h.slice(i, i + 300).includes(`+4${N}500${N}€`) && h.slice(i, i + 400).includes(`23${N}% du vendu`) && i < h.indexOf(`<div class="l">Marge probable (2 chantiers)</div>`); };
+  ok(caseTerm(jeu.dir) && caseTerm(jeu.det), "bandeau (données fictives) : case « Marge à terminaison » +4 500 € (23 %) avant la marge probable, dans les deux versions");
+  const corpsDet = jeu.det.slice(jeu.det.indexOf("<tbody>"), jeu.det.indexOf("</tbody>"));
+  const total = corpsDet.split("<tr").slice(1)[0];
+  ok(/<td>TOTAL<\/td>/.test(total) && total.includes(`+4${N}500${N}€`) && total.indexOf(`+4${N}500${N}€`) < total.indexOf(`+3${N}300${N}€`),
+    "PDF détaillé (données fictives) : TOTAL à terminaison repris du bandeau, avant la marge probable");
+  ok(jeu.dir.includes("Marge à terminaison : où le chantier finit si le reste se passe comme le devis."), "PDF direction (données fictives) : phrase d'explication de la marge à terminaison");
+
+  // Marge à terminaison inconnue : « — », jamais 0 ; total inconnu, jamais partiel.
+  const inc = docs([rel("a", "2026-10-29"), rel("b", "2026-10-29", { marge_terminaison: null })], [{ id: "a", nom: "A" }, { id: "b", nom: "B" }]);
+  ok(inc.syn[1].margeTerminaison === null && inc.syn[1].margeTerminaisonPct === null, "synthèse (données fictives) : marge à terminaison inconnue");
+  ok(inc.bandeau.margeProbableTotale === 3000 && inc.bandeau.margeTerminaisonTotale === null, "bandeau (données fictives) : un chantier sans marge à terminaison → total inconnu, pas de somme partielle");
+  const caseInc = h => { const i = h.indexOf(`<div class="l">Marge à terminaison, tous chantiers</div>`); return i >= 0 && h.slice(i, i + 300).includes(">—</div>") && h.slice(i, i + 400).includes("inconnue sur au moins un chantier"); };
+  ok(caseInc(inc.dir) && caseInc(inc.det), "bandeau (données fictives) : « — » et « inconnue » pour le total à terminaison inconnu, jamais 0");
+  for (const [nom, html] of [["direction", inc.dir], ["détaillé", inc.det]]) {
+    const ligneB = html.slice(html.indexOf("</thead>")).split("<tr").find(l => l.includes(">B<"));
+    const cellules = [...ligneB.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => m[1]);
+    const iTerm = entetes(html).indexOf("Marge à terminaison");
+    ok(cellules[iTerm].startsWith("—") && !/>0\s?€|^0/.test(cellules[iTerm]), `PDF ${nom} (données fictives) : « — » pour une marge à terminaison inconnue, jamais 0`);
+  }
+  const aucun = docs([rel("a", "2026-10-29", { mo_prev: null })], [{ id: "a", nom: "A" }]);
+  ok(aucun.bandeau.margeProbableTotale === null && aucun.bandeau.margeTerminaisonTotale === null, "bandeau (données fictives) : aucun chantier comparable → les deux totaux inconnus");
+
+  // Version direction allégée : ni semaine qui vient, ni prévu / réalisé, ni fin prévisionnelle, ni rectifications.
+  const sections = {
+    decisions: [{ titre: "Décision", detail: "à prendre" }],
+    tendances: { lignes: [] },
+    semaineQuiVient: { lignes: [{ titre: "A", detail: "2 jours" }] },
+    prevuRealise: { disponible: true, reference: "Semaine 43", lignes: [{ nom: "A", heuresPrevues: 30, heuresRealisees: 26, ecart: -4 }] },
+    finsPrevues: { disponible: true, lignes: [{ nom: "A", texteFin: "fin le 10/12/2026", texteGlissement: "inchangée" }] },
+    rectifications: [{ nom: "A", periode: "Semaine 42", montant: -150, cause: "heures validées après l'export" }],
+  };
+  const all = docs([rel("a", "2026-10-29")], [{ id: "a", nom: "A" }], sections);
+  const titres = ["<h2>La semaine qui vient</h2>", "<h2>Prévu / réalisé</h2>", "<h2>Fin prévisionnelle</h2>", "<h2>Rectifications</h2>"];
+  ok(titres.every(t => !all.dir.includes(t)), "PDF direction (données fictives) : sans semaine qui vient, prévu / réalisé, fin prévisionnelle ni rectifications");
+  ok(titres.every(t => all.det.includes(t)), "PDF détaillé (données fictives) : garde les 4 sections");
+  ok(all.dir.includes("<h2>Décisions attendues</h2>") && all.dir.includes("<h2>Tendances par lot (tous chantiers)</h2>") && all.dir.includes("<h2>Alertes</h2>"),
+    "PDF direction (données fictives) : s'arrête après les alertes, décisions et tendances");
+  ok(all.dir.indexOf("<h2>Tendances par lot (tous chantiers)</h2>") > all.dir.indexOf("<h2>Décisions attendues</h2>"), "PDF direction (données fictives) : tendances en dernier");
+  // Les données archivées ne changent pas : la ligne d'archive garde les heures prévues de la semaine suivante.
+  const arch = A.ligneArchiveV3({ periode: P44, bornes: BOR, synthese: all.syn, version: "direction", prevuSemaineSuivante: { a: 32 } });
+  ok(arch.chiffres.chantiers[0].heuresPrevuesSemaineSuivante === 32, "archive direction (données fictives) : heures prévues de la semaine suivante toujours archivées");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);

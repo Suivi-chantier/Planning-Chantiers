@@ -3,6 +3,7 @@ import { normaliserNumero, rapprocherFacture } from "./rapprochementFactures.mjs
 import { supabase, photoTransform } from "../supabase";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
+import { chargerChantiers } from "./chantiersDonnees";
 import {
   Receipt, Image as ImageIcon, Camera, Loader2, Check, X, AlertTriangle,
   ChevronLeft, FileText, Plus, Link2, CheckCircle2, Search,
@@ -402,10 +403,11 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
   // Chantiers (pour afficher les noms dans le détail d'un reçu)
   useEffect(() => {
-    supabase.from("planning_config").select("value").eq("key", "chantiers").maybeSingle()
-      .then(({ data }) => {
+    // Table public.chantiers (Refonte Opérations, lot 1).
+    chargerChantiers()
+      .then((liste) => {
         const map = {};
-        (Array.isArray(data?.value) ? data.value : []).forEach(c => { map[String(c.id)] = { nom: c.nom || c.id, couleur: c.couleur }; });
+        liste.forEach(c => { map[String(c.id)] = { nom: c.nom || c.id, couleur: c.couleur }; });
         setChantiersMap(map);
       });
     supabase.from("fournisseurs").select("id, nom, type_facturation, regles_numero, tolerance_ht").order("nom").then(({ data }) => setFournisseurs(data || []));

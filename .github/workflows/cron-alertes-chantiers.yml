@@ -1,0 +1,75 @@
+name: Alertes chantiers — notifications C4, C5, D1 (9h, jours ouvrés)
+
+# Projet docs/projets/notifications-push.md, tâche 6.
+# Chaque jour ouvré, le serveur recalcule les niveaux d'alerte des chantiers
+# avec la chaîne de la page Alertes (src/Renovation/alertesEcranV1.mjs) et la
+# marge à terminaison des relevés journaliers, compare avec l'état déjà vu
+# (table notifications_etat) et ne notifie que les AGGRAVATIONS :
+#   C4 passe en critique, C5 passe « à surveiller » (conducteurs + admins par
+#   défaut), D1 marge à terminaison devenue négative (admins par défaut).
+# Une notification par type et par passage. Premier passage : l'état de tous
+# les chantiers est enregistré, rien n'est envoyé.
+#
+# Un seul passage par jour suffit : les relevés journaliers sont calculés la
+# nuit (cron-releves-journaliers.yml, 23h45 Paris) ; un 2e passage à 14h
+# relirait exactement les mêmes relevés et ne trouverait rien de nouveau.
+#
+# Créneau planifié : il n'est PLUS ici. Les « schedule » GitHub ne partaient
+# pas, ou avec des heures de retard (constat du 09/11/2026). C'est la base
+# Supabase qui appelle le dispatcher, à la minute près (9h05 Paris, jours ouvrés,
+# été comme hiver) : job pg_cron « profero_push_alertes_chantiers »,
+# supabase/migrations/20261109134233_cron_notifications_push.sql.
+# Ce workflow ne sert plus qu'au lancement à la main.
+#
+# Bouton « Run workflow » : simulation cochée (par défaut) = niveaux, ce qui
+# serait notifié et enregistré, destinataires, sans rien envoyer ni écrire.
+#
+# Secret requis : CRON_SECRET (secret GitHub, pour le lancement à la main).
+
+on:
+  workflow_dispatch:
+    inputs:
+      simulation:
+        description: "Simulation sans envoi ni écriture"
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  alertes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-dispatcher?job=alertes_chantiers
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SIMULATION: ${{ github.event.inputs.simulation }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          if [ "$SIMULATION" = "true" ]; then
+            job="alertes_chantiers&simulation=1"
+          else
+            job="alertes_chantiers"
+          fi
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://planning-chantiers.vercel.app/api/cron-dispatcher?job=$job")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
+          # Le dispatcher répond 200 même quand la tâche échoue : il range
+          # l'erreur dans son résumé. On la fait remonter.
+          if echo "$body" | grep -q '"error":'; then
+            echo "::error::Le job « alertes chantiers » a échoué — voir le corps de la réponse"
+            exit 1
+          fi
+          if echo "$body" | grep -qE '"echecs":[1-9]'; then
+            echo "::warning::Au moins un envoi a échoué — voir le corps de la réponse"
+          fi

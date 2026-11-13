@@ -74,3 +74,21 @@ verify_jwt = true
 # ── Portail client : dépôt de pièces (le client est identifié par son jeton, dans le code) ──
 [functions.portail-depot-document]
 verify_jwt = true
+
+# ── Notifications sur téléphone (projet notifications-push) : JWT exigé ──
+# L'appelant est ensuite identifié dans le code (collaborateur actif, rôle
+# bureau, jamais « ouvrier »). Les envois automatiques de send-push (tâche 2)
+# exigent en plus la clé service role, sans ouvrir la fonction.
+[functions.push-abonnement]
+verify_jwt = true
+
+[functions.send-push]
+verify_jwt = true
+
+[functions.notifications-boite]
+verify_jwt = true
+
+# Suivi de l'onglet Réglages › Notifications : administrateurs seulement
+# (rôle vérifié dans le code avant toute lecture), lecture seule.
+[functions.notifications-pilotage]
+verify_jwt = true

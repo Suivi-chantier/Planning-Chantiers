@@ -21,7 +21,10 @@ import { supabase } from "./supabase";
 
 export const PAGES_RENOVATION = [
   { id: "dashboard",          label: "Tableau de bord"             },
-  { id: "chantiers",          label: "Chantiers"                   },
+  // Lot 5 (Refonte Opérations) : la liste Chantiers n'est plus dans le menu ;
+  // l'identifiant « chantiers » reste le droit d'ouvrir la FICHE chantier
+  // (depuis une opération ou un lien « ouvrir le chantier »).
+  { id: "chantiers",          label: "Fiche chantier (via Opérations)" },
   { id: "planning",           label: "Planning semaine"            },
   { id: "bilan-semaine",      label: "Bilan de semaine"            },
   { id: "alertes",            label: "Alertes"                     },
@@ -45,7 +48,6 @@ export const PAGES_RENOVATION = [
   { id: "bibliotheque",       label: "Biblio. ouvrages"            },
   { id: "biblio-materiaux",   label: "Biblio. matériaux"           },
   { id: "suggestions-mat",    label: "Suggestions de matériaux"    },
-  { id: "visite",             label: "Visites chantier"            },
   { id: "info-client",        label: "Chiffrage"                   },
   { id: "etats-financiers",   label: "États financiers"            },
   { id: "guide-ouvrages",     label: "Guide ouvrages"              },
@@ -74,6 +76,10 @@ export const ROLES_DEFAULT_RENOVATION = [
   { id: "conducteur", label: "Conducteur de travaux", color: "#50c878" },
   { id: "commercial", label: "Commercial",            color: "#4db8ff" },
   { id: "comptable",  label: "Comptable",             color: "#c084fc" },
+  // Lot 6 (Refonte Opérations) : opérations, chantiers, clients, chiffrage,
+  // devis ; valide les étapes Étude et Contrat du cycle de vie
+  // (src/Renovation/roleChargeAffaires.mjs).
+  { id: "charge_affaires", label: "Chargé d'affaires",  color: "#14b8a6" },
   // Rôle terrain : accède uniquement à l'espace ouvrier dédié (composant
   // EspaceOuvrier, routé au niveau authState), jamais aux pages bureau.
   { id: "ouvrier",    label: "Ouvrier",               color: "#f59e0b" },
@@ -115,7 +121,6 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "bibliotheque",
     "biblio-materiaux",
     "suggestions-mat",
-    "visite",
     "info-client",
     "etats-financiers",
     "guide-ouvrages",
@@ -149,7 +154,6 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "bibliotheque",
     "biblio-materiaux",
     "suggestions-mat",
-    "visite",
     "info-client",
     "journal-maj",
   ],
@@ -157,10 +161,10 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
   commercial: [
     "dashboard",
     "chantiers",
+    "operations",
     "planning",
     "notes-ouvriers",
     "plans",
-    "visite",
     "info-client",
     "journal-maj",
   ],
@@ -178,6 +182,16 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "operations",
     "heures-salaries",
     "etats-financiers",
+    "journal-maj",
+  ],
+
+  // Lot 6 : Opérations, fiche chantier, Chiffrage, Journal des MAJ. Aucune
+  // page financière globale ni d'administration (liste dans
+  // src/Renovation/roleChargeAffaires.mjs, contrôlée par verif-refonte-lot6).
+  charge_affaires: [
+    "operations",
+    "chantiers",
+    "info-client",
     "journal-maj",
   ],
 

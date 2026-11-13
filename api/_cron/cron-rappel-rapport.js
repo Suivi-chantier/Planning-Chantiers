@@ -56,19 +56,16 @@ function parisNow() {
   return { weekday, dateFr, dateIso, hour, minute, year: parseInt(parts.year, 10) };
 }
 
-// Calcule l'identifiant de semaine ISO ("2026-W20") pour la date Paris courante.
-// On utilise la convention présente dans src/constants.js pour rester cohérent.
-function currentWeekIdParis() {
-  // Reconstitue une Date "midi heure Paris" pour éviter les bascules de jour
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date()); // "YYYY-MM-DD"
-  const [y, m, d] = fmt.split("-").map(Number);
-  const local = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-  const jan1  = new Date(Date.UTC(y, 0, 1, 12, 0, 0));
-  const dayOfYear = Math.floor((local - jan1) / 86400000) + 1;
-  const w = Math.ceil((dayOfYear + jan1.getUTCDay()) / 7);
-  return `${y}-W${String(w).padStart(2, "0")}`;
+// Identifiant de semaine et « ouvriers attendus » : règle DÉPLACÉE telle quelle
+// dans le module pur partagé src/Renovation/ouvriersAttendusV1.mjs (aussi
+// utilisé par le point du soir des conducteurs, cron-point-conducteurs.js).
+// L'ancien currentWeekIdParis() y est devenu semaineDuJour(dateIso) : même
+// calcul, la date de Paris (t.dateIso, même source Intl Europe/Paris) arrive en
+// paramètre au lieu d'être relue sur l'horloge.
+let _moduleOuvriersAttendus = null;
+async function moduleOuvriersAttendus() {
+  if (!_moduleOuvriersAttendus) _moduleOuvriersAttendus = await import("../../src/Renovation/ouvriersAttendusV1.mjs");
+  return _moduleOuvriersAttendus;
 }
 
 // Heure de Paris attendue pour chaque jour de la semaine.
@@ -299,7 +296,8 @@ async function runRappelRapport(req, supabase, t) {
     catch (e) { console.error("DST alert error:", e); }
   }
 
-  const weekId = currentWeekIdParis();
+  const { semaineDuJour, ouvriersAttendus } = await moduleOuvriersAttendus();
+  const weekId = semaineDuJour(t.dateIso);
   const jour   = t.weekday;
   const dateFr = t.dateFr;
 
@@ -317,13 +315,7 @@ async function runRappelRapport(req, supabase, t) {
   const { data: cells } = await supabase
     .from("planning_cells").select("ouvriers,taches,planifie,jour")
     .eq("week_id", weekId).eq("jour", jour);
-  const assignes = new Set();
-  (cells || []).forEach(cell => {
-    const aUneTache = (cell.taches && cell.taches.length > 0)
-      || (cell.planifie && cell.planifie.trim().length > 0);
-    if (!aUneTache) return;
-    (cell.ouvriers || []).forEach(nom => { if (nom) assignes.add(nom); });
-  });
+  const assignes = ouvriersAttendus(cells);
 
   const resultats = { envoyes: [], echecs: [], ignores: [] };
   let rendus = new Set();

@@ -186,6 +186,21 @@ export function preparerSemainesRelevesJournaliersV2({ lignes, weekIds } = {}) {
   });
 }
 
+// Identifiants des relevés RÉELLEMENT retenus par
+// preparerSemainesRelevesJournaliersV2 (le dernier relevé de chaque chantier
+// au plus tard le dimanche de chaque semaine). Sert à ne télécharger en entier
+// que ces lignes : on lit d'abord un index léger (id, chantier_id,
+// date_releve), puis les colonnes complètes des seuls relevés retenus. Le
+// résultat de la préparation est identique, la sélection étant la même
+// fonction appliquée aux mêmes dates.
+export function idsRelevesRetenusV2({ lignes, weekIds } = {}) {
+  const ids = new Set();
+  for (const semaine of preparerSemainesRelevesJournaliersV2({ lignes, weekIds })) {
+    for (const l of semaine) if (l && l.id != null) ids.add(l.id);
+  }
+  return [...ids];
+}
+
 // Colonnes des relevés journaliers lues par les alertes des marges.
 export const COLONNES_RELEVES_ALERTES_V2 =
   "chantier_id, chantier_nom, week_id, date_releve, avancement, vendu_ht, heures_vendues, heures_reelles, "

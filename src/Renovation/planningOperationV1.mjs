@@ -29,6 +29,7 @@ import {
   weekJourDepuisDateV1,
 } from "./planningReplanningApplyPlanV1.js";
 import { finPrevisionnelleParChantierV1 } from "./planningFinPrevisionnelleV1.mjs";
+import { estChantierActif } from "./chantierActif.mjs";
 
 export const PLANNING_OPERATION_VERSION = 1;
 // Marque posée sur chaque ligne écrite par ce module : permet de retrouver
@@ -60,7 +61,7 @@ export function chantiersDeOperationV1(chantiers = [], operationId) {
   const op = txt(operationId);
   if (!op) return [];
   return (Array.isArray(chantiers) ? chantiers : [])
-    .filter(c => txt(c?.id) && txt(c?.operation_id) === op && c?.statut !== "termine");
+    .filter(c => estChantierActif(c) && txt(c?.operation_id) === op);   // règle unique (chantierActif.mjs)
 }
 
 // Date ISO d'une cellule (semaine ISO + jour ouvré).

@@ -298,6 +298,41 @@ function tachesPondereesOuvrage(ouvrage) {
   return taches.map(t => ({ t, poids: heuresPrevuesTache(t, ouvrage, base) }));
 }
 
+// Ouvrage TERMINÉ : toutes les tâches qui comptent dans son avancement (mêmes
+// tâches que avancementOuvrage : reprises exclues) sont à 100 %. Sans tâche :
+// pas terminé (on ne sait pas). Ses matériaux ne sont plus à commander et son
+// enveloppe matériaux sort du reste à commander (09/11/2026).
+export function ouvrageTermine(ouvrage) {
+  const tp = tachesPondereesOuvrage(ouvrage);
+  return tp.length > 0 && tp.every(x => (parseFloat(x.t.avancement) || 0) >= 100);
+}
+
+// Lignes de commande saisies d'un ouvrage : rattachées à l'ouvrage, ou, sans
+// ouvrage, sur un matériau prévu de l'ouvrage et le même chantier. UNE règle,
+// lue par la page « Commandes à passer », le Bilan et le reste à commander.
+// `chantierId` absent : les lignes sont supposées déjà filtrées par chantier.
+export function lignesSaisiesOuvrage(ouvrage, lignes, chantierId = null) {
+  const o = ouvrage || {};
+  const liens = Array.isArray(o.materiaux_liens) ? o.materiaux_liens : [];
+  return (Array.isArray(lignes) ? lignes : []).filter(l =>
+    l.ouvrage_id === o.id ||
+    (!l.ouvrage_id && l.materiau_id && (chantierId == null || l.chantier_id === chantierId)
+      && liens.some(ml => ml && String(ml.materiau_id) === String(l.materiau_id))));
+}
+
+// Articles DÉCLARÉS commandés et pas encore saisis : marque « commandé le »
+// posée sur la page « Commandes à passer » (« Déjà commandé » ou « Passer
+// commande »), sans ligne de commande saisie pour ce matériau. Leur montant
+// (commande_montant, posé avec la marque : quantité × prix bibliothèque du
+// jour) est une dépense ENGAGÉE : retirée du reste à commander, comptée dans
+// la marge jusqu'à la saisie de la ligne réelle (qui la remplace).
+export function articlesDeclaresOuvrage(ouvrage, lignes, chantierId = null) {
+  const liens = Array.isArray(ouvrage?.materiaux_liens) ? ouvrage.materiaux_liens : [];
+  const saisis = new Set(lignesSaisiesOuvrage(ouvrage, lignes, chantierId)
+    .map(l => (l.materiau_id != null ? String(l.materiau_id) : null)).filter(Boolean));
+  return liens.filter(ml => ml && ml.commande_le && ml.materiau_id != null && !saisis.has(String(ml.materiau_id)));
+}
+
 // Avancement d'un ouvrage : moyenne des avancements de ses tâches, pondérée
 // par leurs heures prévues (heuresPrevuesTache ; moyenne simple si aucune),
 // ARRONDIE. L'arrondi intermédiaire est volontaire : il se propage aux
@@ -645,18 +680,42 @@ export function coutsParNature(lignes) {
 // ({ lot_id, termine_le, termine_par }).
 // C'est LA fonction de la page « Commandes à passer » ET de la marge à
 // terminaison (via computeChantierFinance) : un seul calcul.
+//
+// Complément du 09/11/2026 (« ce qu'il reste vraiment à dépenser ») :
+//   - ouvrage TERMINÉ (ouvrageTermine) : on n'a plus rien à acheter pour lui.
+//     Les commandes du lot couvrent d'abord les enveloppes des ouvrages
+//     terminés ; le reste ne porte que sur les ouvrages non terminés :
+//       reste = max(0, enveloppe non terminée − max(0, engagé − enveloppe terminée))
+//     (lot entièrement terminé → 0, comme « achats terminés ») ;
+//   - articles DÉCLARÉS commandés non saisis (articlesDeclaresOuvrage) :
+//     comptés comme engagés (engagé = commandes saisies + déclarés), donc
+//     retirés du reste à commander (`reste`). Ils n'ajoutent AUCUN coût (seule
+//     la saisie en ajoute) : la marge à terminaison = matériaux saisis + reste,
+//     donc elle remonte de ce qu'on n'achètera plus. `resteADepenser` (sans
+//     les déclarés) et `declaresRetenus` = resteADepenser − reste servent à
+//     l'affichage. Un achat déjà saisi mais non relié à son matériau n'est
+//     jamais compté deux fois (cas Fourmond, 09/11/2026).
+//     Un article déclaré sans montant (marqué avant cette date) n'est pas
+//     valorisé : il est compté et signalé (`nbDeclaresSansMontant`).
 export const LOT_SANS_LOT = "_sans_lot";
 export function resteACommanderEnveloppes({ ouvrages = [], commandeLignes = [], lots = [], achatsTermines = [] } = {}) {
   const labelLot = (id) => id === LOT_SANS_LOT ? "Sans lot" : ((lots || []).find(l => l.id === id)?.label || id);
   const parLot = new Map();
   const lot = (id) => {
-    if (!parLot.has(id)) parLot.set(id, { lotId: id, label: labelLot(id), enveloppe: 0, nbOuvrages: 0, commandes: 0, nbLignes: 0 });
+    if (!parLot.has(id)) parLot.set(id, { lotId: id, label: labelLot(id), enveloppe: 0, nbOuvrages: 0, commandes: 0, nbLignes: 0,
+      enveloppeTerminee: 0, nbOuvragesTermines: 0, declares: 0, nbDeclares: 0, nbDeclaresSansMontant: 0 });
     return parLot.get(id);
   };
   (ouvrages || []).forEach(o => {
     const l = lot(o?.lot_id || LOT_SANS_LOT);
     l.enveloppe += coutMatOuvrage(o);
     l.nbOuvrages += 1;
+    if (ouvrageTermine(o)) { l.enveloppeTerminee += coutMatOuvrage(o); l.nbOuvragesTermines += 1; }
+    articlesDeclaresOuvrage(o, commandeLignes).forEach(ml => {
+      const m = ml.commande_montant == null ? NaN : parseFloat(ml.commande_montant);
+      l.nbDeclares += 1;
+      if (Number.isFinite(m)) l.declares += Math.max(0, m); else l.nbDeclaresSansMontant += 1;
+    });
   });
   let sansLot = 0, nbLignesSansLot = 0;
   (commandeLignes || []).forEach(li => {
@@ -672,10 +731,24 @@ export function resteACommanderEnveloppes({ ouvrages = [], commandeLignes = [], 
   const lotsOut = [...parLot.values()].sort((a, b) => rang(a.lotId) - rang(b.lotId) || a.label.localeCompare(b.label)).map(l => {
     const t = termines.get(l.lotId) || null;
     const ecart = l.commandes - l.enveloppe;
+    // Reste d'un lot pour un montant engagé donné (ouvrages terminés déduits).
+    const resteDe = (engage) => Math.max(0, (l.enveloppe - l.enveloppeTerminee) - Math.max(0, engage - l.enveloppeTerminee));
+    const resteSansTermines = Math.max(0, l.enveloppe - l.commandes);
+    // Reste À DÉPENSER : commandes saisies seules (seule source de vérité des
+    // coûts). Les déclarés n'y entrent pas : c'est la base de la marge.
+    const resteADepenser = resteDe(l.commandes);
+    // Reste À COMMANDER : en plus, les articles déclarés commandés.
+    const resteCalcule = resteDe(l.commandes + l.declares);
     return {
       ...l,
       achatsTermines: t ? { le: t.termine_le || null, par: t.termine_par || null } : null,
-      reste: t ? 0 : Math.max(0, -ecart),
+      // Part de l'enveloppe qui n'est plus à dépenser car ses ouvrages sont terminés.
+      plusNecessaire: t ? 0 : resteSansTermines - resteADepenser,
+      // Part du reste à dépenser déjà déclarée commandée (jamais plus que ce
+      // reste : un déclaré n'ajoute aucun coût au-delà de l'enveloppe).
+      declaresRetenus: t ? 0 : resteADepenser - resteCalcule,
+      resteADepenser: t ? 0 : resteADepenser,
+      reste: t ? 0 : resteCalcule,
       depassement: ecart > 0.005
         ? { euros: ecart, pct: l.enveloppe > 0 ? (ecart / l.enveloppe) * 100 : null }
         : null,
@@ -686,7 +759,17 @@ export function resteACommanderEnveloppes({ ouvrages = [], commandeLignes = [], 
   // le fait pas remonter).
   const deduction = Math.min(resteLots, Math.max(0, sansLot));
   const reste = Math.max(0, resteLots - Math.max(0, sansLot));
+  // Reste à dépenser (base de la marge à terminaison) : même calcul sans les
+  // articles déclarés. Toujours ≥ reste ; la différence = déclarés retenus.
+  const resteADepenser = Math.max(0, lotsOut.reduce((s, l) => s + l.resteADepenser, 0) - Math.max(0, sansLot));
   const warnings = [];
+  const nbSansMontant = lotsOut.reduce((s, l) => s + l.nbDeclaresSansMontant, 0);
+  if (nbSansMontant > 0) {
+    warnings.push({
+      code: "declares_sans_montant", gravite: "info",
+      message: `${nbSansMontant} article${nbSansMontant > 1 ? "s" : ""} marqué${nbSansMontant > 1 ? "s" : ""} commandé${nbSansMontant > 1 ? "s" : ""} sans montant (marque antérieure au 09/11/2026) : non déduit${nbSansMontant > 1 ? "s" : ""} du reste à commander. « Remettre à commander » puis « Déjà commandé » sur la page Commandes à passer pour ${nbSansMontant > 1 ? "les" : "le"} valoriser.`,
+    });
+  }
   if (sansLot > 0.5) {
     warnings.push({
       code: "commandes_sans_lot", gravite: "alerte",
@@ -703,8 +786,13 @@ export function resteACommanderEnveloppes({ ouvrages = [], commandeLignes = [], 
     lots: lotsOut,
     enveloppe: lotsOut.reduce((s, l) => s + l.enveloppe, 0),
     commandesMateriaux: lotsOut.reduce((s, l) => s + l.commandes, 0) + sansLot,
+    declares: lotsOut.reduce((s, l) => s + l.declares, 0),
+    nbDeclares: lotsOut.reduce((s, l) => s + l.nbDeclares, 0),
+    nbDeclaresSansMontant: lotsOut.reduce((s, l) => s + l.nbDeclaresSansMontant, 0),
+    plusNecessaire: lotsOut.reduce((s, l) => s + l.plusNecessaire, 0),
     commandesSansLot: sansLot, nbLignesSansLot, deductionSansLot: deduction,
-    resteLots, reste,
+    resteLots, reste, resteADepenser,
+    declaresRetenus: resteADepenser - reste,
     depassements: lotsOut.filter(l => l.depassement).map(l => ({ lotId: l.lotId, label: l.label, ...l.depassement })),
     warnings,
   };
@@ -736,6 +824,14 @@ export const SEUILS_MARGES_DEFAUT = Object.freeze({
   // PDF du Bilan, version direction (26/10/2026) : un dépassement d'enveloppe
   // matériaux n'y figure qu'à partir de ce montant (en dessous : version détaillée)
   bilanDirectionEnveloppeMinEuros: 500,
+  // Fiabilité de la marge probable (Bilan détaillé, 06/11/2026) : avancement
+  // du chantier (%) et part des heures restantes couvertes par un coefficient
+  // constaté ou neutralisé (%). Sous le seuil « faible » → faible ; au-delà du
+  // seuil « bon(ne) » → bonne ; entre les deux → moyenne.
+  fiabiliteAvancementFaiblePct: 25,
+  fiabiliteAvancementBonPct: 60,
+  fiabiliteCouvertureFaiblePct: 30,
+  fiabiliteCouvertureBonnePct: 70,
 });
 
 // ── MARGE PRÉVUE AU DEVIS (26/10/2026) ──────────────────────────────────────
@@ -1173,7 +1269,7 @@ export const METHODE_CALCUL = [
     formule: "(avancement % − % facturé) × vendu HT — si l'avancement dépasse le facturé, une situation est à émettre",
     source: "Avancement du chantier + % facturé des États financiers (CA à provisionner)" },
   { cle: "resteACommander", label: "Reste à commander", projection: true,
-    formule: "Lot par lot : enveloppe matériaux (somme des coûts matériaux prévus des ouvrages du lot) − commandes de matériaux rattachées au lot, jamais moins de 0 ; 0 pour un lot marqué « achats terminés ». Les commandes de matériaux sans lot sont retirées du total (jamais moins de 0). Sous-traitance, location, bennes et autres coûts ne consomment pas l'enveloppe. Même calcul que la page Commandes à passer",
+    formule: "Lot par lot : enveloppe matériaux (somme des coûts matériaux prévus des ouvrages du lot) − commandes de matériaux rattachées au lot, jamais moins de 0 ; 0 pour un lot marqué « achats terminés ». Les articles déclarés « déjà commandés » sur la page Commandes à passer (pas encore saisis) comptent comme commandés. Un ouvrage dont toutes les tâches sont à 100 % n'a plus rien à acheter : les commandes du lot couvrent d'abord son enveloppe, et le reste ne porte que sur les ouvrages non terminés. Les commandes de matériaux sans lot sont retirées du total (jamais moins de 0). Sous-traitance, location, bennes et autres coûts ne consomment pas l'enveloppe. Même calcul que la page Commandes à passer",
     source: "Coûts matériaux prévus des ouvrages vs lignes de commande (nature matériaux) + lots marqués « achats terminés »" },
   // ── Bilan semaine (13/10/2026) : marge RÉELLE, plus une part de la marge
   // à terminaison. Les coûts sont ceux réellement datés dans la période. ──
@@ -1442,6 +1538,12 @@ export function computeChantierFinance({
   // elle ne dépend plus de la bibliothèque (materiauxById n'est plus lu).
   const enveloppes = resteACommanderEnveloppes({ ouvrages, commandeLignes, lots, achatsTermines });
   const resteACommanderVal = enveloppes.reste;
+  // Articles déclarés commandés (décision du 09/11/2026) : la saisie des
+  // commandes est la SEULE source de vérité des coûts. Un déclaré n'ajoute
+  // aucun coût ; il retire du reste à commander ce qu'on n'achètera plus, et
+  // la marge remonte d'autant (« on dépensera moins que prévu »). Tant que la
+  // commande déclarée n'est pas saisie, la marge est donc optimiste ; la
+  // saisie la corrige.
   const coutMatParNature = coutsParNature(commandeLignes);
 
   // Marge à terminaison : ce qu'il restera une fois le chantier fini, si les
@@ -1983,6 +2085,8 @@ export function computeChantierFinance({
     .map(l => ({
       main: l.label,
       sub: `enveloppe ${eur(l.enveloppe)} · commandé ${eur(l.commandes)}`
+        + (l.declares > 0.005 ? ` · déclaré commandé ${eur(l.declares)}` : "")
+        + (l.plusNecessaire > 0.005 ? ` · ouvrages terminés −${eur(l.plusNecessaire)}` : "")
         + (l.achatsTermines ? " · achats terminés" : "")
         + (l.depassement ? ` · dépassement +${eur(l.depassement.euros)}${l.depassement.pct != null ? ` (+${l.depassement.pct.toFixed(0)} %)` : ""}` : ""),
       right: eur(l.reste),

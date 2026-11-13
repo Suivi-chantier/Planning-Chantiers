@@ -36,18 +36,38 @@ function estSecretServeur(jeton, secret = process.env.CRON_SECRET) {
   return egaliteConstante(jeton, secret);
 }
 
+// Normalise le paramètre « secret(s) » : une chaîne ou une liste de chaînes.
+// Les valeurs vides ou absentes sont ignorées — jamais un « secret vide » qui
+// accepterait un jeton vide.
+function secretsConfigures(secrets) {
+  const liste = Array.isArray(secrets) ? secrets : [secrets];
+  return liste.filter((s) => typeof s === "string" && s.length > 0);
+}
+
 // Garde des routes cron. Renvoie { ok:true } ou { ok:false, status, error }.
-//   secret absent    → 500 : route fermée, et la cause est dite explicitement
+//   aucun secret     → 500 : route fermée, et la cause est dite explicitement
 //   secret incorrect → 401
-function verifierAppelServeur(req, secret = process.env.CRON_SECRET) {
-  if (!secret) {
+//
+// `secrets` : une chaîne (par défaut CRON_SECRET : le cas de toutes les
+// routes) ou une liste de chaînes acceptées. Seul le dispatcher passe une
+// liste (CRON_SECRET + CRON_SECRET_BASE, voir api/cron-dispatcher.js). Le jeton
+// est comparé à CHAQUE secret, sans s'arrêter au premier trouvé, pour que la
+// durée de la réponse ne dise pas lequel a correspondu.
+function verifierAppelServeur(req, secrets = process.env.CRON_SECRET) {
+  const acceptes = secretsConfigures(secrets);
+  if (acceptes.length === 0) {
     return {
       ok: false,
       status: 500,
       error: "CRON_SECRET non configuré côté serveur : route fermée par défaut",
     };
   }
-  if (!estSecretServeur(jetonBearer(req), secret)) {
+  const jeton = jetonBearer(req);
+  let accepte = false;
+  for (const secret of acceptes) {
+    if (estSecretServeur(jeton, secret)) accepte = true;
+  }
+  if (!accepte) {
     return { ok: false, status: 401, error: "Unauthorized" };
   }
   return { ok: true };

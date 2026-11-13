@@ -1,0 +1,71 @@
+name: Notifications reportées (7h05, jours ouvrés)
+
+# Projet docs/projets/notifications-push.md, tâche 2.
+# Une notification qui tombe dans la plage de silence (20h-7h, samedi-dimanche,
+# heure de Paris) est écrite tout de suite dans la boîte de réception ; son push
+# part au premier créneau autorisé. Ce créneau envoie ceux dont l'heure est venue.
+#
+# Créneau planifié : il n'est PLUS ici. Les « schedule » GitHub ne partaient
+# pas, ou avec des heures de retard (constat du 09/11/2026). C'est la base
+# Supabase qui appelle le dispatcher, à la minute près (7h05 Paris, jours ouvrés,
+# été comme hiver) : job pg_cron « profero_push_reportes »,
+# supabase/migrations/20261109134233_cron_notifications_push.sql.
+# Ce workflow ne sert plus qu'au lancement à la main.
+#
+# Bouton « Run workflow » : sans type, rejoue le rattrapage ; avec un type
+# (ex. D2), lance une SIMULATION sans envoi ni écriture sur les vrais
+# utilisateurs (?job=push_simulation&type=…).
+#
+# Secret requis : CRON_SECRET (secret GitHub, pour le lancement à la main).
+
+on:
+  workflow_dispatch:
+    inputs:
+      simulation_type:
+        description: "Type à simuler sans envoi (C1…D4). Vide = rattrapage des reportés."
+        required: false
+        default: ""
+
+jobs:
+  rattrapage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-dispatcher?job=push_reportes (ou push_simulation)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SIMULATION_TYPE: ${{ github.event.inputs.simulation_type }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          if [ -n "$SIMULATION_TYPE" ]; then
+            if ! echo "$SIMULATION_TYPE" | grep -qE '^[CFD][0-9]$'; then
+              echo "::error::Type inconnu : $SIMULATION_TYPE (attendu C1…D4)"
+              exit 1
+            fi
+            job="push_simulation&type=$SIMULATION_TYPE"
+          else
+            job="push_reportes"
+          fi
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://planning-chantiers.vercel.app/api/cron-dispatcher?job=$job")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
+          # Le dispatcher répond 200 même quand la tâche échoue : il range
+          # l'erreur dans son résumé. On la fait remonter, sinon un rattrapage
+          # qui ne part jamais resterait invisible.
+          if echo "$body" | grep -q '"error":'; then
+            echo "::error::Le rattrapage a échoué — voir le corps de la réponse"
+            exit 1
+          fi
+          if echo "$body" | grep -qE '"echecs":[1-9]'; then
+            echo "::warning::Au moins un envoi a échoué — voir le corps de la réponse"
+          fi

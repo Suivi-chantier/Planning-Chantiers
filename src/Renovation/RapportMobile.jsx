@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { envoyerEmailApi } from "../emailApi";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour, FONT, RADIUS, SPACING, SEMANTIC, PROFERO_YELLOW, LOTS_DEFAUT } from "../constants";
 import { Icon } from "../ui";
+import { estChantierActif } from "./chantierActif";
 import { profilSemaine, libelleRythme, getISOWeek, fmtHeures } from "../rythmeSemaine";
 import {
   Check, X, Clock, Camera, Plus, Minus, RotateCw, ShoppingCart, Car,
@@ -159,7 +160,8 @@ export async function compressImage(file, maxDim = 1600, quality = 0.7) {
 }
 
 // ─── HELPER UPLOAD PHOTO ──────────────────────────────────────────────────────
-// Renvoie { url } en cas de succès, { error } en cas d'échec (au lieu de
+// Renvoie { url, path } en cas de succès (path = chemin dans le bucket, utilisé
+// par « Préparer le chantier »), { error } en cas d'échec (au lieu de
 // retourner null silencieusement) — pour que l'UI puisse afficher l'erreur.
 export async function uploadRapportPhoto(file, pathPrefix) {
   try {
@@ -171,7 +173,7 @@ export async function uploadRapportPhoto(file, pathPrefix) {
     if (error) { console.error("upload photo:", error); return { error: error.message || "Erreur upload" }; }
     const { data } = supabase.storage.from("photos").getPublicUrl(path);
     if (!data?.publicUrl) return { error: "URL publique introuvable" };
-    return { url: data.publicUrl };
+    return { url: data.publicUrl, path };
   } catch (e) {
     console.error("upload photo (catch):", e);
     return { error: e.message || "Erreur réseau" };
@@ -1847,7 +1849,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         // déjà présents dans les tâches du jour (sans doublons), sinon tous les
         // chantiers actifs.
         const chantiersDuJour = Array.from(new Set(taches.map(t => t.chantier_id).filter(Boolean)));
-        const tousChantiers = (planData?.chantiersData || []).filter(c => !c.archive);
+        const tousChantiers = (planData?.chantiersData || []).filter(c => estChantierActif(c, { inclureTermines: true }));
         const chantiersProposes = chantiersDuJour.length > 0
           ? tousChantiers.filter(c => chantiersDuJour.includes(c.id))
           : tousChantiers;

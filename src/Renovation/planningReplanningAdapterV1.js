@@ -10,6 +10,7 @@ import { preparerSimulationPlanningGlobalV1 } from "./planningEngineAdapterV1.js
 import { construireEtatReelPhasagesV1 } from "./planningReplanningStateV1.js";
 import { appliquerStabiliteForecastV1 } from "./planningReplanningStabilityV1.js";
 import { normaliserRessource, RESOURCE_KINDS } from "./planningResourceModelV1.js";
+import { estChantierActif } from "./chantierActif.mjs";
 
 export const PLANNING_REPLANNING_ADAPTER_VERSION = 1;
 const EPS = 0.005;
@@ -77,7 +78,7 @@ function exclusionsChargeNonQuantifiablePertinentes({ etatReel, preparation, cha
   const referentiel = Array.isArray(chantiers) ? chantiers : [];
   const configDisponible = referentiel.some(c => txt(c?.id));
   const eligibles = new Set(referentiel
-    .filter(c => txt(c?.id) && txt(c?.statut) !== "termine")
+    .filter(c => estChantierActif(c))   // règle unique (chantierActif.mjs)
     .map(c => txt(c.id)));
 
   return (etatReel?.travaux || [])

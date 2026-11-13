@@ -17,6 +17,7 @@ import {
 } from "../src/Renovation/compteRenduV2.mjs";
 import {
   construireArbre, rechercher, parPiece, tachesVisibles, etatTache, basculerSelection, SANS_LOT,
+  SANS_PIECE, TOUT_LOGEMENT, sousTitrePart, aDesConsignes,
 } from "../src/Renovation/phasageMobileV1.mjs";
 import { creationParDefaut } from "../src/Renovation/lignesValidation.mjs";
 
@@ -169,6 +170,68 @@ eq(rechercher(arbre, "isolation").map(x => x.id), ["t1"], "recherche sur le nom 
 eq(rechercher(arbre, "laine").map(x => x.id), ["t1"], "recherche aussi sur le nom du devis");
 eq(parPiece(arbre).map(p => [p.id, p.taches.map(x => x.id)]), [["sdb", ["t1"]], ["ch", ["t4"]], ["_sans_piece", ["t3", "t5"]]], "navigation par pièce");
 eq(basculerSelection(basculerSelection(["t1"], "t3"), "t1"), ["t3"], "sélection multiple");
+
+// ── Préparer le chantier (tâche 4) : consignes, photos, mur et m² par pièce ──
+// Exemple issu des tests, données fictives.
+// Avant la migration (champs absents) : rien de vide, aucune tâche perdue.
+eq(arbre.pieces, [
+  { id: "sdb", nom: "Salle de bain", consigne: null, consignes_murs: [], photos: [] },
+  { id: "ch", nom: "Chambre", consigne: null, consignes_murs: [], photos: [] },
+], "sans migration : pièces sans consigne ni photo");
+eq(arbre.ouvragesLogement, [], "sans migration : aucun ouvrage « Tout le logement »");
+eq(arbre.taches.find(x => x.id === "t1").mur, null, "sans migration : pas de mur");
+eq(arbre.taches.find(x => x.id === "t1").quantite_part, null, "sans migration : pas de m²");
+eq(sousTitrePart(arbre.taches.find(x => x.id === "t1")), "", "sans migration : pas de sous-titre");
+ok(parPiece(arbre).every(p => !aDesConsignes(p)), "sans migration : aucun encart consigne");
+
+const payloadPrep = {
+  ouvrages_logement: ["o3", " ", null],
+  pieces: [
+    { id: "sej", nom: "Séjour / cuisine", consigne: "  Protéger le parquet ",
+      consignes_murs: [{ mur: "Mur côté rue", texte: " Gaine à garder " }, { mur: "", texte: "x" }, { mur: "Mur B", texte: "  " }, { mur: "mur côté rue", texte: "doublon" }],
+      photos: ["preparation/C1/sej/a.jpg", "", 3, "preparation/C1/sej/a.jpg", "preparation/C1/sej/b.jpg"], prix: 999 },
+    { id: "ch", nom: "Chambre", consigne: "", consignes_murs: null, photos: null },
+    { id: "wc", nom: "WC" },
+  ],
+  phases: [{ id: "g1", ouvrages: [
+    { id: "o1", libelle: "Doublage", unite: "m²", taches: [
+      { id: "a1", nom: "Pose ossature", nom_perso: "Pose ossature — Séjour / cuisine, Mur côté rue", piece_id: "sej", mur: " Mur côté rue ", quantite_part: 14, avancement: 0 },
+      { id: "a2", nom: "Bandes", nom_perso: "Bandes — Séjour / cuisine", piece_id: "sej", quantite_part: "26,5", avancement: 0 },
+      { id: "a3", nom: "Pose ossature", piece_id: "ch", mur: "Mur extérieur", avancement: 0 },
+      { id: "a4", nom: "Pose ossature", piece_id: "retiree", avancement: 0 },
+    ] },
+    { id: "o2", libelle: "Plinthes", unite: "ml", taches: [{ id: "b1", nom: "Pose plinthes", piece_id: "ch", quantite_part: 6.5, avancement: 0 }] },
+    { id: "o3", libelle: "Nettoyage fin de chantier", taches: [{ id: "c1", nom: "Nettoyage", avancement: 0 }, { id: "c2", nom: "Évacuation", piece_id: "retiree", avancement: 0 }] },
+    { id: "o4", libelle: "Divers", taches: [{ id: "d1", nom: "Imprévu", avancement: 0 }] },
+  ] }],
+};
+const arbrePrep = construireArbre(payloadPrep);
+eq(arbrePrep.pieces[0], {
+  id: "sej", nom: "Séjour / cuisine", consigne: "Protéger le parquet",
+  consignes_murs: [{ mur: "Mur côté rue", texte: "Gaine à garder" }],
+  photos: ["preparation/C1/sej/a.jpg", "preparation/C1/sej/b.jpg"],
+}, "pièce : consigne nettoyée, consignes par mur vides ou en double écartées, photos sans doublon, rien d'autre gardé");
+eq(arbrePrep.pieces[1], { id: "ch", nom: "Chambre", consigne: null, consignes_murs: [], photos: [] }, "pièce sans consigne : champs vides, pas de texte vide");
+eq(arbrePrep.ouvragesLogement, ["o3"], "ouvrages « Tout le logement » lus");
+const tp = (id) => arbrePrep.taches.find(x => x.id === id);
+eq([tp("a1").mur, tp("a1").quantite_part, tp("a1").nomAffiche], ["Mur côté rue", 14, "Pose ossature — Séjour / cuisine, Mur côté rue"], "tâche découpée : mur, m² et libellé de la part");
+eq(tp("a2").quantite_part, 26.5, "m² avec virgule lus");
+eq(sousTitrePart(tp("a1")), "Mur côté rue · 14 m²", "sous-titre mur · m²");
+eq(sousTitrePart(tp("a2")), "26,5 m²", "sous-titre m² seul (tâche par pièce)");
+eq(sousTitrePart(tp("a3")), "Mur extérieur", "sous-titre mur seul");
+eq(sousTitrePart(tp("b1")), "6,5 ml", "unité de l'ouvrage reprise");
+eq(sousTitrePart(tp("d1")), "", "tâche non découpée : pas de sous-titre");
+const pp = parPiece(arbrePrep);
+eq(pp.map(p => [p.id, p.taches.map(x => x.id)]), [
+  ["sej", ["a1", "a2"]], ["ch", ["a3", "b1"]], [TOUT_LOGEMENT, ["c1"]], [SANS_PIECE, ["a4", "c2", "d1"]],
+], "onglets dans l'ordre des pièces, puis « Tout le logement », puis « Sans pièce » (pièce retirée comprise) ; WC sans tâche non listé");
+eq(pp.find(p => p.id === TOUT_LOGEMENT).nom, "Tout le logement", "onglet « Tout le logement » nommé");
+eq(pp.find(p => p.id === SANS_PIECE).nom, "Sans pièce", "onglet « Sans pièce » nommé");
+eq(pp.reduce((n, p) => n + p.taches.length, 0), arbrePrep.taches.length, "aucune tâche cachée");
+eq(pp[0].consignes_murs, [{ mur: "Mur côté rue", texte: "Gaine à garder" }], "consignes par mur portées par l'onglet");
+ok(aDesConsignes(pp[0]) && !aDesConsignes(pp[1]) && !aDesConsignes(pp[2]), "encart affiché seulement pour une pièce qui a une consigne ou une photo");
+const sansLogement = parPiece(construireArbre({ ...payloadPrep, ouvrages_logement: undefined }));
+eq(sansLogement.map(p => p.id), ["sej", "ch", SANS_PIECE], "sans « Tout le logement » noté : tout va dans « Sans pièce »");
 
 // ── Retour après l'envoi ────────────────────────────────────────────────────
 eq(messageRetour({ prenom: "Davy", taches: [appliquerChoix(ligne("Chambre 101", "t1"), "termine"), appliquerRepere(ligne("Bandes", "t2"), "moitie")] }),

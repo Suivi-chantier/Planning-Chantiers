@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur, isLocalLoginEmail, loginEmailFromIdentifiant, identifiantFromLoginEmail, IDENTIFIANT_REGEX, normalizeBranches } from "../constants";
 import { Icon } from "../ui";
+import { chargerOperations, archiverChantier, archiverOperation } from "./chantiersDonnees";
 import AdresseInput from "../AdresseAutocomplete";
 import { PROFIL_SEMAINE, QUATRE_JOURS_DATE_DEBUT, HORAIRES_JOUR, getISOWeek, quatreJoursFixes, fmtHeures } from "../rythmeSemaine";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, reporterQuantites } from "../pointages";
@@ -11,7 +12,7 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, Clock, Wrench,
   Download, ClipboardCheck, Activity, ChevronRight, Truck, Lock,
-  Boxes, Car, Eye, ListOrdered, Receipt, Home, Plug,
+  Boxes, Car, Eye, ListOrdered, Receipt, Home, Plug, Bell,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
@@ -23,10 +24,13 @@ import { CODE_PARCOURS_V3, parcoursActif } from "./compteRenduV3";
 import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
 import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
 import ProgbatFamilleMultiAdmin from "./ProgbatFamilleMultiAdmin.jsx";
+import ProgbatManagersAdmin from "./ProgbatManagersAdmin.jsx";
 import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
 import TauxFraisGenerauxAdmin from "./TauxFraisGenerauxAdmin.jsx";
 import SeuilsMargesAdmin from "./SeuilsMargesAdmin.jsx";
+import ReglagesRelancesAdmin from "./ReglagesRelancesAdmin.jsx";
+import ReglagesNotificationsAdmin from "./ReglagesNotificationsAdmin.jsx";
 import SeuilsAvancementIncoherentAdmin from "./SeuilsAvancementIncoherentAdmin.jsx";
 import ControleJournalAvancement from "./ControleJournalAvancement.jsx";
 // Échéancier de facturation client (bloc Facturation de la fiche chantier +
@@ -69,7 +73,7 @@ function OngletMailEncours({ T, acc }) {
   const [saving, setSaving]   = useState(false);
   const [msg, setMsg]         = useState(null);  // { type:"ok"|"err", txt }
 
-  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur", commercial:"Commercial", comptable:"Comptable", ouvrier:"Ouvrier" };
+  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur", commercial:"Commercial", comptable:"Comptable", charge_affaires:"Chargé d'affaires", ouvrier:"Ouvrier" };
 
   useEffect(() => {
     (async () => {
@@ -299,9 +303,10 @@ function OngletUtilisateurs({ T, acc }) {
     { value:"conducteur", label:"Conducteur de travaux" },
     { value:"commercial", label:"Commercial" },
     { value:"comptable",  label:"Comptable" },
+    { value:"charge_affaires", label:"Chargé d'affaires" },
   ]);
-  const [ROLE_LABELS, setRoleLabels] = useState({ admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" });
-  const [ROLE_COLORS, setRoleColors] = useState({ admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" });
+  const [ROLE_LABELS, setRoleLabels] = useState({ admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable", charge_affaires:"Chargé d'affaires" });
+  const [ROLE_COLORS, setRoleColors] = useState({ admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc", charge_affaires:"#14b8a6" });
   useEffect(() => {
     let cancelled = false;
     Promise.all([loadAccessConfig("renovation"), loadAccessConfig("invest")]).then(([reno, inv]) => {
@@ -3157,9 +3162,11 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [editOpIdx, setEditOpIdx]     = useState(null);
   const [opToDelete, setOpToDelete]   = useState(null);
   const [newOpNom, setNewOpNom]       = useState("");
+  // Opération du nouveau chantier ("" = une opération créée à son nom).
+  const [newChOp, setNewChOp]         = useState("");
 
   // ─── NOUVELLES CONFIGS (Bloc 1) ──────────────────────────────────────────
-  const [stats, setStats]               = useState({ chantiersActifs: 0, projetsEnCours: 0, visitesEnCours: 0, ouvriersActifs: 0, derniersRapports: [], dernieresVisites: [] });
+  const [stats, setStats]               = useState({ chantiersActifs: 0, projetsEnCours: 0, ouvriersActifs: 0, derniersRapports: [] });
   const [backuping, setBackuping]       = useState(false);
 
   // ─── PHASES DE TRAVAUX (Bloc 2) ──────────────────────────────────────────
@@ -3208,7 +3215,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "echeancier_facturation", "acompte_pct_defaut", "chiffrage_tva_defaut"]);
+      // Opérations : table public.operations (Refonte Opérations, lot 1).
+      chargerOperations().then(setOperations);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "email_templates", "heures_par_jour", "echeancier_facturation", "acompte_pct_defaut", "chiffrage_tva_defaut"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
@@ -3222,9 +3231,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           }
           if (r.key === "equipes" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
             setEquipes(r.value.items);
-          }
-          if (r.key === "operations" && r.value && Array.isArray(r.value.items)) {
-            setOperations(r.value.items);
           }
           if (r.key === "email_templates" && r.value) {
             setEmailTemplates({ ...EMAIL_TEMPLATES_DEFAUT, ...r.value });
@@ -3255,18 +3261,15 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     if (adminTab !== "vue") return;
     const loadStats = async () => {
       try {
-        const [{ data: projets }, { data: visites }, { data: rapports }] = await Promise.all([
+        const [{ data: projets }, { data: rapports }] = await Promise.all([
           supabase.from("profero_projets").select("id, statut, client_nom, client_prenom, date_visite").order("created_at", { ascending: false }).limit(20),
-          supabase.from("visites_chantier").select("id, chantier_id, chantier_nom, date, statut, audit").order("date", { ascending: false }).limit(10),
           supabase.from("rapports").select("id, ouvrier, chantier_nom, date_rapport, submitted_at").order("submitted_at", { ascending: false }).limit(5),
         ]);
         setStats({
           chantiersActifs: chantiers.length,
           ouvriersActifs: ouvriers.length,
           projetsEnCours: (projets || []).filter(p => !["abandonne","signe"].includes(p.statut || "prospect")).length,
-          visitesEnCours: (visites || []).filter(v => (v.statut || "en_cours") === "en_cours").length,
           derniersRapports: rapports || [],
-          dernieresVisites: visites?.slice(0, 5) || [],
         });
       } catch (e) { console.warn("stats load:", e.message); }
     };
@@ -3571,9 +3574,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   };
 
   // ─── OPÉRATIONS CRUD ─────────────────────────────────────────────────────
-  // Référentiel planning_config/operations ({ items: [{ id, nom, adresse,
-  // couleur }] }). Le lien vit sur le chantier (operation_id, optionnel) :
-  // une opération se supprime uniquement si aucun chantier n'y est rattaché.
+  // Table public.operations (Refonte Opérations, lot 1) : saveConfig
+  // ("operations", …) n'écrit que les opérations modifiées. Le lien vit sur le
+  // chantier (operation_id, OBLIGATOIRE) : une opération ne se « supprime »
+  // (archive) que si aucun chantier n'y est rattaché.
   const saveOperations = async (next) => {
     setOperations(next);
     await saveConfig("operations", { items: next });
@@ -3593,14 +3597,16 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     if (opToDelete === null) return;
     const op = operations[opToDelete];
     if (op && chantiers.some(c => c.operation_id === op.id)) { setOpToDelete(null); return; }
-    saveOperations(operations.filter((_, idx) => idx !== opToDelete));
     setOpToDelete(null);
+    if (!op) return;
+    archiverOperation(op.id).then(ok => { if (ok) setOperations(prev => prev.filter(o => o.id !== op.id)); });
   };
-  // Rattache / détache un chantier (operationId "" = détacher). Passe par
-  // updateChantier pour bénéficier du merge par patch et du save existants.
+  // Déplace un chantier vers une autre opération. Un chantier a TOUJOURS une
+  // opération (lot 1) : un identifiant vide est ignoré, on ne détache plus.
+  // Passe par updateChantier pour bénéficier du merge par patch et du save.
   const setChantierOperation = (chantierId, operationId) => {
     const i = chantiers.findIndex(c => c.id === chantierId);
-    if (i < 0) return;
+    if (i < 0 || !operationId) return;
     updateChantier(i, { operation_id: operationId || "" });
   };
   // Ordre des logements DANS une opération = leur ordre dans le référentiel
@@ -3662,11 +3668,14 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const addChantier = async () => {
     if (!newNom.trim()) return;
     const id  = newNom.trim().toLowerCase().replace(/\s+/g, "-") + "-" + Date.now();
-    const nc  = { id, nom: newNom.trim().toUpperCase(), couleur: newColor };
+    // Sans opération choisie, la base lui en crée une à son nom (un seul
+    // logement) : un chantier a toujours une opération.
+    const nc  = { id, nom: newNom.trim().toUpperCase(), couleur: newColor, ...(newChOp ? { operation_id: newChOp } : {}) };
     const u   = [...chantiers, nc];
     setChantiers(u);
-    saveConfig("chantiers", u);
+    await saveConfig("chantiers", u);
     setNewNom("");
+    if (!newChOp) chargerOperations().then(setOperations);
     // Création auto du phasage lié — assure la boucle logique chantier ↔ phasage
     // dès la création. L'utilisateur peut ensuite remplir les ouvrages/tâches.
     // On reste sur les colonnes minimales pour éviter les erreurs si le schéma
@@ -3684,10 +3693,11 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
   const confirmRemoveChantier = () => {
     if (chantierToDelete===null) return;
-    const u = chantiers.filter((_, idx) => idx !== chantierToDelete);
-    setChantiers(u);
-    saveConfig("chantiers", u);
+    // Archivé (archive_le), jamais effacé : récupérable en base.
+    const cible = chantiers[chantierToDelete];
     setChantierToDelete(null);
+    if (!cible) return;
+    archiverChantier(cible.id).then(ok => { if (ok) setChantiers(prev => prev.filter(c => c.id !== cible.id)); });
   };
 
   // Sync différée du nom de phasage (une minuterie par chantier).
@@ -3925,7 +3935,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       ["vehicules",    "Véhicules",    Car],
       ["emails",       "Emails",       Mail],
       ["situations",   "Facturation",   Receipt],
+      ...(isAdmin ? [["relances", "Relances", Mail]] : []),
       ...(isAdmin ? [["mail-encours", "Mail encours", Send]] : []),
+      // Notifications sur téléphone (projet notifications-push, règle 7) : admin seulement.
+      ...(isAdmin ? [["notifications", "Notifications", Bell]] : []),
     ]},
     { id:"outils", label:"Outils", icon:Wrench, tabs:[
       ...(isAdmin ? [["historique", "Historique", RefreshCw]] : []),
@@ -4026,8 +4039,14 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         <OngletVehicules T={T} acc={acc}/>
       )}
 
+      {adminTab==="relances" && isAdmin && (
+        <ReglagesRelancesAdmin T={T} profil={profil}/>
+      )}
       {adminTab==="mail-encours" && isAdmin && (
         <OngletMailEncours T={T} acc={acc}/>
+      )}
+      {adminTab==="notifications" && isAdmin && (
+        <ReglagesNotificationsAdmin T={T} saveConfig={saveConfig}/>
       )}
 
       {adminTab==="historique" && isAdmin && (
@@ -4045,7 +4064,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             <div>
               <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Phases de travaux</div>
               <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
-                Phases utilisées dans le Phasage, la Bibliothèque d'ouvrages, les Visites de chantier et la page Chantiers.
+                Phases utilisées dans le Phasage, la Bibliothèque d'ouvrages et la page Chantiers.
                 Les modifications s'appliquent aux nouvelles entrées et au prochain affichage.
               </div>
             </div>
@@ -4913,7 +4932,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               { label:"Chantiers actifs",  val:stats.chantiersActifs, icon:Building2,    color:acc.accent },
               { label:"Équipe",            val:stats.ouvriersActifs,  icon:HardHat,      color:"#5b9cf6" },
               { label:"Projets commerciaux",val:stats.projetsEnCours, icon:Briefcase,    color:"#a78bfa" },
-              { label:"Visites en cours",  val:stats.visitesEnCours,  icon:ClipboardCheck,color:"#22c55e" },
             ].map(s => (
               <div key={s.label} style={{
                 background:T.surface,border:`1px solid ${T.border}`,
@@ -4958,32 +4976,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               )}
             </div>
 
-            {/* Dernières visites */}
-            <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14}}>
-              <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
-                <Icon as={ClipboardCheck} size={11}/>
-                Dernières visites de chantier
-              </div>
-              {stats.dernieresVisites.length === 0 ? (
-                <div style={{color:T.textMuted,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucune visite récente.</div>
-              ) : (
-                stats.dernieresVisites.map(v => {
-                  const toutes = Object.values(v.audit || {}).flat();
-                  const nb_nok = toutes.filter(t => t.statut === "nok").length;
-                  const nb_res = toutes.filter(t => t.statut === "reserve").length;
-                  return (
-                    <div key={v.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text}}>{v.chantier_nom}</div>
-                        <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>{v.date} · {toutes.length} pts</div>
-                      </div>
-                      {nb_nok > 0 && <span style={{fontSize:FONT.xs.size,fontWeight:700,color:"#e15a5a",background:"rgba(239,68,68,0.15)",padding:"1px 7px",borderRadius:RADIUS.pill}}>{nb_nok} NOK</span>}
-                      {nb_res > 0 && <span style={{fontSize:FONT.xs.size,fontWeight:700,color:"#f59e0b",background:"rgba(245,158,11,0.15)",padding:"1px 7px",borderRadius:RADIUS.pill}}>{nb_res} rés</span>}
-                    </div>
-                  );
-                })
-              )}
-            </div>
           </div>
         </div>
       )}
@@ -5301,6 +5293,8 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           <ProgbatInventaire T={T} acc={acc} />
           {/* Famille ProGBat des ouvrages « MULTI-… » (multi-ouvrages du chiffrage) */}
           <ProgbatFamilleMultiAdmin T={T} acc={acc} />
+          {/* Lot 4 : chargé d'affaires → responsable du chantier ProGBat (managerId) */}
+          <ProgbatManagersAdmin T={T} acc={acc} />
         </div>
       )}
 
@@ -5676,10 +5670,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               }
               {editChIdx!==i&&operations.length>0&&(
                 <select className="ti" value={c.operation_id||""}
-                  onChange={e=>updateChantier(i,{operation_id:e.target.value})}
-                  title="Opération (maison) de rattachement"
-                  style={{maxWidth:180,color:c.operation_id?T.text:T.textMuted}}>
-                  <option value="">— Sans opération —</option>
+                  onChange={e=>{if(e.target.value)updateChantier(i,{operation_id:e.target.value});}}
+                  title="Opération (maison) de rattachement — obligatoire"
+                  style={{maxWidth:180,color:T.text}}>
+                  {!c.operation_id&&<option value="">— Opération en cours de création —</option>}
                   {operations.map(o=><option key={o.id} value={o.id}>{o.nom}</option>)}
                 </select>
               )}
@@ -5702,6 +5696,11 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             </div>
             <input className="ti" value={newNom} onChange={e=>setNewNom(e.target.value)}
               placeholder="Nom du chantier…" style={{flex:1,minWidth:140}} onKeyDown={e=>e.key==="Enter"&&addChantier()}/>
+            <select className="ti" value={newChOp} onChange={e=>setNewChOp(e.target.value)}
+              title="Opération du nouveau chantier" style={{maxWidth:220}}>
+              <option value="">Nouvelle opération à son nom</option>
+              {operations.map(o=><option key={o.id} value={o.id}>{o.nom}</option>)}
+            </select>
             <button className="btn-p" onClick={addChantier} style={{display:"inline-flex",alignItems:"center",gap:5}}>
               <Icon as={Plus} size={12}/>
               Ajouter
@@ -5715,7 +5714,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         <div className="ac">
           <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Opérations (maisons / adresses)</div>
           <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>
-            Une opération regroupe les chantiers/logements d'une même maison. Le rattachement est optionnel : un chantier sans opération fonctionne exactement comme avant.
+            Une opération regroupe les chantiers/logements d'une même maison. Chaque chantier appartient à une opération : un chantier créé sans opération en reçoit une à son nom (« créée automatiquement »).
           </div>
           {operations.length===0&&(
             <div style={{color:T.textMuted,fontSize:FONT.sm.size,marginBottom:14}}>
@@ -5724,7 +5723,8 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           )}
           {operations.map((o,i)=>{
             const rattaches=chantiers.filter(c=>c.operation_id===o.id);
-            const libres=chantiers.filter(c=>!c.operation_id);
+            // Chantiers d'autres opérations, qu'on peut déplacer ici.
+            const libres=chantiers.filter(c=>c.operation_id!==o.id);
             return (
               <div key={o.id} style={{border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:12,marginBottom:10}}>
                 <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
@@ -5755,7 +5755,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                           Supprimer
                         </button>
                       :<span style={{fontSize:FONT.xs.size+1,color:T.textMuted,whiteSpace:"nowrap"}}
-                          title="Détache d'abord tous ses chantiers pour pouvoir la supprimer">
+                          title="Déplace d'abord tous ses chantiers vers une autre opération pour pouvoir la supprimer">
                           {rattaches.length} logement{rattaches.length>1?"s":""}
                         </span>
                   }
@@ -5778,9 +5778,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                           </button>
                         </span>
                       )}
-                      <button className="ib" onClick={()=>setChantierOperation(c.id,"")} title="Détacher de l'opération">
-                        <Icon as={X} size={11}/>
-                      </button>
                     </span>
                   ))}
                   {rattaches.length===0&&(
@@ -5789,7 +5786,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   {libres.length>0&&(
                     <select className="ti" value="" onChange={e=>{if(e.target.value)setChantierOperation(e.target.value,o.id);}}
                       title="Rattacher un chantier à cette opération" style={{maxWidth:220}}>
-                      <option value="">+ Rattacher un chantier…</option>
+                      <option value="">+ Déplacer un chantier ici…</option>
                       {libres.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
                     </select>
                   )}
@@ -5876,7 +5873,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer ce chantier&nbsp;?</div>
             </div>
             <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
-              Le chantier <strong style={{color:T.text}}>« {chantiers[chantierToDelete]?.nom} »</strong> sera retiré de la liste.
+              Le chantier <strong style={{color:T.text}}>« {chantiers[chantierToDelete]?.nom} »</strong> sera retiré de la liste (archivé : il reste récupérable en base).
               <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Le phasage, le planning et les rapports déjà saisis ne seront pas supprimés mais ne seront plus liés à un chantier actif.</span>
             </div>
             <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>

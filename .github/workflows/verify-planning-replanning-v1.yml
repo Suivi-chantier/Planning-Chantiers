@@ -84,8 +84,12 @@ jobs:
         run: node scripts/verif-compte-rendu-client-doc.mjs
       - name: Encours fournisseurs (gabarit PDF)
         run: node scripts/verif-encours-doc.mjs
+      - name: Achats par mois de commande (module, données fictives)
+        run: node scripts/verif-achats-par-mois.mjs
       - name: Renovation copilot V1 (assistant IA, lecture seule)
         run: node scripts/verif-renovation-copilot-v1.mjs
+      - name: Espace ouvrier - onglet Phases par piece (module, donnees fictives)
+        run: node scripts/verif-ouvrier-phases-par-piece.mjs
       - name: Installer PGlite (PostgreSQL en mémoire, hors package.json)
         run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
       - name: Espace ouvrier - beta Mes phases (RPC + module, donnees fictives)

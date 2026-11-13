@@ -18,6 +18,7 @@
 // d'opération ne recharge rien.
 import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { supabase } from "../supabase";
+import { lireToutParTranches } from "./lectureParTranches";
 import { loadOperations, loadGroupesTypes, loadEquipes, FONT, RADIUS, getBranchAccent, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar } from "../mobileUI";
@@ -41,6 +42,13 @@ import { exporterOperationMarkdown } from "./operationExportData";
 // exporté doivent afficher rigoureusement les mêmes totaux, donc une seule
 // implémentation. La formule est inchangée (avancement pondéré par le vendu).
 import { agregerOperation } from "./operationExportModele.mjs";
+import { STATUTS_AFFICHAGE, statutOperation } from "./statutsChantier.js";
+import { estChantierActif } from "./chantierActif.js";
+import { BadgeStatut } from "./ComposantsCommerciaux.jsx";
+import OperationCommercial from "./OperationCommercial.jsx";
+import SyntheseCycleVieOperation from "./SyntheseCycleVieOperation.jsx";
+// Lot 5 : Opérations porte d'entrée — onglets par statut calculé.
+import { ONGLETS_OPERATIONS, repartirOperationsParOnglet, ongletInitialOperations } from "./navigationOperations.js";
 import { useReglagesMarges } from "./reglagesMarges";
 import { detailKpiOperation, carteDeriveOperation } from "./operationKpiDetail";
 import {
@@ -58,12 +66,8 @@ const CheminDeFerVue = React.lazy(() => import("./CheminDeFer"));
 // (chunk séparé — le moteur n'est chargé que si on ouvre l'onglet).
 const PlanificationOperation = React.lazy(() => import("./PlanificationOperation"));
 
-const STATUTS = {
-  en_cours: { label: "En cours",  color: "#FFC300", bg: "rgba(255,195,0,0.15)"  },
-  termine:  { label: "Terminé",   color: "#22c55e", bg: "rgba(34,197,94,0.15)"  },
-  planifie: { label: "Planifié",  color: "#3b82f6", bg: "rgba(59,130,246,0.15)" },
-  en_pause: { label: "En pause",  color: "#f97316", bg: "rgba(249,115,22,0.15)" },
-};
+// Libellés et couleurs : table unique (statutsChantier.mjs ; lot 2 : À l'étude, Perdu).
+const STATUTS = STATUTS_AFFICHAGE;
 
 function ProgressBar({ value, color, height = 6 }) {
   const pct = Math.min(100, Math.max(0, value || 0));
@@ -80,17 +84,10 @@ function ProgressBar({ value, color, height = 6 }) {
 
 // Pagination Supabase : au-delà de 1 000 lignes une requête simple TRONQUE en
 // silence — même garde-fou que Bilan semaine.
-async function fetchTout(table, select) {
-  const PAGE = 1000;
-  let from = 0;
-  const out = [];
-  for (;;) {
-    const { data, error } = await supabase.from(table).select(select).range(from, from + PAGE - 1);
-    if (error) return { data: out, error };
-    out.push(...(data || []));
-    if (!data || data.length < PAGE) return { data: out, error: null };
-    from += PAGE;
-  }
+// Tranches lues en parallèle (lireToutParTranches) et triées par id : sans
+// tri, deux tranches peuvent se recouvrir ou sauter des lignes (09/11/2026).
+function fetchTout(table, select) {
+  return lireToutParTranches((a, b) => supabase.from(table).select(select).order("id").range(a, b));
 }
 
 // Les statuts reconnus par l'écran : agregerOperation range sous « en cours »
@@ -194,11 +191,22 @@ function KpiOperationModal({ detail, pres, opNom, T, onClose }) {
   );
 }
 
-export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin, peutPlanifier = false }) {
+export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin, peutPlanifier = false, setChantiers = null, saveConfig = null, profil = null, operationDemandee = null, onOperationConsumed = null }) {
   const acc = getBranchAccent(branch);
   const [operations, setOperations] = useState(null); // null = chargement
   const [etat, setEtat] = useState({ charge: false, phasages: [], phasagesParChantier: {}, ptsByChantier: {}, clByChantier: {}, cfg: {}, refsParChantier: {}, erreurs: [] });
-  const [opId, setOpId] = useState(() => localStorage.getItem("operations_selected") || null);
+  // Lot 5 : une demande venue du fil d'Ariane de la fiche chantier
+  // ({ id } = cette opération, { id: null } = la liste) prime sur la
+  // dernière opération ouverte.
+  const [opId, setOpId] = useState(() => {
+    if (operationDemandee) return operationDemandee.id || null;
+    try { return localStorage.getItem("operations_selected") || null; } catch { return null; }
+  });
+  // Lot 5 : onglet de la liste (À l'étude · En cours · Terminées · Perdues ·
+  // Sans chantier). null = choisi d'après les compteurs (En cours par défaut).
+  const [ongletStatut, setOngletStatut] = useState(() => {
+    try { return localStorage.getItem("operations_onglet") || null; } catch { return null; }
+  });
   const [periode, setPeriode] = useState("12");
   const [masques, setMasques] = useState({});
   const [onglet, setOnglet] = useState("synthese"); // "synthese" | "chemin-de-fer" | "planifier"
@@ -223,7 +231,11 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         loadOperations(),
         // select("*") volontaire : évite d'échouer si une colonne manque dans
         // le schéma de cette instance (même précaution que la fiche Chantier).
-        supabase.from("phasages").select("*"),
+        // Lu par petites tranches de 10 phasages (11/11/2026) : la table pèse
+        // ~2,5 Mo (ouvrages + plan de travaux) ; d'un seul bloc, une connexion
+        // instable coupait le téléchargement (« Failed to fetch ») et toute la
+        // page tombait à 0 €. Une tranche coupée est relancée automatiquement.
+        lireToutParTranches((a, b) => supabase.from("phasages").select("*").order("id").range(a, b), 10),
         fetchTout("pointages", "*"),
         fetchTout("commande_lignes",
           "id, libelle, reference, quantite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at, fournisseur_nom)"),
@@ -265,7 +277,9 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   const reglagesMarges = useReglagesMarges();
   const finParChantier = useMemo(() => {
     if (!etat.charge) return {};
-    const rattaches = new Set(chantiers.filter((c) => c.operation_id).map((c) => c.id));
+    // Chiffres : seulement les chantiers en exploitation (un chantier À
+    // l'étude ou Perdu n'est pas vendu — règle unique estChantierActif).
+    const rattaches = new Set(chantiers.filter((c) => c.operation_id && estChantierActif(c, { inclureTermines: true })).map((c) => c.id));
     const tauxHoraires = etat.cfg.taux_horaires || {};
     const tauxMOPrev = parseFloat(etat.cfg.taux_mo_previsionnel) || 0;
     const etatsFinanciers = etat.cfg.etats_financiers || null;
@@ -303,7 +317,24 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
 
   const ouvrirOp = (id) => {
     setOpId(id);
-    localStorage.setItem("operations_selected", id || "");
+    try { localStorage.setItem("operations_selected", id || ""); } catch { /* mémoire du navigateur indisponible */ }
+  };
+
+  // Lot 5 : demande venue du fil d'Ariane (page déjà ouverte ou non).
+  useEffect(() => {
+    if (!operationDemandee) return;
+    ouvrirOp(operationDemandee.id || null);
+    onOperationConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operationDemandee]);
+
+  // Lot 5 : répartition par statut CALCULÉ (statutOperation), une opération
+  // dans un seul onglet ; « Sans chantier » a son onglet, toujours affiché.
+  const repartition = useMemo(() => repartirOperationsParOnglet(operations || [], chantiers), [operations, chantiers]);
+  const ongletActif = ongletInitialOperations(repartition.compteurs, ongletStatut);
+  const choisirOnglet = (id) => {
+    setOngletStatut(id);
+    try { localStorage.setItem("operations_onglet", id); } catch { /* idem */ }
   };
 
   const bg = T.bg, text = T.text, textSub = T.textSub, textMuted = T.textMuted, border = T.border;
@@ -375,8 +406,34 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
               ]}/>
             </div>
 
+            {/* ── Lot 5 : onglets par statut calculé de l'opération ── */}
+            <div role="tablist" aria-label="Statut des opérations" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+              {ONGLETS_OPERATIONS.map((o) => {
+                const active = ongletActif === o.id;
+                const n = repartition.compteurs[o.id] || 0;
+                return (
+                  <button key={o.id} role="tab" aria-selected={active} onClick={() => choisirOnglet(o.id)} style={{
+                    display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 16px", borderRadius: RADIUS.pill,
+                    border: `1px solid ${active ? acc.accent : border}`, background: active ? acc.bg10 : "transparent",
+                    color: active ? acc.accent : textSub, fontSize: FONT.sm.size, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}>
+                    {o.label}
+                    <span style={{ fontSize: 11, fontWeight: 800, padding: "1px 7px", borderRadius: RADIUS.pill,
+                      background: active ? acc.accent : "rgba(128,128,128,0.18)", color: active ? "#1a1f2e" : textSub }}>{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {(repartition.compteurs[ongletActif] || 0) === 0 && (
+              <div style={{ textAlign: "center", padding: 40, color: textMuted, fontSize: FONT.sm.size }}>
+                {(ONGLETS_OPERATIONS.find((o) => o.id === ongletActif) || ONGLETS_OPERATIONS[1]).vide}
+              </div>
+            )}
+
             <div className="operations-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
-              {parOperation.map(({ op, chantiersOp, agg }) => (
+              {parOperation.filter(({ op }) => (repartition.statutParOperation[op.id]?.statut || "vide") === ongletActif).map(({ op, chantiersOp, agg }) => (
                 <div key={op.id} className="operation-card" onClick={() => ouvrirOp(op.id)} style={{
                   background: T.surface, border: `1px solid ${border}`, borderRadius: 16,
                   boxShadow: CARD_SHADOW, overflow: "hidden",
@@ -392,6 +449,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                           </div>
                         )}
                       </div>
+                      {(() => { const so = statutOperation(chantiersOp); return <BadgeStatut operation statut={so.statut} title={`Statut calculé : ${so.raison}`}/>; })()}
                       <span style={{
                         fontSize: FONT.xs.size, fontWeight: 700, padding: "3px 10px", borderRadius: RADIUS.pill,
                         background: acc.bg10, color: acc.accent, whiteSpace: "nowrap", flexShrink: 0,
@@ -763,10 +821,20 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
 
       {bandeauErreurs && <div style={{ marginBottom: 14 }}>{bandeauErreurs}</div>}
 
+      {/* Lot 2 : statut calculé, client et chargé d'affaires, Marquer perdu. */}
+      <OperationCommercial T={T} op={op} chantiersOp={chantiersOp} chantiers={chantiers}
+        setChantiers={setChantiers} saveConfig={saveConfig} profil={profil}
+        onOperationModifiee={(maj) => setOperations((l) => (l || []).map((o) => (o.id === maj.id ? { ...o, ...maj } : o)))}/>
+
+      {/* Lot 3 : synthèse en lecture seule du cycle de vie de ses chantiers. */}
+      {/* Lot 5 : c'est aussi la liste des chantiers de l'opération, chacun
+          avec sa mini-frise ; un clic ouvre la fiche chantier. */}
+      <SyntheseCycleVieOperation T={T} chantiersOp={chantiersOp} phasagesParChantier={etat.phasagesParChantier} onOpenChantier={onOpenChantier}/>
+
       {chantiersOp.length === 0 ? (
         <div style={{ textAlign: "center", padding: 60, color: textMuted }}>
           <div style={{ fontSize: FONT.base.size, fontWeight: 600, marginBottom: 8 }}>Aucun chantier rattaché à cette opération.</div>
-          <div style={{ fontSize: FONT.sm.size }}>Le rattachement se fait dans Réglages → Opérations (colonne Opération du tableau des chantiers).</div>
+          <div style={{ fontSize: FONT.sm.size }}>Un nouveau chantier se crée depuis Chiffrage → « Nouveau chiffrage » (opération → chantier → client). Le déplacement d'un chantier existant se fait dans Réglages → Chantiers.</div>
         </div>
       ) : (
         <>
@@ -829,6 +897,12 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
               label="Marge à l'avancement" value={agg.vendu > 0 ? eur(agg.margeAvancement) : "—"}
               sub={agg.vendu > 0 ? (agg.margeAvancementPct != null ? `${pctTxt(agg.margeAvancementPct)} de la production` : "rien de produit pour l'instant") : "vendu HT non renseigné"}
               onClick={() => setKpiDetail("marge")}/>
+            {/* Marge à terminaison (demande de François du 09/11/2026), juste
+                avant la marge probable, comme dans le Bilan : somme des marges
+                à terminaison des logements (computeChantierFinance). */}
+            <KpiCard T={T} icon={agg.margeATerminaison >= 0 ? TrendingUp : TrendingDown} iconColor="#8b5cf6"
+              label="Marge à terminaison" value={agg.vendu > 0 ? eur(agg.margeATerminaison) : "—"}
+              sub={agg.vendu > 0 ? `${pctTxt(agg.margeATerminaisonPct)} du vendu · si le reste se passe comme le devis` : undefined}/>
             <KpiCard T={T} icon={agg.margeProbable >= 0 ? TrendingUp : TrendingDown} iconColor="#8b5cf6"
               label="Marge probable" value={agg.vendu > 0 ? eur(agg.margeProbable) : "—"}
               sub={agg.vendu > 0 ? `${pctTxt(agg.margeProbablePct)} du vendu · si on continue au rythme actuel` : undefined}/>
@@ -891,6 +965,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   <th style={th}>Matériaux</th>
                   <th style={th}>Marge prév.</th>
                   <th style={th}>Marge à l'avancement</th>
+                  <th style={th}>Marge à terminaison</th>
                   <th style={th}>Marge probable</th>
                   <th style={th}>Heures (réel/vendu)</th>
                 </tr>
@@ -920,7 +995,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                         }}>{s.label}</span>
                       </td>
                       {!b ? (
-                        <td colSpan={8} style={{ ...td, textAlign: "left", fontStyle: "italic", color: textMuted }}>Sans phasage — hors chiffres</td>
+                        <td colSpan={9} style={{ ...td, textAlign: "left", fontStyle: "italic", color: textMuted }}>Sans phasage — hors chiffres</td>
                       ) : (
                         <>
                           <td style={{ ...td, fontWeight: 700, color: text }}>{b.avancementChantier}%</td>
@@ -929,6 +1004,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                           <td style={td}>{eur(b.coutMatChantier)}</td>
                           <td style={{ ...td, fontWeight: 700, color: mPrevColor }}>{b.prixHTChantier > 0 ? eur(b.margePrevChantier) : "—"}</td>
                           <td style={{ ...td, fontWeight: 800, color: mColor }}>{b.prixHTChantier > 0 ? `${eur(b.margeAvancement)}${b.repris ? " · repris" : ""}` : "—"}</td>
+                          <td style={{ ...td, fontWeight: 700, color: b.margeATerminaison >= 0 ? "#8b5cf6" : "#e15a5a" }}>{b.prixHTChantier > 0 ? eur(b.margeATerminaison) : "—"}</td>
                           <td style={{ ...td, fontWeight: 700, color: b.margeProbable >= 0 ? "#8b5cf6" : "#e15a5a" }}>{b.prixHTChantier > 0 ? eur(b.margeProbable) : "—"}</td>
                           <td style={td}>{fmtH(b.heuresReellesTotalChantier)}h / {fmtH(b.heuresVenduesChantier)}h{b.heuresHorsDevisChantier > 0 ? ` (dont ${fmtH(b.heuresHorsDevisChantier)}h hors devis)` : ""}</td>
                         </>
@@ -946,6 +1022,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   <td style={{ ...td, fontWeight: 800, color: text }}>{eur(agg.mat)}</td>
                   <td style={{ ...td, fontWeight: 800, color: agg.vendu > 0 ? couleurMarge(agg.margePrev, agg.margePrevPct ?? 0) : textMuted }}>{agg.vendu > 0 ? eur(agg.margePrev) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? eur(agg.margeAvancement) : "—"}</td>
+                  <td style={{ ...td, fontWeight: 800, color: agg.margeATerminaison >= 0 ? "#8b5cf6" : "#e15a5a" }}>{agg.vendu > 0 ? eur(agg.margeATerminaison) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: agg.margeProbable >= 0 ? "#8b5cf6" : "#e15a5a" }}>{agg.vendu > 0 ? eur(agg.margeProbable) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: text }}>{fmtH(agg.hReelles)}h / {fmtH(agg.hVendues)}h{agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}</td>
                 </tr>

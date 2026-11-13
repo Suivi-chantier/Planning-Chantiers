@@ -1,0 +1,23 @@
+name: Verify RLS — rôle vérifié une fois par requête
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'sql/202611_rls_bureau_role_verifie_une_fois_rollback.sql'
+      - 'scripts/verif-rls-role-une-fois.mjs'
+      - '.github/workflows/verify-rls-role-une-fois.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Règles « réservé au bureau » — réécriture seule, retour arrière, garde pour les migrations suivantes
+        run: node scripts/verif-rls-role-une-fois.mjs

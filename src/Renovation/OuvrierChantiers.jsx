@@ -17,12 +17,13 @@
 // (mêmes chiffres que la fiche chantier bureau).
 //
 // Les niveaux 1 et 2 sont volontairement SANS aucun chiffre financier : ils ne
-// lisent que planning_config (chantiers / operations / chantier_adresses) et ne
+// lisent que les tables chantiers / operations et planning_config/chantier_adresses, et ne
 // reprennent rien de PageOperations.jsx, qui est une page bureau à marges.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { DEFAULT_CHANTIERS } from "../constants";
+import { chargerChantiers, chargerOperations } from "./chantiersDonnees";
+import { filtrerChantiersActifs } from "./chantierActif";
 import { Icon } from "../ui";
 import {
   Building2, MapPin, ArrowLeft, ChevronRight, FileText, Image as ImageIcon,
@@ -35,7 +36,7 @@ import OuvrierPreparationChantier from "./OuvrierPreparationChantier";
 import { MobileCard, MobileSection, MobileEmptyState, Pill, SummaryBar } from "../mobileUI";
 import { indexPointagesParTache, tacheHeuresReelles, heuresReellesComparablesOuvrage, heuresHorsDevisOuvrage } from "../chantierFinance";
 import { urlDocumentChantier, derniereErreurDocument } from "./storageChantier";
-import { getEtape } from "./cycleVie";
+import { nomEtape } from "./cycleVie";
 import { NavButtons } from "./ouvrierNav";
 import PlanViewerOuvrier from "./PlanViewerOuvrier";
 // Mémo chantier : mêmes données et mêmes écrans que l'onglet Notes.
@@ -83,23 +84,22 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
   const notes = useNotesOuvrier({ preview });
 
   useEffect(() => {
-    // Une seule requête pour les trois référentiels. On ne passe pas par
-    // loadOperations() de constants.js : ce helper invente un id `op_${i}`
-    // quand il manque, et un id inventé ne peut correspondre à aucun
-    // operation_id de chantier — ici on veut les ids réels, sans repli.
-    supabase.from("planning_config").select("key,value").in("key", ["chantiers", "chantier_adresses", "operations"])
-      .then(({ data, error }) => {
+    // Opérations et chantiers : tables public.operations / public.chantiers
+    // (Refonte Opérations, lot 1), ids réels. Adresses : planning_config.
+    // Liste filtrée par la règle unique estChantierActif() (terminés gardés :
+    // l'onglet les montrait déjà). Si les opérations ne sont pas lisibles,
+    // tous les chantiers basculent en « hors opération » et restent joignables.
+    Promise.all([
+      chargerChantiers(),
+      chargerOperations(),
+      supabase.from("planning_config").select("key,value").eq("key", "chantier_adresses"),
+    ]).then(([tous, operations, { data, error }]) => {
         if (error) { console.error("planning_config (espace ouvrier):", error); setErreurConfig(true); return; }
-        let chantiers = DEFAULT_CHANTIERS, adresses = {}, operations = [];
+        let adresses = {};
         (data || []).forEach(r => {
-          if (r.key === "chantiers" && Array.isArray(r.value)) chantiers = r.value;
           if (r.key === "chantier_adresses" && r.value) adresses = r.value;
-          // planning_config/operations a la forme { items: [...] } (≠ chantiers,
-          // qui est un tableau nu). Si la clé n'est pas lisible (RLS) ou absente,
-          // operations reste vide : tous les chantiers basculent alors en
-          // « hors opération » et restent joignables.
-          if (r.key === "operations" && Array.isArray(r.value?.items)) operations = r.value.items;
         });
+        const chantiers = filtrerChantiersActifs(tous, { inclureTermines: true });
         setConfig({ chantiers, adresses, operations });
       });
   }, []);
@@ -113,12 +113,23 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
       if (error) { console.error("ouvrier_plans_chantier:", error); setPlans([]); return; }
       setPlans(Array.isArray(data) ? data : []);
     });
-    const { data, error } = await supabase.rpc("ouvrier_chantier_detail", {
-      p_chantier_id: c.id, p_chantier_nom: c.nom,
-    });
+    const [{ data, error }, cvPlans] = await Promise.all([
+      supabase.rpc("ouvrier_chantier_detail", { p_chantier_id: c.id, p_chantier_nom: c.nom }),
+      // Plans techniques du NOUVEAU cycle de vie (lot 3, table
+      // chantier_cycle_vie : les ouvriers ne lisent que cette étape). La RPC,
+      // inchangée, ne voit que l'ancien stockage du phasage.
+      supabase.from("chantier_cycle_vie").select("etat").eq("chantier_id", c.id).eq("etape_id", "plans_techniques").maybeSingle(),
+    ]);
     setLoading(false);
     if (error || !data) { console.error("ouvrier_chantier_detail:", error); setErreur(true); return; }
-    setDetail(data);
+    if (cvPlans?.error) console.warn("plans techniques (cycle de vie) illisibles :", cvPlans.error.message);
+    const pieces = Array.isArray(cvPlans?.data?.etat?.pieces_jointes) ? cvPlans.data.etat.pieces_jointes : null;
+    // Une ligne de la table reprend (et remplace) les anciens « plans
+    // d'exécution » du phasage : on n'affiche pas deux fois les mêmes fichiers.
+    const documents = pieces
+      ? [...(data.documents || []).filter(g => g.etape_id !== "plans_execution"), ...(pieces.length ? [{ etape_id: "plans_techniques", pieces }] : [])]
+      : (data.documents || []);
+    setDetail({ ...data, documents });
   };
 
   const ouvrirDoc = async (pj) => {
@@ -490,7 +501,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
                 {(detail.documents || []).map(grp => (
                   <div key={grp.etape_id}>
                     <div style={{ fontSize:11, fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", color:T.textMuted, marginBottom:6 }}>
-                      {getEtape(grp.etape_id)?.nom || grp.etape_id}
+                      {nomEtape(grp.etape_id)}
                     </div>
                     <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                       {(grp.pieces || []).map((pj, i) => {

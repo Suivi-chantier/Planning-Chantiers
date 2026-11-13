@@ -1,0 +1,45 @@
+name: Verify Notifications direction (F2, D2, D3, D4)
+
+on:
+  pull_request:
+    paths:
+      - 'src/Renovation/encoursFournisseursV1.mjs'
+      - 'src/Renovation/notificationsDirectionV1.mjs'
+      - 'src/Renovation/bilanPeriodeV3.mjs'
+      - 'src/Renovation/cycleVie.mjs'
+      - 'src/Renovation/cycleVieReprise.mjs'
+      - 'src/Renovation/statutsChantier.mjs'
+      - 'src/Renovation/chantierActif.mjs'
+      - 'src/Renovation/chantiersTables.mjs'
+      - 'src/Renovation/journalMaj.js'
+      - 'src/chantierFinance.mjs'
+      - 'supabase/functions/_partage/notificationsPushV1.mjs'
+      - 'supabase/functions/send-push/index.ts'
+      - 'api/cron-dispatcher.js'
+      - 'supabase/migrations/*_cron_notifications_push.sql'
+      - 'api/cron-encours-fournisseurs.js'
+      - 'api/_cron/cron-notifications-direction.js'
+      - 'api/_cron/cron-journal-avancement.js'
+      - 'api/_cron/cron-push-reportes.js'
+      - '.github/workflows/cron-encours-fournisseurs.yml'
+      - '.github/workflows/cron-journal-avancement.yml'
+      - '.github/workflows/cron-push-nouveaux-chantiers.yml'
+      - '.github/workflows/cron-push-synthese-semaine.yml'
+      - 'scripts/verif-notifications-direction.mjs'
+      - '.github/workflows/verify-notifications-direction.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Notifications direction — encours (même calcul que le mail, push après le mail), nouveau chantier signé (premier passage silencieux), synthèse de la semaine (chiffres du Bilan, relevé absent dit), écart du journal en boîte seule, créneaux (données fictives)
+        run: node scripts/verif-notifications-direction.mjs

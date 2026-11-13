@@ -14,19 +14,19 @@
 // une table, il viendra avec les notifications.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useMemo } from "react";
-import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { getWeekId, getCurrentWeek } from "../constants";
-import { preparerSemainesRelevesJournaliersV2, COLONNES_RELEVES_ALERTES_V2, dimancheSemaineISOV2 } from "./pointsAttentionDonneesV1.js";
-import { alertesMargesV2 } from "./alertesMargesV2.js";
+import { chargerRelevesRetenusV2 } from "./chargerRelevesAlertes";
 import { useReglagesMarges } from "./reglagesMarges";
-// Mêmes helpers de semaine ISO que le Bilan Semaine : une seule façon de
-// nommer une semaine dans l'application.
-import { lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
-import { semaineISOv1 } from "./planningEngineDataHelpersV1.js";
+// Choix des semaines (mêmes helpers ISO que le Bilan Semaine), fenêtre de
+// lecture, filtre « chantier actif » (estChantierActif) et chaîne
+// alertesMargesV2( → alertesV1( : module partagé avec le serveur (projet
+// notifications-push, tâche 6), pour que l'écran et le serveur voient les
+// MÊMES niveaux sur les relevés de chantier_releves_journaliers.
+import { semainesAlertesV1, periodeRelevesAlertesV1, calculerAlertesEcranV1 } from "./alertesEcranV1.js";
 import {
-  alertesV1, etatAlertesV1, libelleMotifAlerteV1,
+  etatAlertesV1, libelleMotifAlerteV1,
   NIVEAU_CRITIQUE, NIVEAU_A_SURVEILLER, NIVEAU_INFO,
   ETAT_RELEVE_ABSENT,
 } from "./alertesV1.js";
@@ -97,7 +97,7 @@ function CarteAlerte({ alerte, T, onOuvrirChantier }) {
   );
 }
 
-export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier = null }) {
+export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier = null, referentielChantiers = null }) {
   const acc = getBranchAccent(branch);
   const [lignes, setLignes] = useState(null); // null = pas encore lu
   const [erreur, setErreur] = useState(null);
@@ -107,10 +107,7 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
   // précédente. Même mécanisme que le Bilan Semaine.
   const semaines = useMemo(() => {
     const now = new Date();
-    const courante = getWeekId(now.getFullYear(), getCurrentWeek());
-    const lundi = lundiSemaineISOv1(courante);
-    const precedente = lundi ? semaineISOv1(ajouterJoursV1(lundi, -7))?.week_id : null;
-    return precedente ? [courante, precedente] : [courante];
+    return semainesAlertesV1(getWeekId(now.getFullYear(), getCurrentWeek()));
   }, []);
 
   useEffect(() => {
@@ -119,21 +116,12 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
       // Étape 2 des marges (24/10/2026) : relevés JOURNALIERS, du dimanche de
       // la semaine précédente moins trois semaines (un chantier à l'arrêt garde
       // son dernier relevé) au dimanche de la semaine courante, par tranches.
-      const fin = dimancheSemaineISOV2(semaines[0]);
-      const debut = (() => { const d = new Date(`${dimancheSemaineISOV2(semaines[semaines.length - 1])}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 27); return d.toISOString().slice(0, 10); })();
-      const data = [];
-      for (let de = 0; ; de += 1000) {
-        const { data: page, error } = await supabase
-          .from("chantier_releves_journaliers")
-          .select(COLONNES_RELEVES_ALERTES_V2)
-          .gte("date_releve", debut).lte("date_releve", fin)
-          .order("date_releve", { ascending: true }).order("chantier_id", { ascending: true })
-          .range(de, de + 999);
-        if (annule) return;
-        if (error) { setErreur(error.message); setLignes([]); return; }
-        data.push(...(page || []));
-        if (!page || page.length < 1000) break;
-      }
+      const { debut, fin } = periodeRelevesAlertesV1(semaines);
+      // Seuls les relevés retenus de chantier_releves_journaliers (dernier par
+      // chantier et par semaine) sont téléchargés en entier (06/11/2026).
+      const { data, error } = await chargerRelevesRetenusV2({ debut, fin, weekIds: semaines });
+      if (annule) return;
+      if (error) { setErreur(error.message); setLignes([]); return; }
       setLignes(data);
     })();
     return () => { annule = true; };
@@ -145,20 +133,15 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
   const reglagesMarges = useReglagesMarges();
   const resultat = useMemo(() => {
     if (lignes === null) return null;
-    // preparerSemainesAttentionV1 rend UN TABLEAU par semaine demandée, dans
-    // l'ordre de `weekIds` : [0] = semaine courante, [1] = précédente.
-    const [courants, precedents] = preparerSemainesRelevesJournaliersV2({ lignes, weekIds: semaines });
-    // Détection : alertes des marges (étape 2) ; classement : alertesV1.
-    const pointsAttention = alertesMargesV2({
-      snapshotsCourants: courants || [], snapshotsPrecedents: precedents || [], seuils: reglagesMarges.seuilsMarges,
-    });
-    return alertesV1({
-      snapshotsCourants: courants || [],
-      snapshotsPrecedents: precedents || [],
-      pointsAttention,
+    // Même chaîne que le serveur (alertesEcranV1) : préparation des semaines,
+    // filtre estChantierActif(), détection alertesMargesV2(, classement alertesV1(.
+    return calculerAlertesEcranV1({
+      lignes, semaines,
+      seuilsMarges: reglagesMarges.seuilsMarges,
+      referentielChantiers,
       exclusions: CHANTIERS_EXCLUS,
-    });
-  }, [lignes, semaines.join(","), reglagesMarges]);
+    }).resultat;
+  }, [lignes, semaines.join(","), reglagesMarges, referentielChantiers]);
 
   const etat = resultat ? etatAlertesV1(resultat) : null;
   const parNiveau = n => (resultat?.alertes || []).filter(a => a.niveau === n);

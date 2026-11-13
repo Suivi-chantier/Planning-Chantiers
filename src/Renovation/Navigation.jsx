@@ -2,37 +2,42 @@ import React, { useState, useEffect } from "react";
 import { useIsMobile } from "../hooks";
 import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
-  Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
+  Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   Calculator, CheckCircle2, Camera, Receipt, Wallet,
   Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb, Bell, NotebookPen,
-  MessageSquare, ClipboardCheck,
+  MessageSquare, ClipboardCheck, Smartphone,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
 import BoutonAide from "./PageAide";
 import { supabase } from "../supabase";
+import { estPageDuMenu } from "./navigationOperations.js";
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
-const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
+const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable", charge_affaires:"Chargé d'affaires" };
 
 // ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
-    "visite","info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
+    "info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
-    "visite","info-client","journal-maj"
+    "info-client","journal-maj"
   ],
   commercial: [
-    "dashboard","chantiers","planning","notes-ouvriers","plans","visite","info-client","journal-maj"
+    "dashboard","chantiers","operations","planning","notes-ouvriers","plans","info-client","journal-maj"
   ],
   comptable: [
     "dashboard","chantiers","bilan-semaine","notes-ouvriers","commandes","biblio-materiaux","phasage-v2","operations","heures-salaries","etats-financiers","journal-maj"
+  ],
+  // Lot 6 : sans cette entrée, un chargé d'affaires retomberait sur le menu admin.
+  charge_affaires: [
+    "operations","chantiers","info-client","journal-maj"
   ],
 };
 
@@ -40,7 +45,10 @@ const ROLE_PAGES = {
 // Liste complète des pages avec icône + label court (pour bottom-nav) + label long (pour la feuille modale).
 const ALL_NAV_ITEMS = [
   { id:"dashboard",        icon:LayoutDashboard, label:"Accueil",    longLabel:"Tableau de bord"     },
-  { id:"chantiers",        icon:HardHat,         label:"Chantiers",  longLabel:"Chantiers"           },
+  // Lot 5 : Opérations est la porte d'entrée (2e position) ; « chantiers »
+  // (la fiche) reste dans la liste pour son libellé, filtré hors du menu.
+  { id:"operations",       icon:Building2,       label:"Opérations", longLabel:"Opérations" },
+  { id:"chantiers",        icon:HardHat,         label:"Chantiers",  longLabel:"Fiche chantier"      },
   { id:"planning",         icon:Calendar,        label:"Planning",   longLabel:"Planning semaine"    },
   { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan",      longLabel:"Bilan de semaine"    },
   { id:"alertes",          icon:Bell,            label:"Alertes",    longLabel:"Alertes"             },
@@ -60,10 +68,8 @@ const ALL_NAV_ITEMS = [
   { id:"heures-salaries",  icon:Clock,           label:"Heures",     longLabel:"Heures des salariés" },
   { id:"plans",            icon:Ruler,           label:"Plans",      longLabel:"Plans"               },
   { id:"phasage-v2",       icon:ListChecks,      label:"Phasage",    longLabel:"Phasage" },
-  { id:"operations",       icon:Building2,       label:"Opérations", longLabel:"Opérations" },
   { id:"bibliotheque",     icon:BookOpen,        label:"Biblio.",    longLabel:"Biblio. ouvrages"    },
   { id:"biblio-materiaux", icon:Layers,          label:"Matériaux",  longLabel:"Biblio. matériaux"   },
-  { id:"visite",           icon:Search,          label:"Visites",    longLabel:"Visites chantier"    },
   { id:"info-client",      icon:IdCard,          label:"Chiffrage",  longLabel:"Chiffrage"           },
   { id:"etats-financiers", icon:Calculator,      label:"États fin.", longLabel:"États financiers"    },
   { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions",longLabel:"Suggestions de matériaux" },
@@ -79,7 +85,8 @@ function BottomNav({ page, setPage, T, role = "admin", branch = "renovation", ro
   // Si rolePages (config dynamique) est fourni : on l'utilise.
   // Sinon : fallback sur la matrice par défaut hardcodée ROLE_PAGES.
   const allowed = (rolePages && rolePages[role]) || ROLE_PAGES[role] || ROLE_PAGES.admin;
-  const allowedItems = ALL_NAV_ITEMS.filter(n => allowed.includes(n.id));
+  // Lot 5 : la liste Chantiers n'est plus dans le menu (fiche ouverte via Opérations).
+  const allowedItems = ALL_NAV_ITEMS.filter(n => allowed.includes(n.id) && estPageDuMenu(n.id));
 
   // Si ≤ 5 pages au total : on les affiche toutes, pas de bouton Plus.
   // Sinon : 4 raccourcis prioritaires + bouton Plus qui ouvre la feuille avec le reste.
@@ -236,7 +243,10 @@ function MoreSheet({ items, currentPage, onSelect, onClose, T, acc }) {
 // Pages de la branche Rénovation (réutilisé par la barre d'onglets).
 const allNav = [
   { id:"dashboard",        icon:LayoutDashboard, label:"Tableau de bord"  },
-  { id:"chantiers",        icon:HardHat,         label:"Chantiers"        },
+  // Lot 5 : Opérations est la porte d'entrée (2e position) ; « chantiers »
+  // reste ici pour le libellé de l'onglet de la fiche, filtré hors du menu.
+  { id:"operations",       icon:Building2,       label:"Opérations"       },
+  { id:"chantiers",        icon:HardHat,         label:"Fiche chantier"   },
   { id:"planning",         icon:Calendar,        label:"Planning semaine" },
   { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan de semaine" },
   { id:"alertes",          icon:Bell,            label:"Alertes"          },
@@ -256,10 +266,8 @@ const allNav = [
   { id:"heures-salaries",  icon:Clock,           label:"Heures des salariés" },
   { id:"plans",            icon:Ruler,           label:"Plans"            },
   { id:"phasage-v2",       icon:ListChecks,      label:"Phasage" },
-  { id:"operations",       icon:Building2,       label:"Opérations" },
   { id:"bibliotheque",     icon:BookOpen,        label:"Biblio. ouvrages" },
   { id:"biblio-materiaux", icon:Layers,          label:"Biblio. matériaux"},
-  { id:"visite",           icon:Search,          label:"Visites chantier" },
   { id:"info-client",      icon:IdCard,          label:"Chiffrage"        },
   { id:"etats-financiers", icon:Calculator,      label:"États financiers"   },
   { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions de matériaux" },
@@ -274,6 +282,9 @@ function Sidebar({
   rolePages = null, onOuvrirDansNouvelOnglet = null,
   // Tout l'ancien contenu de la topbar :
   profil, theme, setTheme, onLogout, peutChangerBranche, onRetourPortail,
+  onOuvrirProfil = null,
+  // Cloche des notifications (bouton déjà construit par App.jsx ; null pour un ouvrier).
+  cloche = null,
   syncing = false, connected = true, lastSync = null,
 }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "1");
@@ -281,7 +292,8 @@ function Sidebar({
 
 
   const allowed = (rolePages && rolePages[role]) || ROLE_PAGES[role] || ROLE_PAGES.admin;
-  const allowedNav = allNav.filter(n => allowed.includes(n.id));
+  // Lot 5 : la liste Chantiers n'est plus dans le menu (fiche ouverte via Opérations).
+  const allowedNav = allNav.filter(n => allowed.includes(n.id) && estPageDuMenu(n.id));
 
   // ── Réorganisation des onglets (mémorisée par utilisateur) ──
   const orderKey = `nav_order_${profil?.id || profil?.email || "anon"}`;
@@ -519,18 +531,27 @@ function Sidebar({
 
       {/* ── User info ── */}
       {profil && !collapsed && (
-        <div style={{
+        <div
+          {...(onOuvrirProfil ? {
+            role:"button", tabIndex:0, title:"Mon profil · notifications sur ce téléphone",
+            onClick:onOuvrirProfil,
+            onKeyDown:e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOuvrirProfil(); } },
+          } : {})}
+          style={{
           padding:"10px 14px",
           borderTop:`1px solid ${T.sidebarBorder}`,
-          display:"flex", flexDirection:"column", gap:1,
-          flexShrink:0,
+          display:"flex", alignItems:"center", gap:8,
+          flexShrink:0, cursor: onOuvrirProfil ? "pointer" : "default",
         }}>
-          <span style={{ fontSize: FONT.sm.size, fontWeight:700, color:"#fff", letterSpacing:.1,
-            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
-          }}>{profil?.nom || profil?.email}</span>
-          <span style={{ fontSize: FONT.xs.size, letterSpacing:.8, textTransform:"uppercase",
-            color: acc.accent, opacity:.75, fontWeight:600,
-          }}>{ROLE_LABELS[role] || role}</span>
+          <div style={{ display:"flex", flexDirection:"column", gap:1, minWidth:0, flex:1 }}>
+            <span style={{ fontSize: FONT.sm.size, fontWeight:700, color:"#fff", letterSpacing:.1,
+              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+            }}>{profil?.nom || profil?.email}</span>
+            <span style={{ fontSize: FONT.xs.size, letterSpacing:.8, textTransform:"uppercase",
+              color: acc.accent, opacity:.75, fontWeight:600,
+            }}>{ROLE_LABELS[role] || role}</span>
+          </div>
+          {onOuvrirProfil && <Icon as={Smartphone} size={15} color="rgba(255,255,255,0.45)" style={{ flexShrink:0 }}/>}
         </div>
       )}
 
@@ -553,6 +574,7 @@ function Sidebar({
             <Icon as={LayoutGrid} size={16}/>
           </button>
         )}
+        {cloche}
         <BoutonAide page={page} T={T} branch={branch}
           style={sidebarBtnStyle("rgba(255,255,255,0.55)")}
           hoverBg="rgba(255,255,255,0.06)"/>

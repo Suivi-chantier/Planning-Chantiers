@@ -1,0 +1,49 @@
+name: Verify Notifications push
+
+on:
+  pull_request:
+    paths:
+      - 'src/notificationsPush.mjs'
+      - 'src/notificationsPush.js'
+      - 'src/notificationsPushV1.js'
+      - 'src/Renovation/ProfilNotifications.jsx'
+      - 'src/Renovation/Navigation.jsx'
+      - 'src/Renovation/EspaceOuvrier.jsx'
+      - 'src/Renovation/Ouvrier*.jsx'
+      - 'src/App.jsx'
+      - 'src/pwa.js'
+      - 'public/push-sw.js'
+      - 'vite.config.js'
+      - 'supabase/functions/_partage/push*'
+      - 'supabase/functions/_partage/notificationsPushV1.mjs'
+      - 'supabase/functions/_partage/utilisateursPush.ts'
+      - 'supabase/functions/notifications-boite/**'
+      - 'supabase/functions/notifications-pilotage/**'
+      - 'src/Renovation/ClocheNotifications.jsx'
+      - 'src/Renovation/ReglagesNotificationsAdmin.jsx'
+      - 'src/Renovation/Admin.jsx'
+      - 'supabase/functions/push-abonnement/**'
+      - 'supabase/functions/send-push/**'
+      - 'supabase/migrations/*_push_subscriptions.sql'
+      - 'supabase/migrations/*_notifications_boite.sql'
+      - 'api/cron-dispatcher.js'
+      - 'supabase/migrations/*_cron_notifications_push.sql'
+      - 'api/_cron/cron-push-reportes.js'
+      - '.github/workflows/cron-push-reportes.yml'
+      - 'supabase/config.toml'
+      - 'scripts/verif-notifications-push.mjs'
+      - '.github/workflows/verify-notifications-push.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Notifications sur téléphone — état affiché, décisions serveur, moteur des envois (données fictives), migrations, espace ouvrier
+        run: node scripts/verif-notifications-push.mjs

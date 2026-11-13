@@ -1,0 +1,86 @@
+name: Commandes à passer — notification (8h05, jours ouvrés)
+
+# Projet docs/projets/notifications-push.md, tâches 5 et 10 (notification C3).
+# Calcule la liste de la page « Commandes à passer » (même module que l'écran)
+# et envoie UNE notification regroupée « N commandes à passer cette semaine »
+# aux rôles cochés dans Réglages › Notifications : articles dont la date de
+# besoin tombe entre aujourd'hui et J+6, chacun annoncé une seule fois
+# (notifications_etat) ; sans date de besoin : jamais ; arriéré (en retard)
+# enregistré sans envoi. Rien à annoncer : rien. Le récap commandes du
+# vendredi n'est pas concerné.
+# Interrupteur général coupé : send-push n'envoie rien (voulu, Loris l'active).
+#
+# Créneau planifié : il n'est PLUS ici. Les « schedule » GitHub ne partaient
+# pas, ou avec des heures de retard (constat du 09/11/2026). C'est la base
+# Supabase qui appelle le dispatcher, à la minute près (8h05 Paris, jours ouvrés,
+# été comme hiver) : job pg_cron « profero_push_materiaux »,
+# supabase/migrations/20261109134233_cron_notifications_push.sql.
+# Ce workflow ne sert plus qu'au lancement à la main.
+#
+# Bouton « Run workflow » : case « simulation » cochée par défaut → aucun envoi,
+# aucune écriture, réponse = qui aurait reçu quoi. Date facultative (simulation
+# seulement) : elle simule un autre jour (fenêtre J..J+6 et clé C3-<date>).
+#
+# Secret requis : CRON_SECRET (secret GitHub, pour le lancement à la main).
+
+on:
+  workflow_dispatch:
+    inputs:
+      simulation:
+        description: "Simulation sans envoi ni écriture"
+        type: boolean
+        required: false
+        default: true
+      date:
+        description: "Jour à simuler (AAAA-MM-JJ), simulation seulement. Vide = aujourd'hui."
+        required: false
+        default: ""
+
+jobs:
+  materiaux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-dispatcher?job=push_materiaux
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SIMULATION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.simulation == 'true' }}
+          DATE_SIMULEE: ${{ github.event.inputs.date }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          job="push_materiaux"
+          if [ "$SIMULATION" = "true" ]; then
+            job="$job&simulation=1"
+            if [ -n "$DATE_SIMULEE" ]; then
+              if ! echo "$DATE_SIMULEE" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+                echo "::error::Date attendue au format AAAA-MM-JJ : $DATE_SIMULEE"
+                exit 1
+              fi
+              job="$job&date=$DATE_SIMULEE"
+            fi
+          elif [ -n "$DATE_SIMULEE" ]; then
+            echo "::error::La date ne s'utilise qu'en simulation"
+            exit 1
+          fi
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://planning-chantiers.vercel.app/api/cron-dispatcher?job=$job")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
+          # Le dispatcher répond 200 même quand la tâche échoue : il range
+          # l'erreur dans son résumé. On la fait remonter.
+          if echo "$body" | grep -q '"error":'; then
+            echo "::error::La notification matériaux a échoué — voir le corps de la réponse"
+            exit 1
+          fi
+          if echo "$body" | grep -qE '"echecs":[1-9]'; then
+            echo "::warning::Au moins un envoi a échoué — voir le corps de la réponse"
+          fi

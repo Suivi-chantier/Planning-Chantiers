@@ -186,6 +186,13 @@ avant la fusion de sa demande de fusion. Toutes additives et rejouables.
   Aucun champ nouveau, jamais de % ni de montant renvoyés, mêmes droits.
   Accord de Loris du 29/10/2026. Appliquée par la CLI liée avant la fusion,
   enregistrée par `migration repair`.
+- `20261106120000_ouvrier_mes_phases_pieces_consignes.sql` (projet « Préparer
+  le chantier », tâche 4, 06/11/2026) : `ouvrier_mes_phases` = corps de
+  production du 06/11 + ajouts seulement (`mur` et `quantite_part` par tâche ;
+  `consigne`, `consignes_murs` [{mur, texte}] et `photos` par pièce ;
+  `ouvrages_logement`). Jamais de % ni de montant, mêmes contrôles d'accès,
+  mêmes droits (ré-énoncés). Accord de Loris du 06/11/2026. **Appliquée** le 06/11/2026
+  (migration `ouvrier_mes_phases_pieces_consignes`), droits vérifiés identiques.
 
 ## Règles
 
@@ -206,3 +213,16 @@ Les fichiers repris du dépôt contiennent le SQL appliqué **plus les commentai
 d'explication** qui les accompagnaient — ils sont donc un peu plus longs que ce
 que la base a enregistré, sans différence d'effet. Ceux qui ont été reconstitués
 depuis la base reprennent son SQL mot pour mot.
+
+`20261106045027_refonte_operations_lot1.sql` **appliquée le 06/11/2026**
+(Refonte Opérations, lot 1 : tables `operations` et `chantiers`, reprise des
+blocs `planning_config`, synchronisation dans les deux sens), après essai dans
+une transaction annulée. Re-synchronisation idempotente :
+`select public.refonte_resynchroniser_depuis_config();`. Retour arrière :
+`sql/202611_refonte_operations_lot1_rollback.sql`.
+
+`20261109165323_rls_bureau_role_verifie_une_fois.sql` **appliquée le 09/11/2026**
+(accord de Loris) : les 71 règles « réservé au bureau » de 60 tables vérifient
+le rôle une fois par requête au lieu d'une fois par ligne. Mêmes droits
+(vérifié : 60 tables × 5 rôles, 0 différence), après essai dans une transaction
+annulée. Retour arrière : `sql/202611_rls_bureau_role_verifie_une_fois_rollback.sql`.

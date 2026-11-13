@@ -95,8 +95,10 @@ async function recalculerApresEcriture(supabase, rj, { chantierId, date = null, 
 // les relevés lisent cette valeur, aucun ne la recalcule.
 async function calculerDerivesHistoriques(supabase, ctx, { maintenant = new Date(), ecrire = true } = {}) {
   const finance = await import("../../src/chantierFinance.mjs");
+  // Règle unique des statuts de chantier (Refonte Opérations, lot 1).
+  const { estChantierTermine } = await import("../../src/Renovation/chantierActif.mjs");
   const d = ctx.donnees;
-  const termines = new Set((d.chantiersConfig || []).filter(c => c?.statut === "termine").map(c => String(c.id)));
+  const termines = new Set((d.chantiersConfig || []).filter(c => estChantierTermine(c)).map(c => String(c.id)));
   const entrees = d.phasagesUniques
     .filter(ph => termines.has(String(ph.chantier_id)))
     .map(ph => {

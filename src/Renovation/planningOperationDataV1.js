@@ -10,8 +10,10 @@
 import { supabase } from "../supabase";
 import { sauvegarderPhasagesLot } from "./phasageEcriture.mjs";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
+import { chargerChantiers } from "./chantiersDonnees";
 import {
   HORIZONS_OPERATION_JOURS,
+  chantiersDeOperationV1,
   construirePlanEcritureOperationV1,
   construirePlanRetraitOperationV1,
   datesPrevuesApresPlacementV1,
@@ -59,9 +61,11 @@ async function lireCellulesChantiers(ids) {
 export async function chargerSnapshotOperationV1({ operationId, startDate }) {
   const horizonMax = metaHorizonMoteurV1(startDate, Math.max(...HORIZONS_OPERATION_JOURS));
   const configRows = verifier(await supabase.from("planning_config").select("key,value")
-    .in("key", ["chantiers", "groupes_types", "equipes"]), "Configuration planning");
+    .in("key", ["groupes_types", "equipes"]), "Configuration planning");
   const config = parserConfigMoteurV1(configRows);
-  const idsOp = config.chantiers.filter(c => c?.operation_id === operationId && c?.statut !== "termine").map(c => c.id);
+  // Chantiers : table public.chantiers (Refonte Opérations, lot 1).
+  config.chantiers = await chargerChantiers();
+  const idsOp = chantiersDeOperationV1(config.chantiers, operationId).map(c => c.id);
   if (!idsOp.length) throw new Error("Cette opération n'a aucun chantier en cours.");
 
   const [phasagesRes, cellules, cellulesOperation, ressourcesRes, evenementsRes, contraintesRes] = await Promise.all([

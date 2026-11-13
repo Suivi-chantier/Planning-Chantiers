@@ -16,7 +16,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { supabase } from "../supabase";
-import { DEFAULT_CHANTIERS, loadEquipes } from "../constants";
+import { loadEquipes } from "../constants";
+import { chargerChantiers } from "./chantiersDonnees";
+import { estChantierActif } from "./chantierActif";
 import { Icon } from "../ui";
 import {
   StickyNote, Lock, Users, Building2, Pin, AlertTriangle, Lightbulb, Camera, CheckSquare, Square,
@@ -47,12 +49,11 @@ const dateJour = (iso) => {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("fr-FR");
 };
 
-// Chantiers (planning_config, lisible par les ouvriers) — chargés une fois.
+// Chantiers (table public.chantiers, lisible par les ouvriers) — chargés une fois.
 export function useChantiersOuvrier() {
-  const [chantiers, setChantiers] = useState(DEFAULT_CHANTIERS);
+  const [chantiers, setChantiers] = useState([]);
   useEffect(() => {
-    supabase.from("planning_config").select("value").eq("key", "chantiers").maybeSingle()
-      .then(({ data }) => { if (Array.isArray(data?.value) && data.value.length) setChantiers(data.value); });
+    chargerChantiers().then(setChantiers);
   }, []);
   return chantiers;
 }
@@ -247,7 +248,7 @@ export function EditeurNote({
   };
 
   const L = styleLabel(T), I = styleInput(T);
-  const chantiersActifs = chantiers.filter(c => !c.archive || c.id === b.chantier_id);
+  const chantiersActifs = chantiers.filter(c => estChantierActif(c, { inclureTermines: true }) || c.id === b.chantier_id);
   const apercu = ligneDepuisBrouillon(b, prenom);
 
   return (

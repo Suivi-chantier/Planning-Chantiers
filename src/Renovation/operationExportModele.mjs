@@ -24,7 +24,7 @@ import {
   tacheHorsDevis, heuresReellesComparablesOuvrage, heuresHorsDevisOuvrage,
 } from "../chantierFinance.mjs";
 import { etatTache } from "./preparationChantier.mjs";
-import { CYCLE_VIE_PHASES, CYCLE_VIE_ETAPES, lireEtatsEtapes, lirePhaseDeclaree } from "./cycleVie.mjs";
+import { CYCLE_VIE_PHASES, CYCLE_VIE_ETAPES, etatsCycleVie, phaseDeclareeCycleVie } from "./cycleVie.mjs";
 // Détecteur unique de code d'ouvrage (« MU-001 : Fourniture… » → « MU-001 »).
 // Prudent par construction : « Pose 3 prises » ou « Bac 3 » n'en sont pas.
 import { codeOuvrage } from "./codeOuvrage.mjs";
@@ -435,9 +435,12 @@ export function normaliserChantier({
       ouverte: !r.levee_le,
     }));
 
-  // ── Cycle de vie ──
-  const etats = lireEtatsEtapes(meta);
-  const phaseDeclaree = lirePhaseDeclaree(meta);
+  // ── Cycle de vie (5 phases, lot 3) ──
+  // États : table chantier_cycle_vie (sources.cycleVie) d'abord, sinon ancien
+  // cycle du phasage repris à la lecture (cycleVieReprise.mjs).
+  const lignesCV = Array.isArray(sources?.cycleVie) ? sources.cycleVie : [];
+  const etats = etatsCycleVie({ meta, lignes: lignesCV }).etats;
+  const phaseDeclaree = phaseDeclareeCycleVie({ meta, lignes: lignesCV });
   const etapesCV = CYCLE_VIE_ETAPES.map((e) => {
     const etat = etats[e.id] || {};
     // Les données saisies sur une étape sont TYPÉES par le référentiel du
@@ -458,20 +461,27 @@ export function normaliserChantier({
                   : Array.isArray(valeur) ? "liste" : "texte";
           return { cle, label: label.replace(/\s*\(€\)\s*$/, ""), valeur, type };
         })
+        // Champs de compatibilité de la facturation (identifiant d'échéance) :
+        // techniques, jamais affichés.
+        .filter((d) => d.cle !== "facturation_ligne_id")
       : [];
     return {
       id: e.id,
       nom: e.nom,
       phaseNom: CYCLE_VIE_PHASES.find((p) => p.id === e.phaseId)?.nom || null,
       hint: e.hint || null,
-      fait: !!etat.fait,
+      // Étape automatique : son état se calcule sur la fiche chantier (factures,
+      // relances, contrôles…) ; l'export ne le recalcule pas. null = « non
+      // évalué ici », jamais présenté comme « à faire ».
+      auto: e.nature === "auto",
+      fait: etat.fait ? true : (e.nature === "auto" ? null : false),
       date: texteOuNull(etat.date),
       auteur: texteOuNull(etat.auteur),
       donnees: donnees.length > 0 ? donnees : null,
       piecesJointes: Array.isArray(etat.pieces_jointes) ? etat.pieces_jointes : [],
     };
   });
-  const prochaine = etapesCV.find((e) => !e.fait) || null;
+  const prochaine = etapesCV.find((e) => e.fait === false) || null;
 
   // ── Documents : métadonnées uniquement, jamais de chemin ni d'URL signée ──
   const documents = [
@@ -904,6 +914,7 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
   // peu avancé n'a encore presque rien produit).
   t.margeAvancementPct = t.production > 0 ? (t.margeAvancement / t.production) * 100 : null;
   t.margeProbablePct = t.vendu > 0 ? (t.margeProbable / t.vendu) * 100 : null;
+  t.margeATerminaisonPct = t.vendu > 0 ? (t.margeATerminaison / t.vendu) * 100 : null;
   t.margePrevPct = t.vendu > 0 ? (t.margePrev / t.vendu) * 100 : null;
   // Dérive des heures vendues : même formule que la dérive d'un lot et que
   // `deriveChantier` (computeChantierFinance), sur les sommes de l'opération.

@@ -101,44 +101,9 @@ export function parseTachesFromPlanifie(planifie,tachesExistantes){
 }
 export function emptyCommande(){return{chantier_id:"",article:"",fournisseur:"",quantite:"",statut:"a_commander",priorite:"normal",ouvrier_demandeur:"",notes:""};}
 
-// Avancement global d'un phasage pondéré par valeur facturable (prix HT).
-// On regroupe les tâches par ouvrage (via t.ouvrage_id), on calcule l'avancement
-// de chaque groupe (pondéré par heures_estimees, sinon moyenne simple), puis on
-// pondère les groupes par leur prix_ht ouvrage. Cascade de fallbacks pour rester
-// robuste si certaines données manquent :
-//   prix_ht ouvrage → heures_devis ouvrage → Σ prix_ht tâches →
-//   Σ heures_vendues tâches → Σ heures_estimees tâches → nombre de tâches.
-export function calcAvancementPondere(ouvrages, allTaches) {
-  if (!Array.isArray(allTaches) || allTaches.length === 0) return 0;
-  // Grouper les tâches par ouvrage_id (les sans-rattachement vont sous "")
-  const groupes = new Map();
-  allTaches.forEach(t => {
-    const k = t?.ouvrage_id || "";
-    if (!groupes.has(k)) groupes.set(k, []);
-    groupes.get(k).push(t);
-  });
-  let sumPondere = 0, sumPoids = 0;
-  groupes.forEach((taches, ouvrageId) => {
-    if (taches.length === 0) return;
-    // Avancement du groupe : pondéré par heures_estimees, sinon moyenne simple
-    const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-    const av = totalHE > 0
-      ? taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHE
-      : taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length;
-    // Poids du groupe : cascade prix_ht → heures_devis → prix_ht tâches → heures_vendues → heures_estimees → comptage
-    const ouv = ouvrageId ? (ouvrages || []).find(o => o?.id === ouvrageId) : null;
-    let poids = parseFloat(ouv?.prix_ht) || 0;
-    if (!poids) poids = parseFloat(ouv?.heures_devis) || 0;
-    if (!poids) poids = taches.reduce((s, t) => s + (parseFloat(t.prix_ht) || 0), 0);
-    if (!poids) poids = taches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-    if (!poids) poids = totalHE;
-    if (!poids) poids = taches.length;
-    sumPondere += av * poids;
-    sumPoids   += poids;
-  });
-  if (sumPoids === 0) return 0;
-  return Math.round(sumPondere / sumPoids);
-}
+// calcAvancementPondere vit dans src/avancementPondere.mjs (module pur, aussi
+// importé par le serveur : job « factures à émettre ») ; réexporté ici tel quel.
+export { calcAvancementPondere } from "./avancementPondere.mjs";
 
 // Taux horaire de main d'œuvre PRÉVISIONNEL par défaut (€/h). Sert à estimer le
 // coût MO prévu (heures vendues × taux) dans le phasage v2 et la page Chantiers
@@ -399,21 +364,10 @@ export const SHADOW = {
 };
 
 // ─── PHASES DE TRAVAUX (modèle commun) ─────────────────────────────────────
-// Forme : { id, label, couleur, emoji? }
-// Personnalisables via Admin → onglet Phases (stockage planning_config/phases_travaux)
-export const PHASES_DEFAUT = [
-  { id: "demolition",     label: "Démolition",                         emoji: "🔨", couleur: "#e05c5c" },
-  { id: "plomberie_ro",   label: "Réseaux plomberie (gros œuvre)",     emoji: "🔵", couleur: "#3b82f6" },
-  { id: "menuiserie",     label: "Menuiserie ext. & int.",             emoji: "🚪", couleur: "#8b5cf6" },
-  { id: "feraillage",     label: "Feraillage cloisons & doublages",    emoji: "🧱", couleur: "#f59e0b" },
-  { id: "elec_vmc",       label: "Réseaux élec & VMC",                 emoji: "⚡", couleur: "#eab308" },
-  { id: "placo",          label: "Lainage / Placo / Bandes & enduits", emoji: "🪣", couleur: "#6366f1" },
-  { id: "peinture_sols",  label: "Peintures & sols",                   emoji: "🎨", couleur: "#ec4899" },
-  { id: "finition_elec",  label: "Finitions électricité",              emoji: "💡", couleur: "#f97316" },
-  { id: "finition_plomb", label: "Finitions plomberie",                emoji: "🚿", couleur: "#06b6d4" },
-  { id: "cuisine",        label: "Cuisine",                            emoji: "🍳", couleur: "#10b981" },
-  { id: "finitions_gen",  label: "Finitions générales",                emoji: "✨", couleur: "#a78bfa" },
-];
+// PHASES_DEFAUT vit dans src/phasesDefaut.mjs (module pur, aussi importé par le
+// serveur : job « factures à émettre ») ; réexporté ici tel quel.
+import { PHASES_DEFAUT } from "./phasesDefaut.mjs";
+export { PHASES_DEFAUT };
 
 // Devine le LOT le plus probable à partir du libellé d'un article.
 // Logique basique par mots-clés — sert de pré-sélection, toujours modifiable.
@@ -585,23 +539,26 @@ export async function loadGroupesTypes() {
 
 // ─── OPÉRATIONS (regroupement de chantiers — la maison / l'adresse) ──────────
 // Une opération regroupe les chantiers/logements d'une même maison. La
-// convention « 1 devis = 1 chantier = 1 logement » reste intacte : l'opération
-// n'est qu'un PARENT OPTIONNEL, référencé par chantier.operation_id (champ
-// optionnel des objets de planning_config/chantiers, "" ou absent = aucun).
-// Périmètre volontairement minimal : ni montant, ni statut, ni consolidation.
-// Forme : { id, nom, adresse, couleur }
-// Gérées via Admin → onglet Opérations (planning_config/operations).
-// Pas de défaut hardcodé : aucune opération n'existe tant qu'on n'en crée pas.
+// convention « 1 devis = 1 chantier = 1 logement » reste intacte.
+// Refonte Opérations, lot 1 (06/11/2026) : les opérations vivent dans la table
+// public.operations et TOUT chantier en a une (chantiers.operation_id
+// obligatoire ; un chantier créé sans opération en reçoit une à son nom).
+// Forme : { id, nom, adresse, couleur, creee_automatiquement? }
+// Gérées via Admin → onglet Opérations. Lecture : chantiersDonnees.js.
 export async function loadOperations() {
   try {
-    const { data } = await _supabase.from("planning_config").select("value").eq("key", "operations").maybeSingle();
-    const items = data?.value?.items;
+    const { chargerOperations } = await import("./Renovation/chantiersDonnees.js");
+    const items = await chargerOperations();
     if (Array.isArray(items)) {
       return items.map((o, i) => ({
         id:      o.id      || `op_${i}`,
         nom:     o.nom     || `Opération ${i + 1}`,
         adresse: o.adresse || "",
         couleur: o.couleur || "#888888",
+        // Lot 2 : client et chargé d'affaires par défaut de l'opération.
+        client_id: o.client_id || null,
+        charge_affaires_id: o.charge_affaires_id || null,
+        charge_affaires_nom: o.charge_affaires_nom || null,
       }));
     }
   } catch (e) { console.warn("loadOperations:", e?.message || e); }

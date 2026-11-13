@@ -1,0 +1,37 @@
+name: Verify Refonte Opérations, lot 4 (automatisation ProGBat)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'supabase/functions/progbat-operations/**'
+      - 'supabase/functions/progbat-devis-statut-cron/**'
+      - 'supabase/functions/progbat-quote/**'
+      - 'supabase/migrations/*refonte_operations*'
+      - 'sql/202611_refonte_operations*'
+      - 'scripts/verif-refonte-lot4.mjs'
+      - 'scripts/sync-progbat-edge-lib.mjs'
+      - '.github/workflows/verify-refonte-lot4.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dépendances (build)
+        run: npm ci
+      - name: Automatisation ProGBat (faux client HTTP : aucune écriture sans confirmation ni réservation), migration additive, écrans
+        run: node scripts/verif-refonte-lot4.mjs
+      - name: Copies serveur des modules partagés à jour
+        run: node scripts/sync-progbat-edge-lib.mjs --check
+      - name: Build Vite (aperçu du devis, fiche chantier, Réglages)
+        run: npm run build
