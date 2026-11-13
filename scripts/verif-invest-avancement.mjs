@@ -192,4 +192,13 @@ test("16. la page Prospection n'est pas touchée par cette refonte", () => {
   assert.ok(!/avancementVue|CrmSynthese|CrmAvancement|CrmEtapePanneau/.test(P));
 });
 
+test("17. commentaire général de la fiche client : colonne existante notes_rapides, aucune autre écriture, note interne", () => {
+  const C = lire("src/Invest/crm/CommentaireGeneral.jsx"), E = lire("src/Invest/crm/FicheEnsemble.jsx"), F = lire("src/Invest/crm/FicheClientV2.jsx");
+  assert.match(C, /from\("invest_clients"\)\.update\(\{ notes_rapides: texte\.trim\(\) \|\| null \}\)\.eq\("id", clientId\)/, "seule écriture : notes_rapides du client");
+  assert.equal((C.match(/\.(update|insert|delete|upsert)\(/g) || []).length, 1);
+  assert.match(E, /<CommentaireGeneral T=\{T\} clientId=\{clientId\} valeur=\{commentaire\}/);
+  assert.match(F, /commentaire=\{donnees\.client\?\.notes_rapides\}/);
+  assert.ok(!/portail_visible|visible_client/.test(C), "note interne, jamais exposée au client");
+});
+
 console.log(`\n${n} contrôles passés.`);

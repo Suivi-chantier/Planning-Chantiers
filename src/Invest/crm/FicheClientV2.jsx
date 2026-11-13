@@ -125,7 +125,7 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
         compteurs={{ missions: illisible ? null : modele.missions.enCours.length + modele.missions.terminees.length }} />
       {donnees.lectureIncomplete && <Discret T={T} style={{ color: ROUGE, marginBottom: 14 }}>Lecture incomplète : {donnees.lectureIncomplete}</Discret>}
 
-      {onglet === "ensemble" && <FicheEnsemble T={T} vue={vue} activite={modele.activite} cartes={modele.missions.enCours} actions={modele.actions} etat={modele.etat} illisible={illisible}
+      {onglet === "ensemble" && <FicheEnsemble T={T} clientId={clientId} commentaire={donnees.client?.notes_rapides} vue={vue} activite={modele.activite} cartes={modele.missions.enCours} actions={modele.actions} etat={modele.etat} illisible={illisible}
         onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} onOuvrirEtude={onOuvrirEtude} onChange={rafraichir} />}
 
       {onglet === "missions" && (missionOuverte

@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import { supabase } from "../../supabase";
 import { Frise, ChampsMission } from "./FicheUi";
 import { ListeActivite } from "./FicheActivite";
+import CommentaireGeneral from "./CommentaireGeneral";
 import { Section, Carte, Pastille, Discret, Vide, dateFr, aujourdhuiIso, ROUGE, ORANGE, BLEU, VERT, GRIS } from "./ui";
 
 const COULEUR_PRIORITE = { Urgente: ROUGE, Haute: ORANGE, Normale: BLEU, Faible: GRIS };
@@ -103,7 +104,7 @@ function Tuile({ T, titre, valeur, detail, couleur, onClick }) {
   );
 }
 
-export default function FicheEnsemble({ T, vue, activite, cartes, actions, etat, illisible, onOnglet, onOuvrirMission, onOuvrirEtude, onChange }) {
+export default function FicheEnsemble({ T, clientId, commentaire, vue, activite, cartes, actions, etat, illisible, onOnglet, onOuvrirMission, onOuvrirEtude, onChange }) {
   const portail = etat.portail === "actif" ? ["Actif", VERT] : etat.portail === "non_active" ? ["Non activé", ORANGE] : ["Non consultable", GRIS];
   return (
     <>
@@ -130,6 +131,8 @@ export default function FicheEnsemble({ T, vue, activite, cartes, actions, etat,
           </ul>
         )}
       </Section>
+
+      <CommentaireGeneral T={T} clientId={clientId} valeur={commentaire} onEnregistre={onChange} />
 
       <Section T={T} compact titre="Activité récente" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("activite")}>Voir toute l'activité</button>}>
         {activite.length === 0 ? <Vide T={T} compact titre="Aucune activité enregistrée" /> : <ListeActivite T={T} items={activite.slice(0, 5)} />}
