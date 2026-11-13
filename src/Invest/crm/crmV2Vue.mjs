@@ -1,8 +1,8 @@
 // src/Invest/crm/crmV2Vue.mjs — CRM V2 et fiche Client V2 (Chantier V2-01).
 //
-// Construit ce qu'affichent les trois vues du CRM (À traiter, Clients,
-// Actions & planning) et la page Client (missions, à faire, synthèse
-// patrimoniale, historique).
+// Construit ce qu'affichent les vues du CRM et la page Client (missions, à
+// faire, synthèse patrimoniale, historique). Les vues Synthèse et Avancement
+// (13/11/2026) sont calculées dans avancementVue.mjs, à partir d'ici.
 //
 // AUCUNE règle nouvelle de pilotage : chaque mission est lue par
 // pilotage.mjs (étapes actives, étape à agir, balle, échéance, blocage), la
@@ -19,8 +19,8 @@ import { pilotageDossier, actionDuJour } from "../dossiers/pilotage.mjs";
 import { calculerSituation, SECTIONS as SECTIONS_2C } from "../dossiers/situationPatrimoniale.mjs";
 
 export const VUES_CRM = Object.freeze([
-  { cle: "a_traiter", libelle: "À traiter" },
-  { cle: "clients", libelle: "Clients" },
+  { cle: "synthese", libelle: "Synthèse" },
+  { cle: "avancement", libelle: "Avancement" },
   { cle: "planning", libelle: "Actions & planning" },
 ]);
 

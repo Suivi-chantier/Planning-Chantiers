@@ -349,7 +349,8 @@ export function DemarrerMission({ T, client, utilisateurs = [], monId = "", onCr
 }
 
 // Panneau latéral d'une étape (gestes, tâches, journal) : partagé avec la fiche Dossier.
-export function PanneauEtape({ T, cle, dossier, clos, etape, taches, utilisateurs, monId, journal: lignes, aujourdhui, onFermer, onEnregistre }) {
+// `extra` (facultatif) : bloc ajouté sous les faits de l'étape par l'appelant (le CRM y met l'édition des dates).
+export function PanneauEtape({ T, cle, dossier, clos, etape, taches, utilisateurs, monId, journal: lignes, aujourdhui, onFermer, onEnregistre, extra = null }) {
   const ref = ETAPES_PARCOURS.find((e) => e.cle === cle);
   const [geste, setGeste] = useState(null);
   const [saisie, setSaisie] = useState({});
@@ -425,6 +426,8 @@ export function PanneauEtape({ T, cle, dossier, clos, etape, taches, utilisateur
             {etape.commentaire && <div style={{ gridColumn: "1 / -1", whiteSpace: "pre-wrap", color: T.textMuted }}>{etape.commentaire}</div>}
           </div>
         </Encadre>
+
+        {extra}
 
         {gestes.length > 0 && (
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>

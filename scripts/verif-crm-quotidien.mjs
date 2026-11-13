@@ -41,8 +41,10 @@ test("5. périmètre par défaut : « moi » seulement si j'ai des missions, sin
 });
 test("6. câblage : l'écran passe par le périmètre, ne montre plus le portail ni les filtres fins, et n'écrit rien", () => {
   const V2 = lire("src/Invest/crm/CrmV2.jsx"), L = lire("src/Invest/crm/CrmCartes.jsx");
-  assert.match(V2, /missionEstAMoi\(m, estMoi\)/); assert.match(V2, /perimetreEffectif\(perimetreChoisi, missionsMoi\.length\)/);
-  assert.match(V2, /<ATraiterListe[^>]*perimetre=\{perimetre\}/); assert.match(V2, /<ClientsListe[^>]*perimetre=\{perimetre\}/);
+  // Refonte du 13/11/2026 : la Synthèse et l'Avancement remplacent « À traiter » et « Clients » dans CrmV2 ;
+  // « Mes clients » / « Mes dossiers » s'appuient sur estUtilisateurCourant. Les listes quotidiennes restent dans CrmCartes.
+  assert.match(V2, /estUtilisateurCourant\(nom, profil\)/);
+  assert.match(L, /export function ATraiterListe/); assert.match(L, /export function ClientsListe/);
   assert.ok(!/AccesPortail|Inviter au portail|invest_portail_comptes/.test(L + V2), "l'invitation au portail reste dans la fiche client");
   assert.ok(!/\.(insert|update|upsert|delete)\(/.test(L + V2));
   assert.match(L, /onMission\(m\.clientId, m\.dossierId\)/); assert.match(L, /onClient\(l\.id\)/);

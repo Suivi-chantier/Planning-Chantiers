@@ -167,8 +167,8 @@ test("8. page Client : missions en cours, terminées, à faire (5 max), synthès
   assert.equal(vide.patrimoine.vide, true); assert.equal(vide.missionsEnCours.length, 0); assert.equal(vide.entete.conseiller, null);
 });
 
-test("9. navigation : 3 vues CRM, 5 onglets Client ; pas de frise V20.4 dans la V2", () => {
-  assert.deepEqual(V.VUES_CRM.map((v) => v.libelle), ["À traiter", "Clients", "Actions & planning"]);
+test("9. navigation : 3 vues CRM (Synthèse par défaut), 5 onglets Client ; pas de frise V20.4 dans la V2", () => {
+  assert.deepEqual(V.VUES_CRM.map((v) => v.libelle), ["Synthèse", "Avancement", "Actions & planning"]);
   assert.deepEqual(V.ONGLETS_CLIENT.map((o) => o.libelle), ["Vue d'ensemble", "Missions", "Patrimoine", "Documents", "Activité"]);
   assert.ok(!/Frise d'avancement|renderCrmTimeline/.test(CRMV2 + FICHE));
 });
@@ -231,11 +231,12 @@ test("13. refonte : planning — statut par action, liste sans échéance, compt
 });
 
 test("14. refonte : écran CRM — trois vues compactes, aucune écriture, pilotage seulement par le moteur Dossier", () => {
-  assert.match(CRMV2, /alertesMission, echeanceCourte, filtrerPortefeuille/);
+  assert.match(CRMV2, /VUES_CRM, planningActions, nomClient/);
+  assert.match(CRMV2, /useState\("synthese"\)/, "la Synthèse est la vue par défaut");
   assert.ok(!/etape_num|invest_clients\.etape|\.etape_num|c\.etape\b/.test(CRMV2), "aucun retour aux anciennes étapes client");
   assert.ok(!/\.(update|insert|delete|upsert)\(/.test(CRMV2), "le CRM ne modifie rien");
   assert.ok(!/maxWidth: 1320/.test(CRMV2), "l'espace horizontal est utilisé");
-  for (const vue of ["a_traiter", "clients", "planning"]) assert.match(CRMV2, new RegExp(`vue === "${vue}"`));
+  for (const vue of ["synthese", "avancement", "planning"]) assert.match(CRMV2, new RegExp(`vue === "${vue}"`));
   assert.match(CRMV2, /onMission\(m\.clientId, m\.dossierId\)/, "ligne À traiter -> mission");
   assert.match(CRMV2, /onClient\(m\.clientId\)/, "nom du client -> page Client");
   assert.match(CRMV2, /onClient\(l\.id\)/, "ligne Clients -> page Client");
