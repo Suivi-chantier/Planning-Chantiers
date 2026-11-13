@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-13",
+    type: "amelioration",
+    titre: "Fiche client : un commentaire général, comme la note de synthèse d'un prospect",
+    pages: [{ id: "crm", label: "CRM Clients" }],
+    quoi: "Le conseiller peut garder en tête, en haut de la fiche, le résumé du client : son besoin, ses freins, ses décisions et la suite à donner, sans le noyer dans l'historique des échanges.",
+    comment: "CRM Clients → ouvrir un client → Vue d'ensemble : le bloc « Commentaire général » se trouve juste avant l'activité récente. Écrivez, puis cliquez sur « Enregistrer » (ou « Annuler »). C'est une note interne : le client ne la voit pas. Elle reprend les anciennes « Notes rapides » déjà saisies, qui apparaissent donc directement ici ; rien n'est perdu ni à ressaisir.",
+  },
+  {
+    date: "2026-11-13",
     type: "nouveaute",
     titre: "CRM Clients : une Synthèse de tout le portefeuille et un tableau d'avancement des dossiers",
     pages: [{ id: "crm", label: "CRM Clients" }],
