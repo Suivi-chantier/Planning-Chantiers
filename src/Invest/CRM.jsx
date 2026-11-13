@@ -189,6 +189,9 @@ function ClientScoreCard({ client, propositions=[], biens=[], T=THEMES_INV.dark 
 
 
 const STATUTS_CLIENT  = ["Prospect","Actif","Inactif","Terminé"];
+// Statuts proposés dans le formulaire client (CRM refondu 13/11/2026) : « En attente » et « En pause » s'ajoutent aux quatre historiques.
+// Le kanban et le filtre de l'ancienne vue gardent STATUTS_CLIENT : leurs colonnes ne changent pas.
+const STATUTS_CLIENT_FORMULAIRE = [...STATUTS_CLIENT.slice(0, 2), "En attente", "En pause", ...STATUTS_CLIENT.slice(2)];
 const SOURCES_CLIENT  = ["Fluidify","Réseau personnel","Cold calling","Autre"];
 const TYPES_NOTE      = ["appel","rendez-vous","relance","commentaire","document","autre"];
 
@@ -371,6 +374,8 @@ const CRM_STATUT_META = {
   Actif: { label:"Actif", color:SU, icon:Check, tone:"Mission en cours" },
   Inactif: { label:"Inactif", color:WA, icon:Bell, tone:"À réactiver" },
   Terminé: { label:"Terminé", color:"#94A3B8", icon:Check, tone:"Mission finalisée" },
+  "En attente": { label:"En attente", color:"#8B5CF6", icon:Bell, tone:"Dans l'attente du client" },
+  "En pause": { label:"En pause", color:"#94A3B8", icon:Bell, tone:"Projet suspendu" },
 };
 
 function clientStatutMeta(statut) {
@@ -1701,7 +1706,7 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
           </div>
           <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Statut</label>
             <select className="inv-sel" value={form.statut} style={{ width:"100%" }} onChange={e=>setForm({...form,statut:e.target.value})}>
-              {STATUTS_CLIENT.map(s=><option key={s}>{s}</option>)}
+              {(STATUTS_CLIENT_FORMULAIRE.includes(form.statut) ? STATUTS_CLIENT_FORMULAIRE : [...STATUTS_CLIENT_FORMULAIRE, form.statut]).map(s=><option key={s}>{s}</option>)}
             </select>
           </div>
           <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Budget (€)</label><input className="inv-inp" type="number" value={form.budget} style={{ width:"100%" }} onChange={e=>setForm({...form,budget:e.target.value})}/></div>

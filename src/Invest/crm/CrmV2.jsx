@@ -1,23 +1,26 @@
 // src/Invest/crm/CrmV2.jsx — CRM V2 (Chantier V2-01, refonte UX du 01/10/2026).
 //
-// Outil de PILOTAGE du portefeuille, pas une fiche : trois vues compactes.
-//   À traiter           les missions qui demandent une action, une ligne chacune
-//   Clients             la base clients en tableau dense
+// Outil de PILOTAGE du portefeuille, pas une fiche : trois vues compactes, mêmes données.
+//   Synthèse            une ligne par client (vue par défaut) : budget, besoin, étape, dernier échange, prochaine action
+//   Avancement          une ligne par dossier, les 11 étapes en colonnes ; un clic sur une étape ouvre son panneau
 //   Actions & planning  qui fait quoi, quand (en retard, aujourd'hui, 7 j, 30 j, sans échéance)
 // Un clic ouvre la page Client (FicheClientV2) ou la mission (Fiche Dossier).
 //
 // Une information = un emplacement : l'alerte dit POURQUOI, l'échéance dit QUAND, la balle dit
 // QUI. Couleurs : rouge = retard ou blocage, orange = à faire bientôt, violet = attente client.
-// Calculs : crmV2Vue.mjs (qui lit pilotage.mjs). Aucune écriture ici.
+// Calculs : crmV2Vue.mjs et avancementVue.mjs (qui lisent pilotage.mjs). Aucune écriture ici : l'édition d'une
+// étape se fait dans CrmEtapePanneau (même panneau que la fiche Dossier).
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../supabase";
 import { readNavTarget } from "../_shared";
 import FicheClientV2 from "./FicheClientV2";
-import { VUES_CRM, FILTRES_A_TRAITER, missionsAPiloter, compteursATraiter, filtrerMissions, portefeuille, planningActions, nomClient, alertesMission, echeanceCourte, filtrerPortefeuille } from "./crmV2Vue";
-import { ATraiterListe, ClientsListe } from "./CrmCartes";
-import { missionEstAMoi, perimetreEffectif } from "./crmQuotidien.mjs";
+import { VUES_CRM, planningActions, nomClient } from "./crmV2Vue";
+import { lignesAvancement, syntheseClients, SEUIL_INACTIVITE_DEFAUT } from "./avancementVue";
+import CrmSynthese from "./CrmSynthese";
+import CrmAvancement from "./CrmAvancement";
+import CrmEtapePanneau from "./CrmEtapePanneau";
 import { estUtilisateurCourant } from "../annuaire.mjs";
-import { FilAriane, Onglets, Discret, Vide, dateFr, aujourdhuiIso, ROUGE, ORANGE, GRIS } from "./ui";
+import { Onglets, Discret, Vide, dateFr, aujourdhuiIso, ROUGE, ORANGE, GRIS } from "./ui";
 
 const VIOLET = "#7c3aed";
 const TON = { rouge: ROUGE, orange: ORANGE, violet: VIOLET, neutre: GRIS };
@@ -39,8 +42,10 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
   const [donnees, setDonnees] = useState(null);
   const [erreurs, setErreurs] = useState({});
   const [chargement, setChargement] = useState(true);
-  const [vue, setVue] = useState("a_traiter");
-  const [perimetreChoisi, setPerimetre] = useState(null);   // "moi" | "equipe" ; null = « moi » si j'ai des missions, sinon l'équipe
+  const [vue, setVue] = useState("synthese");
+  const [seuil, setSeuil] = useState(SEUIL_INACTIVITE_DEFAUT);   // jours sans activité avant l'alerte « sans activité récente »
+  const [etapeOuverte, setEtapeOuverte] = useState(null);       // { ligne, cellule } : panneau d'une étape
+  const [message, setMessage] = useState("");
   const [ecran, setEcran] = useState({ type: "crm" });
   const [nouveauClient, setNouveauClient] = useState(false);
   const aujourdhui = aujourdhuiIso();
@@ -48,12 +53,12 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
   const charger = useCallback(async () => {
     setChargement(true);
     const [rc, rd, re, rt, ru, rn] = await Promise.all([
-      supabase.from("invest_clients").select("id,nom,prenom,email,telephone,statut,conseiller,created_at,sujet_structuration").order("nom"),
+      supabase.from("invest_clients").select("id,nom,prenom,email,telephone,statut,conseiller,created_at,sujet_structuration,budget,strategie_data").order("nom"),
       supabase.from("invest_dossiers").select("id,client_id,reference,libelle,statut,type_mission,conseiller_id,date_ouverture,date_cloture,motif_cloture,created_at"),
-      supabase.from("invest_dossier_etapes").select("id,dossier_id,operation_id,etape,statut,balle,balle_utilisateur_id,balle_tiers_libelle,prochaine_action,echeance,blocage_motif,bloquee_depuis,reprise_a_confirmer,updated_at").is("operation_id", null).limit(10000),
+      supabase.from("invest_dossier_etapes").select("id,dossier_id,operation_id,etape,statut,balle,balle_utilisateur_id,balle_tiers_libelle,prochaine_action,echeance,date_debut,date_fin,commentaire,modifie_par_id,blocage_motif,bloquee_depuis,reprise_a_confirmer,updated_at").is("operation_id", null).limit(10000),
       supabase.from("invest_mission_actions").select("id,client_id,dossier_id,etape,action_title,status,due_date,responsable").limit(10000),
       supabase.from("utilisateurs").select("id,nom,email,actif"),
-      supabase.from("invest_notes").select("client_id,type,date,created_at").limit(10000),
+      supabase.from("invest_notes").select("id,client_id,type,date,created_at,contenu,auteur").order("created_at", { ascending: false }).limit(10000),
     ]);
     setErreurs({ clients: rc.error?.message, pilotage: (rd.error || re.error)?.message, actions: rt.error?.message, notes: rn.error?.message });
     setDonnees({ clients: rc.data || [], dossiers: rd.data || [], etapes: re.data || [], taches: rt.data || [], utilisateurs: ru.data || [], notes: rn.data || [],
@@ -66,17 +71,13 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
   useEffect(() => {
     const cible = readNavTarget(initialFilter);
     if ((cible.action === "open" || cible.action === "actions") && cible.id) setEcran({ type: "client", clientId: cible.id, onglet: initialFilter?.onglet });
-    else if (cible.action === "filter" && cible.key === "statut") { setVue("clients"); setEcran({ type: "crm" }); }
+    else if (cible.action === "filter" && cible.key === "statut") { setVue("synthese"); setEcran({ type: "crm" }); }
   }, [initialFilter]);
 
-  const missions = useMemo(() => donnees && donnees.pilotageLisible
-    ? missionsAPiloter({ ...donnees, aujourdhui }) : null, [donnees, aujourdhui]);
-
   const estMoi = useCallback((nom) => estUtilisateurCourant(nom, profil), [profil]);
-  const missionsMoi = useMemo(() => (missions || []).filter((m) => missionEstAMoi(m, estMoi)), [missions, estMoi]);
-  const idsMissionsMoi = useMemo(() => new Set(missionsMoi.map((m) => m.dossierId)), [missionsMoi]);
-  const perimetre = perimetreEffectif(perimetreChoisi, missionsMoi.length);
-  const missionsAffichees = missions ? (perimetre === "moi" ? missionsMoi : missions) : null;
+  // Une seule lecture, un seul calcul : la Synthèse et l'Avancement partent des mêmes lignes de dossier.
+  const lignes = useMemo(() => donnees ? lignesAvancement({ ...donnees, aujourdhui, seuilInactivite: seuil }) : [], [donnees, aujourdhui, seuil]);
+  const synthese = useMemo(() => donnees ? syntheseClients({ clients: donnees.clients, lignes, notes: donnees.notes, aujourdhui, seuilInactivite: seuil, pilotageLisible: donnees.pilotageLisible }) : [], [donnees, lignes, aujourdhui, seuil]);
 
   const retourCrm = () => { setEcran({ type: "crm" }); charger(); };
   const ouvrirClient = (clientId, onglet) => setEcran({ type: "client", clientId, onglet });
@@ -105,13 +106,19 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
         </div>
       </header>
       <Onglets T={T} compact onglets={VUES_CRM} actif={vue} onChange={setVue} />
+      {message && <div role="status" style={{ fontSize: 12.5, padding: "8px 12px", borderRadius: 10, background: T.accentBg, color: T.text, margin: "0 0 10px" }}>{message}</div>}
 
       {!donnees ? <Discret T={T}>Chargement du portefeuille…</Discret> : (
         <>
-          {vue === "a_traiter" && <ATraiterListe T={T} missions={missionsAffichees} nbMoi={missionsMoi.length} nbEquipe={(missions || []).length} perimetre={perimetre} setPerimetre={setPerimetre} erreur={erreurs.pilotage || erreurs.actions} aujourdhui={aujourdhui} onMission={ouvrirMission} onClient={ouvrirClient} />}
-          {vue === "clients" && <ClientsListe T={T} donnees={donnees} missions={missions} idsMissionsMoi={idsMissionsMoi} estMoi={estMoi} perimetre={perimetre} setPerimetre={setPerimetre} erreur={erreurs.clients} aujourdhui={aujourdhui} onClient={ouvrirClient} />}
+          {vue === "synthese" && <CrmSynthese T={T} lignes={synthese} erreur={erreurs.clients} estMoi={estMoi} aujourdhui={aujourdhui} seuil={seuil} setSeuil={setSeuil} onClient={ouvrirClient} />}
+          {vue === "avancement" && <CrmAvancement T={T} donnees={donnees} aujourdhui={aujourdhui} seuil={seuil} estMoi={estMoi} erreur={erreurs.pilotage || erreurs.actions}
+            onClient={ouvrirMission} onCellule={(ligne, cellule) => setEtapeOuverte({ ligne, cellule })} />}
           {vue === "planning" && <Planning T={T} donnees={donnees} erreur={erreurs.actions} aujourdhui={aujourdhui} onMission={ouvrirMission} onClient={ouvrirClient} />}
         </>
+      )}
+      {etapeOuverte && (
+        <CrmEtapePanneau T={T} ligne={etapeOuverte.ligne} cellule={etapeOuverte.cellule} utilisateurs={donnees.utilisateurs} taches={donnees.taches} profil={profil}
+          onFermer={() => setEtapeOuverte(null)} onChange={(texte) => { setMessage(texte); charger(); }} />
       )}
       {nouveauClient && renderNouveauClient({ onFerme: () => setNouveauClient(false), onCree: () => { setNouveauClient(false); charger(); } })}
     </>
