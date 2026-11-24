@@ -181,7 +181,8 @@ test("17. App : les pages d'exploitation reçoivent la liste filtrée par la rè
 test("18. pages qui filtraient déjà : elles appellent la règle", () => {
   const attendus = {
     "src/Renovation/Planning.jsx": /filtrerChantiersActifs\(chantiersAll\)/,
-    "src/Renovation/BilanPeriode.jsx": /estChantierActif\(c\)/,
+    "src/Renovation/BilanPeriode.jsx": /chantiersEnCoursBilanV1\(chantiers\)/,
+    "src/Renovation/bilanSemaineChiffresV1.mjs": /estChantierActif\(c\)/,
     "src/Renovation/PanneauAutreChose.jsx": /estChantierActif\(c\)/,
     "src/Renovation/OuvrierMesPhases.jsx": /estChantierActif\(c\)/,
     "src/Renovation/OuvrierChantiers.jsx": /filtrerChantiersActifs\(tous, \{ inclureTermines: true \}\)/,

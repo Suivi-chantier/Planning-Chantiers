@@ -639,7 +639,10 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
 //    partout dans le Bilan alors que la colonne est remplie en base.
 {
   const src = p => lireFichier(new URL(p, import.meta.url), "utf8");
-  const page = src("../src/Renovation/BilanPeriode.jsx");
+  // Colonnes chargées : bilanSemaineDonnees.js (chargement partagé par la page
+  // Bilan de semaine et le bloc du tableau de bord, tâche 6 du projet
+  // organisation-par-jour).
+  const page = src("../src/Renovation/bilanSemaineDonnees.js");
   const finance = src("../src/chantierFinance.mjs");
   const periodeV3 = src("../src/Renovation/bilanPeriodeV3.mjs");
   const alertesSrc = src("../src/Renovation/pointsAttentionDonneesV1.mjs");
@@ -649,7 +652,7 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(!!mAl, "statique : COLONNES_RELEVES_ALERTES_V2 trouvée");
   const alertesCols = [...mAl[1].matchAll(/"([^"]*)"/g)].map(m => m[1]).join("");
   const mC = page.match(/const COLONNES_COMPLETES = `([^`]*)`;/);
-  ok(!!mC, "statique : COLONNES_COMPLETES trouvée dans BilanPeriode.jsx");
+  ok(!!mC, "statique : COLONNES_COMPLETES trouvée dans bilanSemaineDonnees.js");
   const chargees = colonnesDe(mC[1].replace("${COLONNES_RELEVES_ALERTES_V2}", alertesCols));
   // Colonnes lues (« releve.x ») dans le corps des deux fonctions de chantierFinance.
   const corpsFonction = (txt, nom) => {

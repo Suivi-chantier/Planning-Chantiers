@@ -15,6 +15,13 @@ on:
       - 'src/App.jsx'
       - 'src/access.js'
       - 'scripts/verif-organisation-jour.mjs'
+      - 'src/Renovation/BilanPeriode.jsx'
+      - 'src/Renovation/bilanSemaineChiffresV1.mjs'
+      - 'src/Renovation/bilanSemaineChiffresV1.js'
+      - 'src/Renovation/bilanSemaineDonnees.js'
+      - 'src/Renovation/bilanPeriodeV3.mjs'
+      - 'src/Renovation/alertesMargesV2.mjs'
+      - 'scripts/verif-bloc-bilan-semaine.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
   pull_request:
     paths:
@@ -29,6 +36,13 @@ on:
       - 'src/App.jsx'
       - 'src/access.js'
       - 'scripts/verif-organisation-jour.mjs'
+      - 'src/Renovation/BilanPeriode.jsx'
+      - 'src/Renovation/bilanSemaineChiffresV1.mjs'
+      - 'src/Renovation/bilanSemaineChiffresV1.js'
+      - 'src/Renovation/bilanSemaineDonnees.js'
+      - 'src/Renovation/bilanPeriodeV3.mjs'
+      - 'src/Renovation/alertesMargesV2.mjs'
+      - 'scripts/verif-bloc-bilan-semaine.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
 
 permissions:
@@ -44,3 +58,5 @@ jobs:
           node-version: '22'
       - name: Organisation par jour — ancien format inchangé, ordre du jour, page d'arrivée, blocs, « ordre habituel aujourd'hui », modèle Conducteur de travaux, barres de navigation, écran « Mon organisation », tableau de bord du jour (données fictives)
         run: node scripts/verif-organisation-jour.mjs
+      - name: Bloc « Bilan de la semaine passée » — même chargement et même calcul que la page Bilan de semaine, aucune donnée, relevé absent (données fictives)
+        run: node scripts/verif-bloc-bilan-semaine.mjs

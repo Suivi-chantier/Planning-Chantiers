@@ -12,16 +12,19 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { lireToutParTranches } from "./lectureParTranches";
 import { getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
-import { estChantierActif } from "./chantierActif";
 import { useReglagesMarges } from "./reglagesMarges";
-import { alertesMargesV2 } from "./alertesMargesV2.js";
-import { COLONNES_RELEVES_ALERTES_V2 } from "./pointsAttentionDonneesV1.js";
 import {
-  periodeSemaineV3, periodeMoisV3, periodeLibreV3, bornesComparaisonV3, ajouterJoursV3, semaineIsoV3,
-  indexerRelevesV3, releveAuPlusTardV3, syntheseChantiersV3, bandeauV3, activiteChantiersV3,
-  preselectionChantiersV3, ligneSansActiviteV3, avertissementsExportV3, LEGENDE_PASTILLES_V3,
-  COULEURS_PASTILLES_V3, fmtJourV3, resumeSansActiviteV3, nbChantiersV3, texteProgressionAvancementV3,
+  periodeSemaineV3, periodeMoisV3, periodeLibreV3, ajouterJoursV3, semaineIsoV3,
+  indexerRelevesV3, releveAuPlusTardV3, ligneSansActiviteV3, LEGENDE_PASTILLES_V3,
+  COULEURS_PASTILLES_V3, fmtJourV3, resumeSansActiviteV3, texteProgressionAvancementV3,
 } from "./bilanPeriodeV3.js";
+// Chargement et assemblage des chiffres de base, partagés avec le bloc du
+// tableau de bord « Bilan de la semaine passée » (même chiffre = même service).
+import {
+  CHANTIERS_EXCLUS_BILAN_PERIODE as CHANTIERS_EXCLUS, chantiersEnCoursBilanV1, calculBilanPeriodeBaseV1, tuilesBandeauBilanV1,
+  fmtEurBilan as fmtEur, fmtEurSigneBilan as fmtEurSigne, fmtHBilan as fmtH, fmtPctSurBilan as fmtPctSur, fmtEurHBilan as fmtEurH, flecheBilan as fleche,
+} from "./bilanSemaineChiffresV1.js";
+import { chargerDonneesBilanPeriode, semainesCouvrant } from "./bilanSemaineDonnees.js";
 import { documentBilanV3 } from "./bilanPdfV3.js";
 import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3 } from "./bilanFicheV3.js";
 import PageBilanSemaine from "./BilanSemaine";
@@ -36,30 +39,11 @@ import { syntheseHorsDevisChantierV2, decisionsHorsDevisV2, gestesCommerciauxPer
 import { tauxFGALaDate } from "../chantierFinance";
 
 const ACCENT = "#FFC200";
-const CHANTIERS_EXCLUS = ["DÉPOT"];
-const COLONNES_LEGERES = "chantier_id, chantier_nom, date_releve, avancement, vendu_ht, heures_vendues, heures_reelles, "
-  + "production_cumulee, marge_avancement, marge_terminaison, marge_probable, budget_restant, materiaux_en_avance, "
-  + "heures_sans_lot, pct_sans_lot, chantier_repris, statut_completude, cr_manquants";
-// Relevés complets des deux jours comparés. mo_prev (main-d'œuvre prévue) sert
-// à la marge prévue au devis (margePrevueDevisReleve) ; reste_a_faire_h à la
-// cascade « du devis au probable » des fiches (cascadeMargeDevisReleve). Sans
-// elles, « marge devis inconnue » partout (corrigé le 06/11/2026). Contrôle :
-// scripts/verif-bilan-periode.mjs (colonnes lues par ces deux fonctions).
-const COLONNES_COMPLETES = `${COLONNES_RELEVES_ALERTES_V2}, materiaux_en_avance, materiaux_imputes, mat_reel, mat_prev, mo_prev, mo_reel, fg, reste_a_faire_h, reste_a_commander, couts_par_nature, cr_manquants`;
-
-const fmtEur = v => (v == null ? "—" : `${Math.round(v).toLocaleString("fr-FR")} €`);
-const fmtEurSigne = v => (v == null ? "—" : `${v > 0.5 ? "+" : v < -0.5 ? "−" : ""}${Math.round(Math.abs(v)).toLocaleString("fr-FR")} €`);
-const fmtH = v => (v == null ? "—" : `${(Math.round(v * 10) / 10).toLocaleString("fr-FR")} h`);
+// Colonnes des relevés, chargement de base, formats (fmtEur, fmtEurSigne,
+// fmtH, fmtPctSur, fmtEurH, fleche) : bilanSemaineDonnees.js et
+// bilanSemaineChiffresV1.mjs, partagés avec le tableau de bord.
 const fmtPct = v => (v == null ? "—" : `${(Math.round(v * 10) / 10).toLocaleString("fr-FR")} %`);
 const couleurSigne = (v, T) => (v == null ? T.textMuted : v < -0.5 ? "#e15a5a" : v > 0.5 ? "#22c55e" : T.text);
-// Pourcentage d'une part (marge / vendu) : « — » si inconnu, jamais 0 %.
-const fmtPctSur = v => {
-  if (v == null) return "—";
-  const r = Math.round(v);
-  return `${r < 0 ? "−" : ""}${Math.abs(r).toLocaleString("fr-FR")} %`;
-};
-const fmtEurH = v => (v == null ? "—" : `${Math.round(v).toLocaleString("fr-FR")} €/h`);
-const fleche = v => (v == null || Math.abs(v) < 1 ? "=" : v < 0 ? "▼" : "▲");
 const moisCourant = () => new Date().toISOString().slice(0, 7);
 
 function decalerSemaine(weekId, delta) {
@@ -71,11 +55,6 @@ function decalerMois(mois, delta) {
   const d = new Date(Date.UTC(a, m - 1 + delta, 1));
   return d.toISOString().slice(0, 7);
 }
-function semainesCouvrant(debut, fin) {
-  const out = new Set();
-  for (let d = debut; d <= fin; d = ajouterJoursV3(d, 1)) out.add(semaineIsoV3(d));
-  return [...out];
-}
 
 // ── Chargement des données d'une période ────────────────────────────────────
 function useDonneesPeriode(periode) {
@@ -85,19 +64,11 @@ function useDonneesPeriode(periode) {
     let annule = false;
     setEtat({ charge: false });
     (async () => {
-      const avant = ajouterJoursV3(periode.debut, -21);
       const semainesDecisions = semainesCouvrant(ajouterJoursV3(periode.fin, -34), periode.fin);
-      const [rel, pts, rap, jou, cmd, bh, rapDec] = await Promise.all([
-        lireToutParTranches((a, b) => supabase.from("chantier_releves_journaliers").select(COLONNES_LEGERES)
-          .lte("date_releve", periode.fin).order("id").range(a, b)),
-        lireToutParTranches((a, b) => supabase.from("pointages").select("chantier_id, date, heures, ouvrier")
-          .gte("date", avant).lte("date", periode.fin).order("id").range(a, b)),
-        lireToutParTranches((a, b) => supabase.from("rapports").select("id, ouvrier, chantier_id, chantier_nom, date_rapport, statut, semaine")
-          .in("semaine", semainesCouvrant(periode.debut, periode.fin)).order("id").range(a, b)),
-        lireToutParTranches((a, b) => supabase.from("avancement_journal").select("chantier_id, tache_id, ouvrage_id, source, avancement_avant, avancement_apres, date_realisation, created_at")
-          .gte("date_realisation", periode.debut).lte("date_realisation", periode.fin).order("id").range(a, b)),
-        lireToutParTranches((a, b) => supabase.from("commande_lignes").select("chantier_id, commandes!inner(date_doc)")
-          .gte("commandes.date_doc", periode.debut).lte("commandes.date_doc", periode.fin).order("id").range(a, b)),
+      // Données de base (relevés, pointages, comptes rendus, journal,
+      // commandes) : même chargement que le bloc du tableau de bord.
+      const [base, bh, rapDec] = await Promise.all([
+        chargerDonneesBilanPeriode(periode, { estAnnule: () => annule }),
         supabase.from("bilans_hebdo").select("week_id, data").gte("week_id", semaineIsoV3(ajouterJoursV3(periode.debut, -35))).lt("week_id", semaineIsoV3(periode.debut)),
         lireToutParTranches((a, b) => supabase.from("rapports").select("id, ouvrier, chantier_id, date_rapport, semaine, taches, remarque")
           .in("semaine", semainesDecisions).order("id").range(a, b)),
@@ -122,34 +93,9 @@ function useDonneesPeriode(periode) {
         tardifs = { pointages: tp.data || [], journal: tj.data || [],
           commandes: (tc.data || []).map(l => ({ chantier_id: l.chantier_id, created_at: l.created_at, date: l.commandes?.date_doc })) };
       }
-      const erreur = [rel, pts, rap, jou, cmd].map(r => r.error?.message).filter(Boolean)[0] || null;
-      if (erreur) console.warn("Bilan période :", erreur);
-      if (annule) return;
-      const joursTravailles = (pts.data || []).filter(p => Number(p.heures) > 0).map(p => p.date);
-      const bornes = bornesComparaisonV3(periode, joursTravailles);
-      // Relevés complets (lots, avertissements) des deux jours comparés.
-      const idx = indexerRelevesV3(rel.data || []);
-      const besoins = new Map();
-      idx.forEach((liste, id) => {
-        for (const d of [bornes.dateFin, bornes.dateDepart]) {
-          const r = releveAuPlusTardV3(liste, d);
-          if (!r) continue;
-          const date = String(r.date_releve).slice(0, 10);
-          if (!besoins.has(date)) besoins.set(date, new Set());
-          besoins.get(date).add(id);
-        }
-      });
-      const complets = (await Promise.all([...besoins.entries()].map(([date, ids]) =>
-        supabase.from("chantier_releves_journaliers").select(COLONNES_COMPLETES)
-          .eq("date_releve", date).in("chantier_id", [...ids]).then(r => r.data || [])))).flat();
-      if (annule) return;
-      const cle = r => `${r.chantier_id}|${String(r.date_releve).slice(0, 10)}`;
-      const parCle = new Map(complets.map(r => [cle(r), r]));
-      const releves = (rel.data || []).map(r => parCle.get(cle(r)) || r);
+      if (annule || !base) return;
       setEtat({
-        charge: true, erreur, bornes, releves,
-        pointages: pts.data || [], rapports: rap.data || [], journal: jou.data || [],
-        commandes: (cmd.data || []).map(l => ({ chantier_id: l.chantier_id, date: l.commandes?.date_doc })),
+        charge: true, ...base,
         bilansHebdo: bh.data || [], rapportsDecisions: rapDec.data || [],
         archives, archiveErreur: arch.error ? "L'archive des bilans exportés n'est pas disponible : rectifications et prévu / réalisé non calculés." : null, tardifs,
       });
@@ -416,25 +362,15 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
   const choixPeriode = useMemo(() => (choix.cle === periode?.cle ? choix.valeurs : {}), [choix, periode?.cle]);
   const basculer = (id, valeur) => setChoix(c => ({ cle: periode.cle, valeurs: { ...(c.cle === periode.cle ? c.valeurs : {}), [id]: valeur } }));
 
-  const enCours = useMemo(() => (chantiers || [])
-    .filter(c => estChantierActif(c) && !CHANTIERS_EXCLUS.includes(c.nom))
-    .sort((a, b) => String(a.nom).localeCompare(String(b.nom), "fr")), [chantiers]);
+  const enCours = useMemo(() => chantiersEnCoursBilanV1(chantiers), [chantiers]);
 
   const calcul = useMemo(() => {
     if (!donnees.charge || !periode) return null;
-    const { bornes, releves, pointages, rapports, journal, commandes } = donnees;
-    const activite = activiteChantiersV3({ periode, pointages, rapports, journal, commandes });
-    const preselection = preselectionChantiersV3({ chantiers: enCours, activite, choix: choixPeriode });
-    const retenus = preselection.filter(p => p.coche).map(p => ({ id: p.chantierId, nom: p.nom }));
-    const idx = indexerRelevesV3(releves);
-    const pick = d => retenus.map(c => releveAuPlusTardV3(idx.get(c.id), d)).filter(Boolean);
-    const alertes = alertesMargesV2({ snapshotsCourants: pick(bornes.dateFin), snapshotsPrecedents: pick(bornes.dateDepart), seuils: reglages.seuilsMarges });
-    const alertesParChantier = Object.fromEntries(alertes.lignes.map(l => [l.chantier_id, l.alertes.map(a => ({ ...a, motif: a.motif }))]));
-    const synthese = syntheseChantiersV3({ releves: idx, chantiers: retenus, bornes, periode, alertesParChantier,
-      seuilBaisse: reglages.seuilsMarges?.alerteBaisseMargeProbableEuros ?? 500, baremeFG: reglages.baremeFG, seuils: reglages.seuilsMarges });
-    const noms = Object.fromEntries(enCours.map(c => [c.id, c.nom]));
-    const avertissements = avertissementsExportV3({ periode, chantierIds: retenus.map(c => c.id), rapports, relevesLignes: releves, noms });
-    const bandeau = bandeauV3({ synthese, nbComptesRendusNonValides: avertissements.nbNonValides });
+    const { bornes } = donnees;
+    // Activité, présélection, alertes, synthèse, avertissements, bandeau :
+    // même fonction que le bloc du tableau de bord.
+    const { activite, preselection, retenus, idx, alertes, synthese, avertissements, bandeau } =
+      calculBilanPeriodeBaseV1({ periode, donnees, enCours, choix: choixPeriode, reglages });
     const tousNoms = Object.fromEntries((chantiers || []).map(c => [c.id, c.nom]));
     const rappel = rappelBlocagesV3({ bilansHebdo: donnees.bilansHebdo, periode, noms: tousNoms });
     const suggestions = suggestionsDecisionsV3({ rapports: donnees.rapportsDecisions.filter(r => retenus.some(c => c.id === r.chantier_id)), periode, noms: tousNoms });
@@ -646,20 +582,8 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
 
         {/* Bandeau */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 14 }}>
-          {(() => {
-            const b = calcul.bandeau;
-            return [
-              ["Production de la période", fmtEur(b.production), T.text, []],
-              ["Marge de la période", fmtEurSigne(b.margePeriode), couleurSigne(b.margePeriode, T), [`${fmtPctSur(b.margePeriodePct)} de la production`]],
-              [b.nbChantiersHorsComparaison > 0 ? `Marge probable (${nbChantiersV3(b.nbChantiersComparables)})` : "Marge probable, tous chantiers",
-                fmtEurSigne(b.margeProbableTotale), couleurSigne(b.margeProbableTotale, T), [
-                `${fmtPctSur(b.margeProbableTotalePct)} du vendu · devis ${fmtEurSigne(b.margeDevisTotale)} (${fmtPctSur(b.margeDevisTotalePct)})`,
-                b.evolutionMargeProbable == null ? "évolution sur la période : —" : `${fleche(b.evolutionMargeProbable)} ${fmtEurSigne(b.evolutionMargeProbable)} sur la période, tous chantiers`,
-                ...(b.nbChantiersHorsComparaison > 0 ? [`${b.nbChantiersHorsComparaison} chantier(s) hors total : marge devis inconnue ou sans matériaux prévus`] : [])]],
-              ["Heures validées", fmtH(b.heuresValidees), T.text, [`${fmtEurH(b.eurParHeure)} produits · devis ${fmtEurH(b.eurParHeureDevis)}`]],
-              ...(b.nbComptesRendusNonValides ? [["Comptes rendus non validés", String(b.nbComptesRendusNonValides), "#e15a5a", []]] : []),
-            ];
-          })().map(([l, v, c, sous]) => (
+          {tuilesBandeauBilanV1(calcul.bandeau).map(t => [t.libelle, t.valeur,
+            t.ton === "alerte" ? "#e15a5a" : t.ton === "signe" ? couleurSigne(t.signe, T) : T.text, t.sous]).map(([l, v, c, sous]) => (
             <div key={l} style={{ ...carte, marginBottom: 0, padding: 12 }}>
               <div style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{l}</div>
               <div style={{ fontSize: 22, fontWeight: 800, color: c, marginTop: 4 }}>{v}</div>
