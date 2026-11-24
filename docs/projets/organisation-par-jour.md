@@ -197,8 +197,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 3 | Page d'arrivée à l'ouverture (`App.jsx`, règle 5) + bouton « Ordre habituel aujourd'hui » (règle 7) | en ligne | Contrôles verts | Compte de test avec organisation saisie à la main : ordre et page d'arrivée changent selon le jour simulé ; compte sans organisation inchangé | [#258](https://github.com/Suivi-chantier/Planning-Chantiers/pull/258) |
 | 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | en ligne | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | [#259](https://github.com/Suivi-chantier/Planning-Chantiers/pull/259) |
 | 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | en ligne | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | [#260](https://github.com/Suivi-chantier/Planning-Chantiers/pull/260) |
-| 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | en cours | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | — |
-| 7 | Bloc `commandes_a_saisir` | à faire | Contrôles verts | Mêmes comptes que la page Commandes à passer | — |
+| 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | en ligne | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | [#261](https://github.com/Suivi-chantier/Planning-Chantiers/pull/261) |
+| 7 | Bloc `commandes_a_saisir` | en cours | Contrôles verts | Mêmes comptes que la page Commandes à passer | — |
 | 8 | Bloc `chantiers_a_venir` (`cycleVie`) | à faire | Contrôles verts | Liste identique aux chantiers non démarrés en base | — |
 | 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | à faire | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | — |
 | 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | à faire | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | — |
@@ -285,6 +285,20 @@ Règle par défaut de `CLAUDE.md`. En plus :
   tâche 9, tableau avant / après obligatoire), requêtes de
   `RetoursTerrain.jsx` (tâche 10). Chaque extraction est vérifiée « mêmes
   chiffres avant / après » sur la base réelle.
+
+- **24/11/2026 — Tâche 6, extraction.** Chargement et assemblage des
+  chiffres du Bilan de semaine extraits de `BilanPeriode.jsx` vers
+  `bilanSemaineDonnees.js` (lecture) et `bilanSemaineChiffresV1.mjs` (pur) ;
+  la page et le bloc utilisent les mêmes fonctions. Deux scripts existants
+  (`verif-bilan-periode`, `verif-chantier-actif`) ont été ajustés pour suivre
+  le déplacement du code, sans retirer de vérification.
+- **24/11/2026 — Point signalé, hors périmètre (pour Loris).** La notification
+  « synthèse de la semaine » (`notificationsDirectionV1.mjs`) recalcule les
+  chiffres du bandeau en parallèle, sans barème de frais généraux : elle
+  pourrait s'écarter de la page si un barème était enregistré un jour. Non
+  modifié.
+- **24/11/2026 — Coût connu.** Le lundi, le bloc relit les relevés comme la
+  page (environ 4 000 lignes) à chaque affichage du tableau de bord.
 
 ## Comptes rendus
 
@@ -398,5 +412,37 @@ Règle par défaut de `CLAUDE.md`. En plus :
   terminé avec succès.
 - **Test des écrans** : 92 cas réussis, captures du lundi au samedi
   (exemple issu des tests, données fictives).
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 6 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : le bloc « Bilan de la semaine passée » affiche les
+  chiffres du haut de la page Bilan de semaine (production, marge de la
+  période, marge probable, heures validées, comptes rendus non validés), avec
+  les mêmes libellés et explications, et un lien vers la page. Sans données :
+  « Aucune donnée de bilan pour la semaine 47 » ; relevé absent : « relevé pas
+  encore disponible », jamais un zéro.
+- **Avant / après sur la base réelle** (lecture seule ; ancien calcul de la
+  page contre fonctions extraites, mêmes données) :
+
+  | Semaine | Chiffre | Avant | Après | Écart |
+  |---|---|---|---|---|
+  | 2026-W47 | Production de la période | 7 123 € | 7 123 € | 0 |
+  | 2026-W47 | Marge de la période | −2 912 € | −2 912 € | 0 |
+  | 2026-W47 | Marge probable (8 chantiers) | +43 399 € | +43 399 € | 0 |
+  | 2026-W47 | Heures validées | 232,2 h | 232,2 h | 0 |
+  | 2026-W47 | Chantiers retenus / relevé indisponible | 9 / 0 | 9 / 0 | 0 |
+  | 2026-W46 | Production de la période | 14 143 € | 14 143 € | 0 |
+  | 2026-W46 | Marge de la période | +2 454 € | +2 454 € | 0 |
+  | 2026-W46 | Marge probable | +23 400 € | +23 400 € | 0 |
+  | 2026-W46 | Heures validées | 258,8 h | 258,8 h | 0 |
+  | 2026-W46 | Comptes rendus non validés | 1 | 1 | 0 |
+
+  Présélection, synthèse par chantier, alertes et avertissements : strictement
+  identiques.
+- **Contrôles** : 17 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
+- **Test des écrans** : 34 cas réussis (exemple issu des tests, données
+  fictives) ; chaque tuile du bloc se retrouve à l'identique sur la page.
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
 
