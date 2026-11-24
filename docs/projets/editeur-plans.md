@@ -141,7 +141,7 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | en cours | Contrôles verts | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu |#269 |
+| 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | en attente de Loris | Contrôles verts ; **arrêt : fusion refusée par la configuration** (question 4) | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu | [#269](https://github.com/Suivi-chantier/Planning-Chantiers/pull/269) |
 | 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | à faire | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** | — |
 | 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
 | 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
@@ -330,6 +330,15 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
     rejoignent ne sont pas couverts par ces contours. Il faudra soit dessiner
     les murs d'iMapper en fond, soit calculer les raccords d'angle.
 
+- **24/11/2026 — ARRÊT (autorisation) — QUESTION 4 à Loris.** La tâche 1 est
+  prête : demande de fusion #269, 14 contrôles verts. La commande de fusion a
+  été refusée par la configuration des autorisations de la session.
+  Conformément à `CLAUDE.md` (« Autorisations »), on s'arrête sans contourner,
+  et la tâche 2 ne démarre pas tant que la tâche 1 n'est pas en ligne.
+  Question : « Puis-je fusionner moi-même les demandes de fusion de ce projet
+  quand tous les contrôles sont verts ? » Réponse attendue : « oui ».
+  À défaut, Loris peut fusionner lui-même la demande #269.
+
 ## Comptes rendus
 
 ### Tâche 1 — modèle de l'existant et murs partagés (24/11/2026)
@@ -390,5 +399,10 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   données fictives.
 - **Journal des MAJ** : pas d'entrée (rien de visible pour les utilisateurs).
   La première viendra avec la page « Plans (nouveau) ».
-- **Mise en ligne** : demande de fusion #269. L'état réel (contrôles, fusion,
-  déploiement) est confirmé par la session pilote après cette tâche.
+- **Mise en ligne** : demande de fusion #269. État vérifié par la session
+  pilote le 24/11/2026 : les 14 contrôles GitHub sont verts et la
+  prévisualisation est déployée, mais la demande **n'est pas fusionnée** :
+  la commande de fusion a été refusée par la configuration des autorisations.
+  Rien n'est en ligne. Voir la question 4 du journal.
+- **Précision** : l'absence de points de mesure dans le relevé « Louison RDC »
+  vient bien de la base (le champ y est vide), pas de l'extraction.
