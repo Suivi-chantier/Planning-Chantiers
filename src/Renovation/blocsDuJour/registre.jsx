@@ -27,6 +27,7 @@ import BlocChantiersAVenir from "./BlocChantiersAVenir";
 import BlocAdministratifFournisseurs from "./BlocAdministratifFournisseurs";
 import BlocTourneeChantiers from "./BlocTourneeChantiers";
 import BlocPlanningSemaineSuivante from "./BlocPlanningSemaineSuivante";
+import BlocMateriauxACommander from "./BlocMateriauxACommander";
 
 export const REGISTRE_BLOCS = Object.freeze({
   bilan_semaine_passee:       { icone: ChartBar,      accent: "#5b8af5", Composant: BlocBilanSemainePassee },
@@ -35,7 +36,7 @@ export const REGISTRE_BLOCS = Object.freeze({
   administratif_fournisseurs: { icone: Receipt,       accent: "#a855f7", Composant: BlocAdministratifFournisseurs },
   tournee_chantiers:          { icone: Route,         accent: "#ef4444", Composant: BlocTourneeChantiers },
   planning_semaine_suivante:  { icone: CalendarRange, accent: "#38bdf8", Composant: BlocPlanningSemaineSuivante },
-  materiaux_a_commander:      { icone: Layers,        accent: "#f59e0b", Composant: BlocAVenir },
+  materiaux_a_commander:      { icone: Layers,        accent: "#f59e0b", Composant: BlocMateriauxACommander },
 });
 
 /**
