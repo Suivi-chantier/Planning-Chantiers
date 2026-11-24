@@ -6,14 +6,15 @@ import {
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   Calculator, CheckCircle2, Camera, Receipt, Wallet,
   Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb, Bell, NotebookPen,
-  MessageSquare, ClipboardCheck, Smartphone,
+  MessageSquare, ClipboardCheck, Smartphone, CalendarCheck, CalendarX,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
 import BoutonAide from "./PageAide";
 import { supabase } from "../supabase";
 import { estPageDuMenu } from "./navigationOperations.js";
-import { lireNavOrder, ordreHabituel, etatDuJour, ecrireOrdre, reinitialiserOrdre, ordreBarreDuBas } from "./organisationJour.js";
+import { lireNavOrder, ordreHabituel, etatDuJour, ecrireOrdre, reinitialiserOrdre, ordreBarreDuBas,
+  boutonOrdreHabituel, activerOrdreHabituel, desactiverOrdreHabituel, basculerOrdreHabituel } from "./organisationJour.js";
 import { dateDuJour } from "./dateDuJour.js";
 
 // ─── ORDRE DES ONGLETS (nav_order) ────────────────────────────────────────────
@@ -40,15 +41,24 @@ function lireNavOrderInitial(profil) {
 function useNavOrder(profil) {
   const cle = cleNavOrder(profil);
   const [navOrder, setNavOrderLocal] = useState(() => lireNavOrderInitial(profil));
+  // Profil arrivé (ou changé) après le premier rendu : relire sa valeur.
+  const cleLue = React.useRef(cle);
+  useEffect(() => {
+    if (cleLue.current === cle) return;
+    cleLue.current = cle;
+    setNavOrderLocal(lireNavOrderInitial(profil));
+  }, [cle]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const surChangement = (e) => { if (e.detail?.cle === cle) setNavOrderLocal(e.detail.valeur); };
     window.addEventListener(EVT_NAV_ORDER, surChangement);
     return () => window.removeEventListener(EVT_NAV_ORDER, surChangement);
   }, [cle]);
   // Applique la nouvelle valeur localement (état + cache) et prévient l'autre
-  // barre. L'écriture en base reste dans Sidebar (persistOrder / resetOrder) :
-  // l'inventaire des écritures vers `utilisateurs` est figé par
-  // scripts/verif-utilisateurs-champs-sensibles.mjs.
+  // barre. L'inventaire des écritures vers `utilisateurs` est figé par
+  // scripts/verif-utilisateurs-champs-sensibles.mjs : la seule écriture de la
+  // valeur est sauvegarderNavOrder ci-dessous (glisser-déposer, réinitialisation
+  // avec organisation, bouton « Ordre habituel aujourd'hui »), plus la remise à
+  // null de Sidebar (resetOrder).
   const appliquerLocal = (valeur) => {
     setNavOrderLocal(valeur);
     try {
@@ -57,7 +67,38 @@ function useNavOrder(profil) {
     } catch {}
     try { window.dispatchEvent(new CustomEvent(EVT_NAV_ORDER, { detail: { cle, valeur } })); } catch {}
   };
-  return [navOrder, appliquerLocal];
+  // Enregistre `ids` (liste simple ou objet { ordre, jours, … }) : cache + base.
+  const sauvegarderNavOrder = (ids) => {
+    appliquerLocal(ids);
+    if (profil?.id) {
+      supabase.from("utilisateurs").update({ nav_order: ids }).eq("id", profil.id)
+        .then(({ error }) => { if (error) console.warn("nav_order (sauvegarde) :", error.message); });
+    }
+  };
+  return [navOrder, appliquerLocal, sauvegarderNavOrder];
+}
+
+// ─── ORGANISATION DU JOUR (hook partagé) ──────────────────────────────────────
+// Barre latérale, barre du bas, page d'arrivée (App.jsx) et, plus tard, le
+// bandeau du tableau de bord lisent la même valeur. Les actions du bouton
+// « Ordre habituel aujourd'hui » (règle 7) passent par la même écriture que le
+// glisser-déposer ; les deux barres se mettent à jour aussitôt (EVT_NAV_ORDER).
+function useOrganisationDuJour(profil) {
+  const [navOrder, , sauvegarderNavOrder] = useNavOrder(profil);
+  const date = dateDuJour();
+  const etat = etatDuJour([], navOrder, date);
+  const bouton = boutonOrdreHabituel(navOrder, date); // null = bouton masqué
+  const enregistrer = (valeur) => { if (valeur !== navOrder) sauvegarderNavOrder(valeur); };
+  return {
+    navOrder,
+    date,
+    organisation: etat.organisation,   // null : week-end, jour non configuré, sans organisation
+    ordreHabituelActif: etat.ordreHabituel,
+    bouton,
+    activerOrdreHabituel: () => enregistrer(activerOrdreHabituel(navOrder, date)),
+    desactiverOrdreHabituel: () => enregistrer(desactiverOrdreHabituel(navOrder)),
+    basculerOrdreHabituel: () => enregistrer(basculerOrdreHabituel(navOrder, date)),
+  };
 }
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
@@ -127,7 +168,8 @@ const ALL_NAV_ITEMS = [
 function BottomNav({ page, setPage, T, role = "admin", branch = "renovation", rolePages = null, profil = null }) {
   const acc = getBranchAccent(branch);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [navOrder] = useNavOrder(profil);
+  const orgJour = useOrganisationDuJour(profil);
+  const navOrder = orgJour.navOrder;
 
   // Si rolePages (config dynamique) est fourni : on l'utilise.
   // Sinon : fallback sur la matrice par défaut hardcodée ROLE_PAGES.
@@ -137,7 +179,7 @@ function BottomNav({ page, setPage, T, role = "admin", branch = "renovation", ro
   // Organisation de la semaine : quand l'organisation du jour est active, même
   // ordre que la barre latérale (raccourcis du jour) ; sinon, ordre par défaut
   // de la barre du bas, inchangé (elle n'a jamais suivi le glisser-déposer).
-  const idsMenu = allNav.filter(n => allowed.includes(n.id) && estPageDuMenu(n.id)).map(n => n.id);
+  const idsMenu = idsPagesDuMenu(role, rolePages);
   const itemParId = new Map(allowedItems.map(n => [n.id, n]));
   const itemsDuJour = ordreBarreDuBas(allowedItems.map(n => n.id), idsMenu, navOrder, dateDuJour())
     .map(id => itemParId.get(id)).filter(Boolean);
@@ -208,6 +250,8 @@ function BottomNav({ page, setPage, T, role = "admin", branch = "renovation", ro
           onClose={() => setSheetOpen(false)}
           T={T}
           acc={acc}
+          boutonOrdreHabituel={orgJour.bouton}
+          onBasculerOrdreHabituel={orgJour.basculerOrdreHabituel}
         />
       )}
     </>
@@ -215,7 +259,7 @@ function BottomNav({ page, setPage, T, role = "admin", branch = "renovation", ro
 }
 
 // ─── FEUILLE MODALE « PLUS » (MOBILE) ─────────────────────────────────────────
-function MoreSheet({ items, currentPage, onSelect, onClose, T, acc }) {
+function MoreSheet({ items, currentPage, onSelect, onClose, T, acc, boutonOrdreHabituel = null, onBasculerOrdreHabituel = null }) {
   // Empêche le scroll du body pendant l'ouverture de la feuille
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -265,6 +309,21 @@ function MoreSheet({ items, currentPage, onSelect, onClose, T, acc }) {
             <Icon as={X} size={20}/>
           </button>
         </div>
+
+        {/* Organisation du jour : « Ordre habituel aujourd'hui » (règle 7) */}
+        {boutonOrdreHabituel && onBasculerOrdreHabituel && (
+          <div style={{ padding:"8px 18px 0", display:"flex", justifyContent:"flex-end" }}>
+            <button onClick={onBasculerOrdreHabituel} style={{
+              display:"inline-flex", alignItems:"center", gap:6,
+              background:"transparent", border:`1px solid ${T.border}`, borderRadius:RADIUS.md,
+              padding:"7px 12px", cursor:"pointer", fontFamily:"inherit",
+              fontSize:13, fontWeight:600, color:T.textSub,
+            }}>
+              <Icon as={boutonOrdreHabituel.actif ? CalendarCheck : CalendarX} size={15}/>
+              {boutonOrdreHabituel.libelle}
+            </button>
+          </div>
+        )}
 
         {/* Liste des pages */}
         <div style={{ padding:"8px 10px 4px" }}>
@@ -331,6 +390,15 @@ const allNav = [
 ];
 const LABELS_PAGES = Object.fromEntries(allNav.map(n => [n.id, n.label]));
 
+// Pages du menu autorisées pour le rôle, dans l'ordre par défaut : exactement
+// la liste `allowedNav` de la barre latérale (rolePages chargé depuis la base,
+// ajout automatique admin compris ; repli sur ROLE_PAGES). Sert à la barre du
+// bas et à la page d'arrivée (App.jsx).
+function idsPagesDuMenu(role, rolePages) {
+  const allowed = (rolePages && rolePages[role]) || ROLE_PAGES[role] || ROLE_PAGES.admin;
+  return allNav.filter(n => allowed.includes(n.id) && estPageDuMenu(n.id)).map(n => n.id);
+}
+
 function Sidebar({
   page, setPage, T, role = "admin", branch = "renovation",
   rolePages = null, onOuvrirDansNouvelOnglet = null,
@@ -351,7 +419,8 @@ function Sidebar({
 
   // ── Réorganisation des onglets (mémorisée par utilisateur, voir useNavOrder) ──
   const [editOrder, setEditOrder] = useState(false);
-  const [navOrder, appliquerNavOrderLocal] = useNavOrder(profil);
+  const [navOrder, appliquerNavOrderLocal, sauvegarderNavOrder] = useNavOrder(profil);
+  const orgJour = useOrganisationDuJour(profil); // bouton « Ordre habituel aujourd'hui »
   const ordrePerso = lireNavOrder(navOrder).ordre; // ordre habituel choisi (null = par défaut)
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
@@ -366,15 +435,6 @@ function Sidebar({
     ? ordreHabituel(idsAutorises, ordrePerso)
     : etatDuJour(idsAutorises, navOrder, dateDuJour()).pages;
   const nav = idsAffiches.map(id => byId.get(id)).filter(Boolean);
-
-  // Enregistre `ids` (liste simple ou objet { ordre, jours, … }) : cache + base.
-  const sauvegarderNavOrder = (ids) => {
-    appliquerNavOrderLocal(ids);
-    if (profil?.id) {
-      supabase.from("utilisateurs").update({ nav_order: ids }).eq("id", profil.id)
-        .then(({ error }) => { if (error) console.warn("nav_order (sauvegarde) :", error.message); });
-    }
-  };
 
   // Règle `ordre` sans effacer `jours` ; sans organisation, liste simple comme avant.
   const persistOrder = (ordre) => sauvegarderNavOrder(ecrireOrdre(navOrder, ordre));
@@ -515,6 +575,25 @@ function Sidebar({
         })}
       </nav>
 
+      {/* ── Organisation du jour : « Ordre habituel aujourd'hui » (règle 7) ── */}
+      {orgJour.bouton && !editOrder && (
+        <div style={{ padding: collapsed ? "4px 0" : "4px 10px", display:"flex", justifyContent: collapsed ? "center" : "flex-start", flexShrink:0 }}>
+          <button onClick={orgJour.basculerOrdreHabituel}
+            title={orgJour.bouton.actif ? "Revenir à l'organisation du jour" : "Ordre habituel aujourd'hui : menu et tableau de bord sans l'organisation du jour, jusqu'à demain"}
+            style={{
+              display:"flex", alignItems:"center", gap:6, maxWidth:"100%",
+              background:"transparent", border:"none", cursor:"pointer", fontFamily:"inherit",
+              padding: collapsed ? 6 : "4px 6px", borderRadius:RADIUS.md,
+              fontSize: FONT.xs.size + 1, color:"rgba(255,255,255,0.45)", whiteSpace:"nowrap",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}>
+            <Icon as={orgJour.bouton.actif ? CalendarCheck : CalendarX} size={13} style={{ flexShrink:0 }}/>
+            {!collapsed && <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{orgJour.bouton.libelle}</span>}
+          </button>
+        </div>
+      )}
+
       {/* ── Sync indicator ── */}
       <div style={{
         padding: collapsed ? "8px 0" : "10px 14px",
@@ -644,4 +723,4 @@ function Sidebar({
   );
 }
 
-export { useIsMobile, BottomNav, Sidebar, LABELS_PAGES };
+export { useIsMobile, BottomNav, Sidebar, LABELS_PAGES, idsPagesDuMenu, useOrganisationDuJour };

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
     type: "amelioration",
+    titre: "Organisation de la semaine : page d'arrivée du jour et bouton « Ordre habituel aujourd'hui »",
+    pages: [],
+    quoi: "Pour qui aura réglé son organisation de la semaine, l'application s'ouvrira directement sur la page principale du jour (par exemple le Bilan de semaine le lundi). Et lors d'une journée bousculée par un imprévu, un bouton permet de retrouver le menu habituel pour la journée. Sans organisation, rien ne change : l'application s'ouvre toujours sur le tableau de bord.",
+    comment: "La page du jour ne s'ouvre qu'à l'ouverture de l'application, jamais pendant que vous naviguez, et jamais à la place d'une page demandée par une notification ou un lien. Le bouton « Ordre habituel aujourd'hui » se trouve en bas de la barre latérale, à côté du crayon de réorganisation, et sur téléphone dans le menu « Plus » ; il n'apparaît que les jours où une organisation est réglée. Il reste valable jusqu'au lendemain ; « Revenir à l'organisation du jour » l'annule. L'écran pour régler son organisation arrive prochainement.",
+  },
+  {
+    date: "2026-11-24",
+    type: "amelioration",
     titre: "Navigation : prête à suivre une organisation de la semaine, jour par jour",
     pages: [],
     quoi: "La barre de navigation, sur ordinateur comme sur téléphone, peut désormais remonter en tête les pages utiles selon le jour de la semaine (par exemple le Bilan de semaine le lundi, les Alertes le jeudi), pour qui aura réglé son organisation. Sans organisation, rien ne change : mêmes onglets, même ordre qu'avant, y compris l'ordre choisi par glisser-déposer.",

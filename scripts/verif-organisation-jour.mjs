@@ -380,6 +380,80 @@ test("15. Navigation.jsx et App.jsx branchés sur le module ; date du jour uniqu
   assert.match(date, /getFullYear\(\)[\s\S]*getMonth\(\)[\s\S]*getDate\(\)/, "date locale de l'appareil");
 });
 
+// ═══ 8. Page d'arrivée et bouton « Ordre habituel aujourd'hui » (tâche 3) ═══
+test("16. page d'arrivée à l'ouverture : une fois, jamais sur une demande explicite ni après navigation", () => {
+  const menu = menuDuRole("conducteur");
+  const no = { ordre: ["planning", "dashboard"], jours: O.copieModeleConducteurTravaux() };
+  const base = { pagesAutorisees: menu, navOrder: no };
+  assert.deepEqual([LUNDI, MARDI, MERCREDI, JEUDI, VENDREDI].map((dateIso) => O.pageAOuvrirAuDemarrage({ ...base, dateIso })),
+    ["bilan-semaine", "operations", "plans", "alertes", "planning"]);
+  for (const d of [SAMEDI, DIMANCHE]) assert.equal(O.pageAOuvrirAuDemarrage({ ...base, dateIso: d }), null, `week-end ${d}`);
+  assert.equal(O.pageAOuvrirAuDemarrage({ ...base, dateIso: LUNDI, dejaDecide: true }), null, "jamais une seconde fois");
+  assert.equal(O.pageAOuvrirAuDemarrage({ ...base, dateIso: LUNDI, demandeExplicite: true }), null, "lien ?page= / notification prioritaire");
+  assert.equal(O.pageAOuvrirAuDemarrage({ ...base, dateIso: LUNDI, dejaNavigue: true }), null, "l'utilisateur a déjà navigué");
+  assert.equal(O.pageAOuvrirAuDemarrage({ ...base, navOrder: O.activerOrdreHabituel(no, LUNDI), dateIso: LUNDI }), null, "mode ordre habituel");
+  // Sans organisation : jamais de page d'arrivée (règle 1).
+  for (const l of LISTES_REALISTES) for (const d of SEMAINE) {
+    assert.equal(O.pageAOuvrirAuDemarrage({ pagesAutorisees: menu, navOrder: l, dateIso: d }), null, `${JSON.stringify(l)} ${d}`);
+  }
+  // Page non autorisée pour le rôle : ignorée (règle 2).
+  assert.equal(O.pageAOuvrirAuDemarrage({ pagesAutorisees: menuDuRole("commercial"), navOrder: no, dateIso: LUNDI }), null, "bilan-semaine non autorisé au commercial");
+  assert.equal(O.pageAOuvrirAuDemarrage({ pagesAutorisees: menuDuRole("commercial"), navOrder: no, dateIso: MARDI }), "operations");
+  assert.equal(O.pageAOuvrirAuDemarrage(), null, "sans paramètre : rien");
+});
+
+test("17. bouton « Ordre habituel aujourd'hui » : visible seulement avec une organisation du jour, bascule aller-retour", () => {
+  const no = { ordre: ["planning", "dashboard"], jours: O.copieModeleConducteurTravaux() };
+  const menu = menuDuRole("conducteur");
+  for (const l of LISTES_REALISTES) for (const d of SEMAINE) {
+    assert.equal(O.boutonOrdreHabituel(l, d), null, "sans organisation : pas de bouton");
+    assert.deepEqual(O.basculerOrdreHabituel(l, d), l ?? null, "sans organisation : rien d'écrit");
+  }
+  for (const d of [SAMEDI, DIMANCHE]) assert.equal(O.boutonOrdreHabituel(no, d), null, `week-end ${d}`);
+  assert.equal(O.boutonOrdreHabituel(ORG, MERCREDI), null, "jour mal configuré : pas de bouton");
+  assert.deepEqual(O.boutonOrdreHabituel(no, JEUDI), { actif: false, libelle: "Ordre habituel aujourd'hui" });
+  const actif = O.basculerOrdreHabituel(no, JEUDI);
+  assert.equal(actif.ordre_habituel_le, JEUDI);
+  assert.deepEqual(actif.jours, no.jours, "jours conservés");
+  assert.deepEqual(actif.ordre, no.ordre, "ordre habituel conservé");
+  assert.deepEqual(O.boutonOrdreHabituel(actif, JEUDI), { actif: true, libelle: "Revenir à l'organisation du jour" });
+  assert.deepEqual(O.ordreDesPages(menu, actif, JEUDI), O.ordreHabituel(menu, no.ordre), "menu : ordre habituel");
+  assert.equal(O.pageDArrivee(menu, actif, JEUDI), null);
+  assert.deepEqual(O.blocsDuJour(actif, JEUDI), []);
+  assert.equal(O.etatDuJour(menu, actif, JEUDI).organisation.theme, "Tournée des chantiers et anticipation", "bandeau toujours lisible");
+  // Le lendemain, le mode a expiré tout seul ; le bouton repropose « Ordre habituel aujourd'hui ».
+  assert.deepEqual(O.boutonOrdreHabituel(actif, VENDREDI), { actif: false, libelle: "Ordre habituel aujourd'hui" });
+  assert.deepEqual(O.ordreDesPages(menu, actif, VENDREDI), O.ordreDesPages(menu, no, VENDREDI));
+  // Retour à l'organisation du jour : valeur identique à celle d'avant le clic.
+  assert.deepEqual(O.basculerOrdreHabituel(actif, JEUDI), no);
+  assert.deepEqual(O.ordreDesPages(menu, O.basculerOrdreHabituel(actif, JEUDI), JEUDI), O.ordreDesPages(menu, no, JEUDI));
+});
+
+test("18. App.jsx et Navigation.jsx : page d'arrivée et bouton branchés, aucune nouvelle écriture", () => {
+  const nav = sansCommentaires(navSrc);
+  const app = sansCommentaires(lire("src/App.jsx"));
+  assert.equal((nav.match(/from\("utilisateurs"\)/g) || []).length, 2, "Navigation.jsx : toujours deux écritures");
+  assert.ok(!/from\(\s*["'`]utilisateurs["'`]\s*\)\s*\.(update|insert|upsert|delete)/.test(app), "App.jsx n'écrit pas dans utilisateurs");
+  assert.match(nav, /function useOrganisationDuJour\(profil\)/, "hook partagé (bandeau du tableau de bord, tâche 5)");
+  assert.match(nav, /activerOrdreHabituel: \(\) => enregistrer\(activerOrdreHabituel\(navOrder, date\)\)/);
+  assert.match(nav, /desactiverOrdreHabituel: \(\) => enregistrer\(desactiverOrdreHabituel\(navOrder\)\)/);
+  assert.match(nav, /const enregistrer = \(valeur\) => \{ if \(valeur !== navOrder\) sauvegarderNavOrder\(valeur\); \}/, "même écriture que le glisser-déposer");
+  assert.match(nav, /boutonOrdreHabituel\(navOrder, date\)/);
+  assert.match(nav, /\{orgJour\.bouton && !editOrder && \(/, "barre latérale");
+  assert.match(nav, /boutonOrdreHabituel=\{orgJour\.bouton\}/, "téléphone : feuille « Plus »");
+  assert.match(nav, /const idsMenu = idsPagesDuMenu\(role, rolePages\);/);
+  assert.match(nav, /export \{[^}]*idsPagesDuMenu[^}]*useOrganisationDuJour[^}]*\}/);
+  assert.match(app, /pageAOuvrirAuDemarrage\(\{/);
+  assert.match(app, /pagesAutorisees: idsPagesDuMenu\(role, rolePages\)/, "mêmes pages que la barre latérale");
+  assert.match(app, /if \(pageDArriveeDecidee \|\| !accesCharge \|\| !profil \|\| role==="ouvrier"\) return;\s*pageDArriveeDecidee = true;/, "une seule fois, config d'accès en base chargée");
+  assert.match(app, /if \(cible && canAccess\(role, cible\) && cible !== page\) setPage\(cible\);/);
+  assert.match(app, /has\("page"\)/, "lien ?page= = demande explicite");
+  // Espace ouvrier et Invest : aucune page d'arrivée du jour.
+  const blocMain = app.slice(app.indexOf("function MainApp("), app.indexOf("export default function"));
+  assert.ok(blocMain.includes("pageAOuvrirAuDemarrage("), "seulement dans l'application Rénovation (MainApp)");
+  assert.equal((app.match(/pageAOuvrirAuDemarrage\(/g) || []).length, 1);
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 let echecs = 0;
 for (const [nom, fn] of cas) {
