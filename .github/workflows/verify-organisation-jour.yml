@@ -50,6 +50,21 @@ on:
       - 'src/Renovation/administratifFournisseursV1.js'
       - 'api/cron-encours-fournisseurs.js'
       - 'scripts/verif-bloc-administratif-fournisseurs.mjs'
+      - 'src/Renovation/tourneeChantiersV1.mjs'
+      - 'src/Renovation/tourneeChantiersV1.js'
+      - 'src/Renovation/tourneeChantiersDonnees.js'
+      - 'src/Renovation/alertesChantiersDonnees.js'
+      - 'src/Renovation/retoursTerrainDonnees.js'
+      - 'src/Renovation/alertesEcranV1.mjs'
+      - 'src/Renovation/alertesEcranV1.js'
+      - 'src/Renovation/alertesV1.mjs'
+      - 'src/Renovation/chargerRelevesAlertes.js'
+      - 'src/Renovation/PageAlertes.jsx'
+      - 'src/Renovation/retoursTerrainV1.mjs'
+      - 'src/Renovation/RetoursTerrain.jsx'
+      - 'src/Renovation/planningReplanningStateV1.js'
+      - 'src/Renovation/reglagesMarges.js'
+      - 'scripts/verif-bloc-tournee-chantiers.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
   pull_request:
     paths:
@@ -99,6 +114,21 @@ on:
       - 'src/Renovation/administratifFournisseursV1.js'
       - 'api/cron-encours-fournisseurs.js'
       - 'scripts/verif-bloc-administratif-fournisseurs.mjs'
+      - 'src/Renovation/tourneeChantiersV1.mjs'
+      - 'src/Renovation/tourneeChantiersV1.js'
+      - 'src/Renovation/tourneeChantiersDonnees.js'
+      - 'src/Renovation/alertesChantiersDonnees.js'
+      - 'src/Renovation/retoursTerrainDonnees.js'
+      - 'src/Renovation/alertesEcranV1.mjs'
+      - 'src/Renovation/alertesEcranV1.js'
+      - 'src/Renovation/alertesV1.mjs'
+      - 'src/Renovation/chargerRelevesAlertes.js'
+      - 'src/Renovation/PageAlertes.jsx'
+      - 'src/Renovation/retoursTerrainV1.mjs'
+      - 'src/Renovation/RetoursTerrain.jsx'
+      - 'src/Renovation/planningReplanningStateV1.js'
+      - 'src/Renovation/reglagesMarges.js'
+      - 'scripts/verif-bloc-tournee-chantiers.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
 
 permissions:
@@ -122,3 +152,5 @@ jobs:
         run: node scripts/verif-bloc-chantiers-a-venir.mjs
       - name: Bloc « Administratif fournisseurs » — mêmes lectures et même calcul que les pages Rapprochement factures et Encours fournisseurs, aucune facture, aucun encours, erreur d'une partie (données fictives)
         run: node scripts/verif-bloc-administratif-fournisseurs.mjs
+      - name: Bloc « Tournée des chantiers » — mêmes niveaux d'alerte que la page Alertes, mêmes retours que la page Retours du terrain, tâches de phasage en retard (règle existante), vides, relevé absent, erreur d'une partie (données fictives)
+        run: node scripts/verif-bloc-tournee-chantiers.mjs

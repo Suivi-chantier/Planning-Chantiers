@@ -8,13 +8,15 @@
 // de la semaine et les phasages des chantiers concernés, puis on affiche.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent, getCurrentWeek, getWeekId } from "../constants";
 import { Icon } from "../ui";
 import { MessageSquare, ChevronLeft, ChevronRight, AlertTriangle, Clock, PauseCircle, PlusCircle } from "lucide-react";
 import { lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
 import { retoursTerrain } from "./retoursTerrainV1";
 import { celluleDeDate } from "./replanificationV1";
+// Lectures (comptes rendus de la semaine + phasages des chantiers concernés),
+// partagées avec le bloc « Tournée des chantiers » du tableau de bord.
+import { chargerRetoursTerrainSemaine, semaineCouranteRetoursTerrain } from "./retoursTerrainDonnees";
 
 const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 const JOURS_COURTS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
@@ -22,8 +24,6 @@ const dateCourte = (iso) => {
   const d = new Date(`${iso}T12:00:00`);
   return Number.isNaN(d.getTime()) ? iso : `${JOURS_COURTS[d.getDay()]} ${d.getDate()} ${MOIS[d.getMonth()]}`;
 };
-// Les deux écritures de date_rapport rencontrées en base (« 12/10/2026 » et ISO).
-const ecrituresDate = (iso) => { const [a, m, j] = iso.split("-"); return [`${j}/${m}/${a}`, iso]; };
 
 const carteStyle = (T) => ({ background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: "12px 14px" });
 const pastille = (couleur, fond) => ({
@@ -73,7 +73,7 @@ function Section({ id, icone, titre, couleur, nb, vide, T, children }) {
 
 export default function RetoursTerrain({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
-  const [weekId, setWeekId] = useState(() => { const { year, week } = getCurrentWeek(); return getWeekId(year, week); });
+  const [weekId, setWeekId] = useState(() => semaineCouranteRetoursTerrain());
   const [chantierId, setChantierId] = useState("");
   const [etat, setEtat] = useState({ statut: "chargement", rapports: [], phasages: [] });
 
@@ -89,22 +89,12 @@ export default function RetoursTerrain({ T, branch = "renovation" }) {
     let annule = false;
     setEtat(e => ({ ...e, statut: "chargement" }));
     (async () => {
-      const jours = Array.from({ length: 7 }, (_, i) => ajouterJoursV1(lundi, i));
-      const { data: rapports, error } = await supabase.from("rapports")
-        .select("id, ouvrier, chantier_id, chantier_nom, date_rapport, statut, taches, formulaire_version")
-        .in("date_rapport", jours.flatMap(ecrituresDate));
+      // Sans phasage (phasages = null), les retours restent affichés ; seuls
+      // l'ouvrage et le devenir des nouvelles tâches manquent (signalé).
+      const r = await chargerRetoursTerrainSemaine(lundi);
       if (annule) return;
-      if (error) { setEtat({ statut: "erreur", rapports: [], phasages: [] }); return; }
-      const ids = [...new Set((rapports || []).map(r => r.chantier_id).filter(Boolean))];
-      let phasages = [];
-      if (ids.length > 0) {
-        const { data: ph, error: e2 } = await supabase.from("phasages").select("chantier_id, ouvrages").in("chantier_id", ids);
-        if (annule) return;
-        // Sans phasage, les retours restent affichés ; seuls l'ouvrage et le
-        // devenir des nouvelles tâches manquent (signalé).
-        phasages = e2 ? null : (ph || []);
-      }
-      setEtat({ statut: "ok", rapports: rapports || [], phasages });
+      if (r.statut === "erreur") { setEtat({ statut: "erreur", rapports: [], phasages: [] }); return; }
+      setEtat({ statut: "ok", rapports: r.rapports, phasages: r.phasages });
     })();
     return () => { annule = true; };
   }, [lundi]);

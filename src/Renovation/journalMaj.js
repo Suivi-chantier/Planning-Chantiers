@@ -25,6 +25,22 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
     type: "amelioration",
+    titre: "Tableau de bord : le bloc « Tournée des chantiers » prépare la tournée du jeudi",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "alertes", label: "Alertes" }, { id: "retours-terrain", label: "Retours du terrain" }, { id: "phasage-v2", label: "Phasage" }],
+    quoi: "Le bloc « Tournée des chantiers » du tableau de bord (le jeudi, pour qui l'a choisi dans son organisation) réunit trois choses. 1. Les chantiers en alerte, du plus urgent au moins urgent, avec le même niveau, le même mot et la même couleur que la page Alertes (« Critique », « À surveiller ») ; les chantiers au niveau « Information » sont comptés, repliés comme sur la page. 2. Les retours du terrain de la semaine, exactement ceux de la page Retours du terrain : tâches signalées « Bloqué » ou « Pas commencé » et dépassements des heures prévues (les cinq premiers, puis « et N autres »). 3. Les tâches de phasage en retard : date prévue passée et avancement sous 100 %, la même règle que l'avertissement « En retard » de la page Phasage, avec le chantier, la tâche, la date prévue et le nombre de jours de retard.",
+    comment: "Cliquez sur une ligne pour ouvrir la fiche du chantier (si vous avez accès aux pages Opérations et Chantiers) ; les boutons « Alertes » et « Retours du terrain » ouvrent les pages. Sur téléphone, le nombre de chantiers en alerte s'affiche dans l'en-tête du bloc. Quand il n'y a rien, le bloc l'écrit (« Aucun chantier en alerte », « Aucun retour bloqué ou pas commencé cette semaine », « Aucune tâche de phasage en retard ») ; un chantier sans relevé récent est signalé « relevé pas encore disponible » ; si une partie ne peut pas être lue, il le dit et les autres restent visibles.",
+  },
+  {
+    date: "2026-11-24",
+    type: "correctif",
+    titre: "Page Alertes : les alertes de la semaine s'affichent de nouveau",
+    pages: [{ id: "alertes", label: "Alertes" }],
+    quoi: "La page Alertes affichait « Le relevé n'a pas pu être lu » à chaque ouverture : la semaine en cours était mal transmise à la lecture des relevés. Elle affiche maintenant les chantiers critiques, à surveiller et pour information de la semaine en cours, comparée à la précédente — les mêmes niveaux que ceux qui déclenchent déjà les notifications d'alerte.",
+    comment: "Rien à faire : ouvrez la page Alertes comme d'habitude. Les niveaux, l'ordre et les explications ne changent pas ; seule la lecture de la semaine est corrigée.",
+  },
+  {
+    date: "2026-11-24",
+    type: "amelioration",
     titre: "Tableau de bord : le bloc « Administratif fournisseurs » affiche les factures à rapprocher et l'encours à payer",
     pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "rapprochement", label: "Rapprochement factures" }, { id: "encours-fournisseurs", label: "Encours fournisseurs" }],
     quoi: "Le bloc « Administratif fournisseurs » du tableau de bord (le mercredi, pour qui l'a choisi dans son organisation) montre deux choses. D'abord les factures fournisseurs au statut « À rapprocher » de la page Rapprochement factures : leur nombre et les cinq plus anciennes, avec le fournisseur, le numéro, la date et le montant HT. Ensuite l'encours fournisseurs, avec exactement les chiffres du haut de la page Encours fournisseurs : « À payer » et « Payé comptant » du mois en cours, regroupés par mois d'échéance de paiement selon le mode de chaque fournisseur, les fournisseurs à payer ce mois-ci (les plus gros d'abord) et les montants à payer des mois suivants.",

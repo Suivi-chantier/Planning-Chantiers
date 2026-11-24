@@ -16,15 +16,17 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
-import { getWeekId, getCurrentWeek } from "../constants";
-import { chargerRelevesRetenusV2 } from "./chargerRelevesAlertes";
+// Semaines courante et précédente (horloge de l'appareil) et lecture allégée
+// des relevés (chargerRelevesRetenusV2 sur periodeRelevesAlertesV1(semaines)) :
+// partagées avec le bloc « Tournée des chantiers » du tableau de bord.
+import { semainesAlertesCourantes, chargerRelevesAlertesSemaines } from "./alertesChantiersDonnees";
 import { useReglagesMarges } from "./reglagesMarges";
 // Choix des semaines (mêmes helpers ISO que le Bilan Semaine), fenêtre de
 // lecture, filtre « chantier actif » (estChantierActif) et chaîne
 // alertesMargesV2( → alertesV1( : module partagé avec le serveur (projet
 // notifications-push, tâche 6), pour que l'écran et le serveur voient les
 // MÊMES niveaux sur les relevés de chantier_releves_journaliers.
-import { semainesAlertesV1, periodeRelevesAlertesV1, calculerAlertesEcranV1 } from "./alertesEcranV1.js";
+import { calculerAlertesEcranV1, PRESENTATION_NIVEAUX_ALERTE_V1 } from "./alertesEcranV1.js";
 import {
   etatAlertesV1, libelleMotifAlerteV1,
   NIVEAU_CRITIQUE, NIVEAU_A_SURVEILLER, NIVEAU_INFO,
@@ -38,10 +40,12 @@ import { AlertTriangle, Eye, Info, ChevronDown, ChevronUp, Bell } from "lucide-r
 // n'écrit aucun nom en dur dans sa logique.
 const CHANTIERS_EXCLUS = ["DÉPOT"];
 
+// Libellés et couleurs des niveaux : PRESENTATION_NIVEAUX_ALERTE_V1, partagés
+// avec le bloc « Tournée des chantiers » du tableau de bord ; icônes ici.
 const COULEURS = {
-  [NIVEAU_CRITIQUE]:     { texte: "#e15a5a", fond: "rgba(225,90,90,.10)",  bord: "rgba(225,90,90,.32)",  icone: AlertTriangle, label: "Critique" },
-  [NIVEAU_A_SURVEILLER]: { texte: "#f5a623", fond: "rgba(245,166,35,.10)", bord: "rgba(245,166,35,.32)", icone: Eye,           label: "À surveiller" },
-  [NIVEAU_INFO]:         { texte: "#8a8a8a", fond: "rgba(138,138,138,.10)",bord: "rgba(138,138,138,.30)",icone: Info,          label: "Information" },
+  [NIVEAU_CRITIQUE]:     { ...PRESENTATION_NIVEAUX_ALERTE_V1[NIVEAU_CRITIQUE],     icone: AlertTriangle },
+  [NIVEAU_A_SURVEILLER]: { ...PRESENTATION_NIVEAUX_ALERTE_V1[NIVEAU_A_SURVEILLER], icone: Eye },
+  [NIVEAU_INFO]:         { ...PRESENTATION_NIVEAUX_ALERTE_V1[NIVEAU_INFO],         icone: Info },
 };
 
 function CarteAlerte({ alerte, T, onOuvrirChantier }) {
@@ -104,11 +108,8 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
   const [infoOuvert, setInfoOuvert] = useState(false);
 
   // Les deux semaines nécessaires à la comparaison : la courante et la
-  // précédente. Même mécanisme que le Bilan Semaine.
-  const semaines = useMemo(() => {
-    const now = new Date();
-    return semainesAlertesV1(getWeekId(now.getFullYear(), getCurrentWeek()));
-  }, []);
+  // précédente (semainesAlertesV1). Même mécanisme que le Bilan Semaine.
+  const semaines = useMemo(() => semainesAlertesCourantes(), []);
 
   useEffect(() => {
     let annule = false;
@@ -116,10 +117,10 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
       // Étape 2 des marges (24/10/2026) : relevés JOURNALIERS, du dimanche de
       // la semaine précédente moins trois semaines (un chantier à l'arrêt garde
       // son dernier relevé) au dimanche de la semaine courante, par tranches.
-      const { debut, fin } = periodeRelevesAlertesV1(semaines);
       // Seuls les relevés retenus de chantier_releves_journaliers (dernier par
-      // chantier et par semaine) sont téléchargés en entier (06/11/2026).
-      const { data, error } = await chargerRelevesRetenusV2({ debut, fin, weekIds: semaines });
+      // chantier et par semaine) sont téléchargés en entier (06/11/2026) :
+      // chargerRelevesRetenusV2 sur periodeRelevesAlertesV1(semaines).
+      const { data, error } = await chargerRelevesAlertesSemaines(semaines);
       if (annule) return;
       if (error) { setErreur(error.message); setLignes([]); return; }
       setLignes(data);

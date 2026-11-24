@@ -110,8 +110,15 @@ test("3. l'écran Alertes importe le même module ; mêmes exclusions ; le serve
   const code = sansCommentaires(page);
   assert.match(code, /from "\.\/alertesEcranV1\.js"/);
   assert.match(code, /calculerAlertesEcranV1\(\{/);
-  assert.match(code, /semainesAlertesV1\(/);
-  assert.match(code, /periodeRelevesAlertesV1\(semaines\)/);
+  // Semaines et période de lecture : module de lecture partagé avec le bloc
+  // « Tournée des chantiers » (organisation-par-jour, tâche 10), importé par l'écran.
+  assert.match(code, /from "\.\/alertesChantiersDonnees"/);
+  assert.match(code, /semainesAlertesCourantes\(\)/);
+  assert.match(code, /chargerRelevesAlertesSemaines\(semaines\)/);
+  const lecture = sansCommentaires(lire("src/Renovation/alertesChantiersDonnees.js"));
+  assert.match(lecture, /from "\.\/alertesEcranV1\.js"/);
+  assert.match(lecture, /semainesAlertesV1\(/);
+  assert.match(lecture, /periodeRelevesAlertesV1\(semaines\)/);
   assert.ok(!/preparerSemainesRelevesJournaliersV2\(|alertesMargesV2\(|alertesV1\(\{|estChantierActif\(/.test(code),
     "l'écran ne refait plus la chaîne lui-même");
   const m = /const CHANTIERS_EXCLUS\s*=\s*(\[[^\]]*\])/.exec(page);
