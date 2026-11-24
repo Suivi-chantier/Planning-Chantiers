@@ -196,8 +196,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 2 | Barre latérale et barre du bas lisent `nav_order` sous ses deux formats via le module ; ordre du jour appliqué ; le glisser-déposer règle `ordre` sans effacer `jours` ; la barre du bas suit le même ordre | en ligne | Contrôles verts + requête sur la base : chaque `nav_order` existant (format liste) donne exactement le même ordre qu'avant | Tableau « avant / après » de l'ordre de chaque utilisateur concerné, identique | [#257](https://github.com/Suivi-chantier/Planning-Chantiers/pull/257) |
 | 3 | Page d'arrivée à l'ouverture (`App.jsx`, règle 5) + bouton « Ordre habituel aujourd'hui » (règle 7) | en ligne | Contrôles verts | Compte de test avec organisation saisie à la main : ordre et page d'arrivée changent selon le jour simulé ; compte sans organisation inchangé | [#258](https://github.com/Suivi-chantier/Planning-Chantiers/pull/258) |
 | 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | en ligne | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | [#259](https://github.com/Suivi-chantier/Planning-Chantiers/pull/259) |
-| 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | en cours | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | — |
-| 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | à faire | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | — |
+| 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | en ligne | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | [#260](https://github.com/Suivi-chantier/Planning-Chantiers/pull/260) |
+| 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | en cours | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | — |
 | 7 | Bloc `commandes_a_saisir` | à faire | Contrôles verts | Mêmes comptes que la page Commandes à passer | — |
 | 8 | Bloc `chantiers_a_venir` (`cycleVie`) | à faire | Contrôles verts | Liste identique aux chantiers non démarrés en base | — |
 | 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | à faire | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | — |
@@ -272,6 +272,19 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **24/11/2026 — À faire en tâche 5.** Mettre à jour les phrases de l'écran
   « Mon organisation » qui annoncent le bandeau « lors d'une prochaine mise à
   jour ».
+
+- **24/11/2026 — Tâche 5, rendez-vous.** Ceux avec heure d'abord (du plus
+  tôt au plus tard), puis ceux sans heure dans l'ordre saisi.
+- **24/11/2026 — Repérage pour les tâches 6 à 12.** Plusieurs logiques sources
+  vivent dans des composants et doivent être extraites en `.mjs` avant
+  réutilisation (règle 9) : chargement et assemblage du Bilan de semaine
+  (`BilanPeriode.jsx`, tâches 6 et 11), chargeur de Commandes à passer
+  (`PagePlanningCommandes.jsx`, tâches 7 et 12), liste « à rapprocher »
+  (`RapprochementFactures.jsx`) et calcul d'Encours fournisseurs
+  (`PageEncoursFournisseurs.jsx` n'utilise pas `encoursFournisseursV1.mjs` :
+  tâche 9, tableau avant / après obligatoire), requêtes de
+  `RetoursTerrain.jsx` (tâche 10). Chaque extraction est vérifiée « mêmes
+  chiffres avant / après » sur la base réelle.
 
 ## Comptes rendus
 
@@ -371,5 +384,19 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **Fin d'étape 3 côté Loris** : il peut désormais appliquer le modèle et
   l'enregistrer ; la vérification sur son compte réel reste à faire par lui
   (Claude n'écrit jamais l'organisation dans la base).
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 5 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : pour un utilisateur avec organisation, le tableau de
+  bord affiche en haut un bandeau (jour, thématique, rendez-vous, bouton
+  « Ordre habituel aujourd'hui »), puis les blocs du jour — encore « à venir »
+  avec un lien vers leur page —, puis tous les widgets actuels.
+- **Sans organisation** : tableau de bord identique au pixel près à la version
+  précédente (comparaison sur base simulée, bureau et téléphone).
+- **Contrôles** : 19 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
+- **Test des écrans** : 92 cas réussis, captures du lundi au samedi
+  (exemple issu des tests, données fictives).
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
 

@@ -19,9 +19,10 @@ import React from "react";
 import { ChartBar, Package, HardHat, Receipt, Route, CalendarRange, Layers } from "lucide-react";
 import { CATALOGUE_BLOCS, LIBELLES_BLOCS, liensDuBloc } from "../organisationJour.js";
 import { BlocAVenir } from "./CadreBloc";
+import BlocBilanSemainePassee from "./BlocBilanSemainePassee";
 
 export const REGISTRE_BLOCS = Object.freeze({
-  bilan_semaine_passee:       { icone: ChartBar,      accent: "#5b8af5", Composant: BlocAVenir },
+  bilan_semaine_passee:       { icone: ChartBar,      accent: "#5b8af5", Composant: BlocBilanSemainePassee },
   commandes_a_saisir:         { icone: Package,       accent: "#f5a623", Composant: BlocAVenir },
   chantiers_a_venir:          { icone: HardHat,       accent: "#22c55e", Composant: BlocAVenir },
   administratif_fournisseurs: { icone: Receipt,       accent: "#a855f7", Composant: BlocAVenir },
