@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
     type: "nouveaute",
+    titre: "Tableau de bord : bandeau du jour et blocs du jour en tête",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }],
+    quoi: "Pour qui a réglé son organisation de la semaine, le tableau de bord rappelle désormais, tout en haut, le jour, sa thématique et ses rendez-vous fixes. Juste en dessous prennent place les blocs choisis pour ce jour-là (par exemple « Bilan de la semaine passée » et « Commandes à saisir » le lundi). Leur contenu arrivera bloc par bloc dans les prochaines mises à jour : d'ici là, chaque bloc l'indique clairement et propose un lien vers sa page. Tous les éléments habituels du tableau de bord restent affichés en dessous, sans changement. Sans organisation, le week-end ou un jour non réglé, le tableau de bord ne change pas.",
+    comment: "Les rendez-vous qui ont une heure sont classés du plus tôt au plus tard ; ceux sans heure suivent, dans l'ordre où vous les avez saisis. Le bouton « Ordre habituel aujourd'hui » est aussi dans le bandeau : il retire les blocs du jour et remet le menu habituel jusqu'au lendemain ; le bandeau reste affiché, avec le bouton « Revenir à l'organisation du jour ». Sur téléphone, chaque bloc est une section dépliable, comme les autres. L'organisation se règle dans « Mon profil » → « Mon organisation ».",
+  },
+  {
+    date: "2026-11-24",
+    type: "nouveaute",
     titre: "Mon organisation : régler sa semaine jour par jour, avec le modèle Conducteur de travaux en un clic",
     pages: [],
     quoi: "Chacun peut désormais décrire sa semaine type : pour chaque jour du lundi au vendredi, une thématique, la page sur laquelle l'application s'ouvre, les pages à remonter en tête du menu, les rendez-vous fixes et les blocs à afficher sur le tableau de bord. Le menu, sur ordinateur comme sur téléphone, suit alors le jour. Un modèle « Conducteur de travaux » (bilan le lundi, chantiers à venir le mardi, plans et administratif le mercredi, tournée le jeudi, planning de la semaine suivante le vendredi) se remplit en un clic. Sans organisation, rien ne change.",

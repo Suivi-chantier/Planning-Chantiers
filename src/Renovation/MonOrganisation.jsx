@@ -216,7 +216,7 @@ export default function MonOrganisation({ profil, role, rolePages = null, T, onM
       <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: T.textSub }}>
         Pour chaque jour, les pages choisies passent en tête du menu (ordinateur et téléphone) et l'application s'ouvre
         sur la page d'arrivée. Un jour laissé vide garde le menu habituel ; samedi et dimanche aussi.
-        La thématique et les rendez-vous s'afficheront en haut du tableau de bord lors d'une prochaine mise à jour.
+        La thématique et les rendez-vous du jour s'affichent en haut du tableau de bord, avec les blocs choisis juste en dessous.
       </p>
       <div role="status" style={{ fontSize: 13, color: T.textSub, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
         {aOrganisation
@@ -313,7 +313,7 @@ export default function MonOrganisation({ profil, role, rolePages = null, T, onM
           <ListeOrdonnee T={T} valeurs={conf.blocs} options={optionsBlocs} nomListe="Blocs du tableau de bord"
             onChange={(v) => majJour("blocs", v)} libelleAjout="Ajouter un bloc…"/>
           <span style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.4 }}>
-            Le contenu de ces blocs apparaîtra sur le tableau de bord lors d'une prochaine mise à jour ; une fois enregistré, votre choix est conservé d'ici là.
+            Ces blocs prennent déjà leur place en tête du tableau de bord ; leur contenu arrivera bloc par bloc lors des prochaines mises à jour (d'ici là, chaque bloc l'indique).
           </span>
         </div>
       </div>

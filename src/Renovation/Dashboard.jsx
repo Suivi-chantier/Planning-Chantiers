@@ -2,7 +2,10 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { getTodayJour, getBranchAccent, FONT, RADIUS, SPACING, COULEURS_PALETTE } from "../constants";
 import { Icon } from "../ui";
-import { useIsMobile } from "./Navigation";
+import { useIsMobile, useOrganisationDuJour } from "./Navigation";
+import { bandeauDuJour } from "./organisationJour.js";
+import BandeauDuJour from "./blocsDuJour/BandeauDuJour";
+import { BlocsDuJour } from "./blocsDuJour/registre";
 import { estAssigne } from "../todoUtils";
 import { MobileHero, MobileStat, MobileSection, CARD_SHADOW } from "../mobileUI";
 import {
@@ -105,9 +108,18 @@ function weatherInfo(code) {
 }
 
 // ─── PAGE DASHBOARD ───────────────────────────────────────────────────────────
-function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, profil, branch = "renovation" }) {
+function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, profil, branch = "renovation", pageAutorisee = null, onOuvrirPage = null }) {
   const acc = getBranchAccent(branch);
   const isMobile = useIsMobile();
+  // ── Organisation du jour (projet organisation-par-jour, tâche 5) ──
+  // Bandeau + blocs du jour AJOUTÉS au-dessus des widgets actuels, qui restent
+  // tous inchangés (règle 8). Sans organisation ce jour-là (week-end, jour non
+  // configuré, aucun réglage) : `bandeau` est null et rien n'est ajouté
+  // (règle 1). En mode « ordre habituel aujourd'hui », bandeau seul (règle 7).
+  const orgJour = useOrganisationDuJour(profil);
+  const bandeau = bandeauDuJour(orgJour.navOrder, orgJour.date);
+  const blocsJour = bandeau ? bandeau.blocs : [];
+  const contexteBlocs = { chantiers, cells, commandes, notesData, weekId, dateIso: orgJour.date };
   const todayJour = getTodayJour();
   const now = new Date();
   const todayIso = now.toISOString().slice(0, 10);
@@ -229,6 +241,10 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
           right={heroWeatherRight}
           chips={heroChips}
         />
+
+        {/* Organisation du jour : bandeau puis blocs du jour (rien sans organisation) */}
+        <BandeauDuJour bandeau={bandeau} onBasculer={orgJour.basculerOrdreHabituel} T={T} accent={acc.accent} isMobile/>
+        <BlocsDuJour blocs={blocsJour} T={T} isMobile pageAutorisee={pageAutorisee} onOuvrirPage={onOuvrirPage} profil={profil} contexte={contexteBlocs}/>
 
         {/* KPI 2×2 */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
@@ -360,6 +376,10 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
           chips={heroChips}
         />
       </div>
+
+      {/* Organisation du jour : bandeau puis blocs du jour (rien sans organisation) */}
+      <BandeauDuJour bandeau={bandeau} onBasculer={orgJour.basculerOrdreHabituel} T={T} accent={acc.accent} isMobile={false}/>
+      <BlocsDuJour blocs={blocsJour} T={T} isMobile={false} pageAutorisee={pageAutorisee} onOuvrirPage={onOuvrirPage} profil={profil} contexte={contexteBlocs}/>
 
       {/* Stats KPI : 4 tuiles */}
       <div className="dash-stats-grid" style={{

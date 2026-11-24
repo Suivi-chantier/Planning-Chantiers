@@ -9,6 +9,8 @@ on:
       - 'src/Renovation/Navigation.jsx'
       - 'src/Renovation/dateDuJour.js'
       - 'src/Renovation/MonOrganisation.jsx'
+      - 'src/Renovation/Dashboard.jsx'
+      - 'src/Renovation/blocsDuJour/**'
       - 'src/Renovation/ProfilNotifications.jsx'
       - 'src/App.jsx'
       - 'src/access.js'
@@ -21,6 +23,8 @@ on:
       - 'src/Renovation/Navigation.jsx'
       - 'src/Renovation/dateDuJour.js'
       - 'src/Renovation/MonOrganisation.jsx'
+      - 'src/Renovation/Dashboard.jsx'
+      - 'src/Renovation/blocsDuJour/**'
       - 'src/Renovation/ProfilNotifications.jsx'
       - 'src/App.jsx'
       - 'src/access.js'
@@ -38,5 +42,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Organisation par jour — ancien format inchangé, ordre du jour, page d'arrivée, blocs, « ordre habituel aujourd'hui », modèle Conducteur de travaux, barres de navigation, écran « Mon organisation » (données fictives)
+      - name: Organisation par jour — ancien format inchangé, ordre du jour, page d'arrivée, blocs, « ordre habituel aujourd'hui », modèle Conducteur de travaux, barres de navigation, écran « Mon organisation », tableau de bord du jour (données fictives)
         run: node scripts/verif-organisation-jour.mjs
