@@ -65,6 +65,14 @@ on:
       - 'src/Renovation/planningReplanningStateV1.js'
       - 'src/Renovation/reglagesMarges.js'
       - 'scripts/verif-bloc-tournee-chantiers.mjs'
+      - 'src/Renovation/planningSemaineSuivanteV1.mjs'
+      - 'src/Renovation/planningSemaineSuivanteV1.js'
+      - 'src/Renovation/semaineQuiVientDonnees.js'
+      - 'src/Renovation/bilanSemaineProchaineV1.mjs'
+      - 'src/Renovation/planningFinPrevisionnelleV1.mjs'
+      - 'src/Renovation/bilanDecisionsV3.mjs'
+      - 'src/Renovation/planningEngineDataV1.js'
+      - 'scripts/verif-bloc-planning-semaine-suivante.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
   pull_request:
     paths:
@@ -129,6 +137,14 @@ on:
       - 'src/Renovation/planningReplanningStateV1.js'
       - 'src/Renovation/reglagesMarges.js'
       - 'scripts/verif-bloc-tournee-chantiers.mjs'
+      - 'src/Renovation/planningSemaineSuivanteV1.mjs'
+      - 'src/Renovation/planningSemaineSuivanteV1.js'
+      - 'src/Renovation/semaineQuiVientDonnees.js'
+      - 'src/Renovation/bilanSemaineProchaineV1.mjs'
+      - 'src/Renovation/planningFinPrevisionnelleV1.mjs'
+      - 'src/Renovation/bilanDecisionsV3.mjs'
+      - 'src/Renovation/planningEngineDataV1.js'
+      - 'scripts/verif-bloc-planning-semaine-suivante.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
 
 permissions:
@@ -154,3 +170,5 @@ jobs:
         run: node scripts/verif-bloc-administratif-fournisseurs.mjs
       - name: Bloc « Tournée des chantiers » — mêmes niveaux d'alerte que la page Alertes, mêmes retours que la page Retours du terrain, tâches de phasage en retard (règle existante), vides, relevé absent, erreur d'une partie (données fictives)
         run: node scripts/verif-bloc-tournee-chantiers.mjs
+      - name: Bloc « Planning de la semaine suivante » — même lancement du moteur, même découpe et mêmes noms que la carte « La semaine qui vient » de la page Bilan de semaine, total, par chantier, par personne, aucune heure, erreur, ligne « Montant prévisionnel : fonctionnalité à venir » (données fictives)
+        run: node scripts/verif-bloc-planning-semaine-suivante.mjs

@@ -30,11 +30,12 @@ import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3
 import PageBilanSemaine from "./BilanSemaine";
 import { rappelBlocagesV3, suggestionsDecisionsV3, tendancesParLotV3, semaineQuiVientV3, commandesSemaineQuiVientV3 } from "./bilanDecisionsV3.js";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
-import { finPrevisionnelleParChantierV1 } from "./planningFinPrevisionnelleV1.mjs";
-import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
+// La semaine qui vient : moteur + assemblage partagés avec le bloc du tableau
+// de bord « Planning de la semaine suivante » (même chiffre = même service).
+import { chargerSemaineQuiVient } from "./semaineQuiVientDonnees.js";
+import { fenetreSemaineSuivanteV1, nomsSemaineQuiVientV1 } from "./planningSemaineSuivanteV1.js";
 import { bilanClotureV3 } from "./bilanClotureV3.js";
 import { ligneArchiveV3, rectificationsV3, prevuRealiseV3, derniersExportsParPeriodeV3, finsPrevuesV3 } from "./bilanArchiveV3.js";
-import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1 } from "./bilanSemaineProchaineV1.mjs";
 import { syntheseHorsDevisChantierV2, decisionsHorsDevisV2, gestesCommerciauxPeriodeV2, texteHorsDevisV2, texteGestesPeriodeV2, estTacheHorsDevisV2 } from "./horsDevisV2.js";
 import { tauxFGALaDate } from "../chantierFinance";
 
@@ -169,11 +170,11 @@ function useSemaineQuiVient(periode) {
     if (!periode) return undefined;
     let annule = false;
     setEtat({ decoupe: null, referentiel: null, erreur: null, fins: null });
-    const fenetre = fenetreSemaineProchaineV1(semaineIsoV3(periode.fin));
-    simulerPlanningGlobalV1({ startDate: fenetre.debut, horizonDays: 42 })
-      .then(out => { if (!annule) setEtat({ decoupe: bilanSemaineProchaineV1({ resultatMoteur: out, fenetre }), referentiel: out?.referentiel || null, erreur: null,
-        // Fin prévisionnelle par chantier (même module que la semaine qui vient).
-        fins: new Map(finPrevisionnelleParChantierV1(out).chantiers.map(c => [c.chantier_id, c])) }); })
+    // Moteur lancé sur la semaine qui suit la période ; découpe, référentiel et
+    // fins prévisionnelles assemblés par planningSemaineSuivanteV1.mjs.
+    const fenetre = fenetreSemaineSuivanteV1(periode.fin);
+    chargerSemaineQuiVient(fenetre)
+      .then(r => { if (!annule) setEtat({ decoupe: r.decoupe, referentiel: r.referentiel, erreur: null, fins: r.fins }); })
       .catch(e => { if (!annule) setEtat({ decoupe: null, referentiel: null, erreur: e?.message || "erreur du moteur de planning", fins: null }); });
     return () => { annule = true; };
   }, [periode?.cle]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -386,9 +387,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
       rappel, suggestions, tendances, rectifications, prevuRealise };
   }, [donnees, periode, enCours, choixPeriode, reglages.seuilsMarges, reglages.derivesDetail, reglages.baremeFG, chantiers]);
   const semaineQuiVient = useMemo(() => {
-    const ref = semProchaine.referentiel;
-    const nomChantier = id => (chantiers || []).find(c => c.id === id)?.nom || (ref?.chantiers || []).find(c => c.id === id)?.nom || id;
-    const nomRessource = id => { const r = (ref?.ressources || []).find(x => x.id === id); return r?.nom_planning || r?.nom || id; };
+    const { nomChantier, nomRessource } = nomsSemaineQuiVientV1({ chantiers, referentiel: semProchaine.referentiel });
     return semaineQuiVientV3({ decoupe: semProchaine.decoupe, erreur: semProchaine.erreur, nomChantier, nomRessource,
       commandes: cmdProchaine.commandes, erreurCommandes: cmdProchaine.erreur });
   }, [semProchaine, cmdProchaine, chantiers]);

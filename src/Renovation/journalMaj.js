@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
     type: "amelioration",
+    titre: "Tableau de bord : le bloc « Planning de la semaine suivante » montre les heures prévues la semaine prochaine",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "planning", label: "Planning semaine" }, { id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Le bloc « Planning de la semaine suivante » du tableau de bord (le vendredi, pour qui l'a choisi dans son organisation) affiche ce que le moteur de planning placerait la semaine prochaine : le total d'heures de main-d'œuvre prévues, les heures par chantier (du plus chargé au moins chargé) et les heures par personne. Ce sont exactement les chiffres de la carte « La semaine qui vient » de la page Bilan de semaine : même calcul, mêmes noms. C'est une proposition : rien n'est enregistré ni appliqué au planning. Une ligne « Montant prévisionnel : fonctionnalité à venir » réserve la place du montant en euros des tâches placées, qui fera l'objet d'une mise à jour à part.",
+    comment: "Le bloc affiche les six premiers chantiers et les six premières personnes, puis « et N autres ». Le bouton « Planning semaine » ouvre la page. Sur téléphone, le total d'heures prévues s'affiche dans l'en-tête du bloc. Le calcul prend quelques secondes (« calcul en cours ») ; si rien n'est prévu, le bloc l'écrit (« Aucune heure prévue la semaine 49 ») ; si le moteur ne peut pas lire ses données, il le dit comme la page Bilan de semaine. Les chantiers dont la fin dépasse l'horizon du planning sont signalés.",
+  },
+  {
+    date: "2026-11-24",
+    type: "amelioration",
     titre: "Tableau de bord : le bloc « Tournée des chantiers » prépare la tournée du jeudi",
     pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "alertes", label: "Alertes" }, { id: "retours-terrain", label: "Retours du terrain" }, { id: "phasage-v2", label: "Phasage" }],
     quoi: "Le bloc « Tournée des chantiers » du tableau de bord (le jeudi, pour qui l'a choisi dans son organisation) réunit trois choses. 1. Les chantiers en alerte, du plus urgent au moins urgent, avec le même niveau, le même mot et la même couleur que la page Alertes (« Critique », « À surveiller ») ; les chantiers au niveau « Information » sont comptés, repliés comme sur la page. 2. Les retours du terrain de la semaine, exactement ceux de la page Retours du terrain : tâches signalées « Bloqué » ou « Pas commencé » et dépassements des heures prévues (les cinq premiers, puis « et N autres »). 3. Les tâches de phasage en retard : date prévue passée et avancement sous 100 %, la même règle que l'avertissement « En retard » de la page Phasage, avec le chantier, la tâche, la date prévue et le nombre de jours de retard.",

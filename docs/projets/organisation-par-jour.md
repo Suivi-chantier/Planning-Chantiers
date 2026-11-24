@@ -201,8 +201,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 7 | Bloc `commandes_a_saisir` | en ligne | Contrôles verts | Mêmes comptes que la page Commandes à passer | [#262](https://github.com/Suivi-chantier/Planning-Chantiers/pull/262) |
 | 8 | Bloc `chantiers_a_venir` (`cycleVie`) | en ligne | Contrôles verts | Liste identique aux chantiers non démarrés en base | [#263](https://github.com/Suivi-chantier/Planning-Chantiers/pull/263) |
 | 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | en ligne | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | [#264](https://github.com/Suivi-chantier/Planning-Chantiers/pull/264) |
-| 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | en cours | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | — |
-| 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | à faire | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | — |
+| 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | en ligne | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | [#265](https://github.com/Suivi-chantier/Planning-Chantiers/pull/265) |
+| 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | en cours | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | — |
 | 12 | Bloc `materiaux_a_commander` | à faire | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | — |
 | 13 | Captures des 5 jours (date simulée) sur le compte de Loris + synthèse de fin de projet | à faire | — | Captures jointes au compte rendu | — |
 | 14 | Aligner le mail du vendredi et la notification « X € HT à payer » (`encoursFournisseursV1`, `api/cron-encours-fournisseurs.js`) sur le calcul de la page Encours fournisseurs (`encoursFournisseursPageV1.mjs`) | à faire | Contrôles verts + tableau avant / après par fournisseur et par mois sur la base réelle (écart attendu : celui de la page) | Le montant du mail = la somme des mois correspondants de la page | — |
@@ -354,6 +354,26 @@ Règle par défaut de `CLAUDE.md`. En plus :
   échoue (état inconnu présenté comme vide). Le bloc, lui, signale l'erreur.
 - **24/11/2026 — Mois en cours du bloc Encours** : horloge de l'appareil, comme
   la page, pour afficher toujours le même chiffre que la page.
+
+- **24/11/2026 — Tâche 10, découverte : la page Alertes était en panne.**
+  Elle affichait « Le relevé n'a pas pu être lu » à chaque ouverture : la
+  semaine était calculée avec un objet au lieu d'un numéro
+  (`getWeekId(année, getCurrentWeek())`, `getCurrentWeek()` renvoie
+  `{year, week}`) → période nulle refusée par la base. Défaut vérifié dans le
+  code en ligne par la session principale. Corrigé (semaine calculée comme
+  sur Retours du terrain et Bilan), car la preuve « mêmes niveaux que la page
+  Alertes » était impossible sans cela et la page est la page d'arrivée du
+  jeudi. Calcul `alertesV1` inchangé, aucun droit modifié ; entrée
+  « correctif » dans le Journal des MAJ.
+- **24/11/2026 — Tâche 10, phasage en retard.** Règle existante réutilisée :
+  `etatReelTacheV1().en_retard` (`planningReplanningStateV1.js`) = date prévue
+  passée et avancement < 100 %, identique à l'icône « En retard » de la page
+  Phasage. Chantiers en cours selon `estChantierActif`, hors DÉPOT.
+- **24/11/2026 — Tâche 10, extraction.** Lectures de la page Alertes
+  (`alertesChantiersDonnees.js`) et de Retours du terrain
+  (`retoursTerrainDonnees.js`) extraites ; libellés et couleurs des niveaux
+  partagés (`PRESENTATION_NIVEAUX_ALERTE_V1`). Scripts `verif-alertes-chantiers`
+  et `verif-alertes-marges` ajustés au déplacement, sans retrait.
 
 ## Comptes rendus
 
@@ -577,4 +597,34 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **Test des écrans** : 60 cas réussis (exemple issu des tests, données
   fictives) ; mêmes chiffres que les pages Encours et Rapprochement.
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 10 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : le bloc « Tournée des chantiers » affiche les
+  chantiers en alerte (comme la page Alertes), les retours du terrain
+  bloqués / pas commencés / dépassements de la semaine (comme la page Retours
+  du terrain) et les tâches de phasage en retard ; un clic ouvre la fiche
+  chantier. La page Alertes fonctionne de nouveau.
+- **Base réelle** (lecture seule, 24/11/2026, écart 0 partout) :
+
+  | Chantier | Page Alertes | Bloc |
+  |---|---|---|
+  | BRIOLLAY, TOURBOUTON CO-LIVING, MONTILLERS APPT 1 (T3) | Critique | Critique |
+  | FOURMOND 001 / 101 / 102, MONTILLERS APPT 2 (T2), APPT 3 (STUDIO) | À surveiller | À surveiller |
+  | 24 autres chantiers | Information | Information |
+  | LAMARTINE | relevé pas encore disponible | idem |
+
+  | Semaine | Comptes rendus | Bloqué | Pas commencé | Dépassements | Écart |
+  |---|---|---|---|---|---|
+  | 48 (en cours) | 17 | 6 | 9 | 9 | 0 |
+  | 47 | 48 | 2 | 53 | 39 | 0 |
+
+  Tâches de phasage en retard : 85 sur 11 chantiers au 24/11 (100 au jeudi
+  26/11), égal à un comptage SQL indépendant ; les plus anciennes à
+  TOURBOUTON 101 (prévues le 27/07/2026).
+- **Contrôles** : 19 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
+- **Test des écrans** : 69 cas réussis (exemple issu des tests, données
+  fictives).
+- **Journal des MAJ** : deux entrées (bloc ; correctif page Alertes).
 
