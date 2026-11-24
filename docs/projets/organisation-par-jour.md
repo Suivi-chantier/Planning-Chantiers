@@ -193,8 +193,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Étape 1 — module pur `organisationJour.mjs` (+ façade `.js`), script `verif-organisation-jour.mjs` et son workflow | en ligne | Contrôles verts | Tous les cas du cahier vérifiés sur GitHub ; aucun écran modifié | [#256](https://github.com/Suivi-chantier/Planning-Chantiers/pull/256) |
-| 2 | Barre latérale et barre du bas lisent `nav_order` sous ses deux formats via le module ; ordre du jour appliqué ; le glisser-déposer règle `ordre` sans effacer `jours` ; la barre du bas suit le même ordre | en cours | Contrôles verts + requête sur la base : chaque `nav_order` existant (format liste) donne exactement le même ordre qu'avant | Tableau « avant / après » de l'ordre de chaque utilisateur concerné, identique | — |
-| 3 | Page d'arrivée à l'ouverture (`App.jsx`, règle 5) + bouton « Ordre habituel aujourd'hui » (règle 7) | à faire | Contrôles verts | Compte de test avec organisation saisie à la main : ordre et page d'arrivée changent selon le jour simulé ; compte sans organisation inchangé | — |
+| 2 | Barre latérale et barre du bas lisent `nav_order` sous ses deux formats via le module ; ordre du jour appliqué ; le glisser-déposer règle `ordre` sans effacer `jours` ; la barre du bas suit le même ordre | en ligne | Contrôles verts + requête sur la base : chaque `nav_order` existant (format liste) donne exactement le même ordre qu'avant | Tableau « avant / après » de l'ordre de chaque utilisateur concerné, identique | [#257](https://github.com/Suivi-chantier/Planning-Chantiers/pull/257) |
+| 3 | Page d'arrivée à l'ouverture (`App.jsx`, règle 5) + bouton « Ordre habituel aujourd'hui » (règle 7) | en cours | Contrôles verts | Compte de test avec organisation saisie à la main : ordre et page d'arrivée changent selon le jour simulé ; compte sans organisation inchangé | — |
 | 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | à faire | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | — |
 | 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | à faire | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | — |
 | 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | à faire | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | — |
@@ -235,6 +235,20 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **24/11/2026 — Réponse : « oui ».** Accès en écriture accordé ; reprise.
   Le fichier projet arrive sur `main` avec la demande de fusion de la tâche 1.
 
+- **24/11/2026 — Tâche 2, barre du bas.** Aujourd'hui la barre du bas ignore
+  l'ordre personnalisé (glisser-déposer). Pour respecter la règle 1, elle ne
+  suit l'ordre de la barre latérale que lorsqu'une organisation du jour est
+  réellement active ; sinon elle reste exactement comme avant.
+- **24/11/2026 — Tâche 2, glisser-déposer.** En mode édition, la barre latérale
+  affiche et règle l'ordre habituel ; hors édition, l'ordre du jour. L'ordre
+  d'un jour ne peut pas être enregistré par erreur comme ordre habituel.
+- **24/11/2026 — Tâche 2, date simulée.** Paramètre d'adresse
+  `?date_simulee=AAAA-MM-JJ`, lu au chargement (aucun mécanisme n'existait).
+- **24/11/2026 — Tâche 2, contrôle rouge corrigé (1re correction).** La garde
+  de sécurité qui fige les écritures vers `utilisateurs` a échoué : le code
+  avait regroupé les deux écritures existantes de `nav_order` en une. Corrigé en
+  rétablissant les deux écritures à l'identique, sans toucher à la garde.
+
 ## Comptes rendus
 
 ### Arrêt avant la tâche 1 — 24/11/2026
@@ -269,4 +283,31 @@ Règle par défaut de `CLAUDE.md`. En plus :
   pu être testée dans un navigateur.
 - Hors données réelles : la vérification tourne sur des listes de test
   (exemple issu des tests, données fictives).
+
+### Tâche 2 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : la barre latérale et la barre du bas sur téléphone
+  suivent l'organisation du jour quand l'utilisateur en a une. Personne n'en a
+  encore (l'écran pour la régler arrive en tâche 4) : aucun changement visible
+  pour l'instant.
+- **Vérification sur la base (exigée avant mise en ligne)** : 2 utilisateurs
+  ont un ordre enregistré, tous deux au format liste, rôle admin. Aucun n'a
+  d'organisation. Comparaison de l'ordre affiché, ancien code contre nouveau,
+  pour chaque jour du lundi 23 au dimanche 29/11/2026, avec les pages
+  autorisées réelles du rôle admin (configuration en base + ajout automatique
+  admin) :
+
+  | Utilisateur (début d'identifiant) | Rôle | Pages du menu | Ordre identique les 7 jours | Barre du bas inchangée |
+  |---|---|---|---|---|
+  | 39c41372 | admin | 29 | oui | oui |
+  | 586c3534 | admin | 29 | oui | oui |
+
+- **Contrôles** : 19 verts après une correction (voir journal). Fusion,
+  déploiement de production Vercel terminé avec succès. Ouverture dans un
+  navigateur impossible depuis l'environnement de Claude (réseau).
+- **Test des écrans** : barres testées sur une page de test avec des profils
+  fictifs (exemple issu des tests, données fictives) : lundi « Bilan de
+  semaine, Commandes, Saisie commande » en tête ; samedi ordre habituel ; sans
+  organisation, rien ne change.
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
 
