@@ -702,6 +702,9 @@ test("27. tableau de bord : bandeau et blocs AU-DESSUS des widgets actuels, tous
   assert.match(registre, /import BlocTourneeChantiers from "\.\/BlocTourneeChantiers";/);
   assert.match(registre, /planning_semaine_suivante:\s*\{[^\n]*Composant: BlocPlanningSemaineSuivante \}/, "tâche 11 : bloc Planning de la semaine suivante livré");
   assert.match(registre, /import BlocPlanningSemaineSuivante from "\.\/BlocPlanningSemaineSuivante";/);
+  assert.match(registre, /materiaux_a_commander:\s*\{[^\n]*Composant: BlocMateriauxACommander \}/, "tâche 12 : bloc Matériaux à commander livré");
+  assert.match(registre, /import BlocMateriauxACommander from "\.\/BlocMateriauxACommander";/);
+  assert.ok(!/Composant: BlocAVenir \}/.test(registre), "tâche 12 : plus aucun bloc « à venir » dans le registre");
   assert.match(cadre, /export const MESSAGE_BLOC_A_VENIR = "Contenu de ce bloc : à venir dans une prochaine mise à jour\.";/);
   assert.match(cadre, /<MobileSection /, "téléphone : modèle MobileSection");
   assert.match(cadre, /summary=\{metrique\}/, "téléphone : métrique dans l'en-tête");

@@ -202,10 +202,11 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 8 | Bloc `chantiers_a_venir` (`cycleVie`) | en ligne | Contrôles verts | Liste identique aux chantiers non démarrés en base | [#263](https://github.com/Suivi-chantier/Planning-Chantiers/pull/263) |
 | 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | en ligne | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | [#264](https://github.com/Suivi-chantier/Planning-Chantiers/pull/264) |
 | 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | en ligne | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | [#265](https://github.com/Suivi-chantier/Planning-Chantiers/pull/265) |
-| 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | en cours | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | — |
-| 12 | Bloc `materiaux_a_commander` | à faire | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | — |
+| 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | en ligne | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | [#266](https://github.com/Suivi-chantier/Planning-Chantiers/pull/266) |
+| 12 | Bloc `materiaux_a_commander` | en cours | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | — |
 | 13 | Captures des 5 jours (date simulée) sur le compte de Loris + synthèse de fin de projet | à faire | — | Captures jointes au compte rendu | — |
 | 14 | Aligner le mail du vendredi et la notification « X € HT à payer » (`encoursFournisseursV1`, `api/cron-encours-fournisseurs.js`) sur le calcul de la page Encours fournisseurs (`encoursFournisseursPageV1.mjs`) | à faire | Contrôles verts + tableau avant / après par fournisseur et par mois sur la base réelle (écart attendu : celui de la page) | Le montant du mail = la somme des mois correspondants de la page | — |
+| 15 | Mail récap du vendredi, partie « Commandes prévisionnelles » : remplacer l'ancien calcul `materiauxACommanderV1` (sans données) par les articles de la page Commandes à passer dont la date de besoin tombe la semaine suivante (même règle que le bloc de la tâche 12) | à faire | Contrôles verts + comparaison sur la base réelle : liste du mail = onglet « Semaine prochaine » de la page | Le mail d'un vendredi simulé liste les mêmes articles que le bloc et la page | — |
 
 ## Journal des décisions
 
@@ -374,6 +375,47 @@ Règle par défaut de `CLAUDE.md`. En plus :
   (`retoursTerrainDonnees.js`) extraites ; libellés et couleurs des niveaux
   partagés (`PRESENTATION_NIVEAUX_ALERTE_V1`). Scripts `verif-alertes-chantiers`
   et `verif-alertes-marges` ajustés au déplacement, sans retrait.
+
+- **24/11/2026 — Tâche 11, extraction.** Orchestration de « La semaine qui
+  vient » sortie de `BilanPeriode.jsx` (`semaineQuiVientDonnees.js` pour le
+  moteur, `planningSemaineSuivanteV1.mjs` pour l'assemblage et les noms).
+  Moteur et `bilanSemaineProchaineV1` inchangés. Seul changement de
+  comportement de la page : une semaine illisible affiche une erreur au lieu
+  de faire planter la page.
+- **24/11/2026 — Tâche 11, date.** Le bloc prend la semaine suivant la date du
+  jour (date simulée comprise), comme le bloc de la tâche 6 : le moteur ne
+  dépend que du premier jour de la semaine, donc sans date simulée il donne
+  la même semaine que la page.
+- **24/11/2026 — Coût connu.** Le vendredi, le bloc relance le moteur de
+  planning (49 phasages, environ 2,5 Mo) à chaque affichage, comme la page ;
+  « calcul en cours » pendant quelques secondes.
+
+- **24/11/2026 — ARRÊT, tâche 12 (découverte qui change l'objectif).** La
+  source du catalogue, `materiauxACommanderV1`, lit les matériaux
+  prévisionnels de `phasages.plan_travaux` : vérifié sur la base par la
+  session principale, **0 phasage sur 49** en contient encore ; les matériaux
+  sont désormais saisis par ouvrage (`ouvrages[].materiaux_liens`, 24
+  phasages), ce que lit la page Commandes à passer (`commandesAPasserV1`). Le
+  bloc tel que décrit resterait toujours vide. La notification téléphone des
+  matériaux n'utilise plus ce module ; seul le mail récap du vendredi
+  l'utilise encore (sa partie « Commandes prévisionnelles » est donc
+  toujours vide — hors périmètre, non modifié).
+- **Question à Loris** : le bloc doit-il montrer les articles de la page
+  Commandes à passer dont la date de besoin tombe la semaine suivante (au
+  24/11 : 67 articles sur 4 chantiers MONTILLERS pour la semaine 49), plutôt
+  que l'ancien calcul, vide ? Recommandation : oui (réutilise
+  `commandesAPasserDonnees.js` et `commandesAPasserV1`, seule la règle de
+  rangement par semaine de la fenêtre « Commandes de la semaine » serait
+  extraite en `.mjs`, preuve avant / après).
+
+- **24/11/2026 — Réponse de Loris (tâche 12)** : « oui, et corrige aussi le
+  mail ». Le bloc reprend les articles de la page Commandes à passer dont la
+  date de besoin tombe la semaine suivante (règle de l'onglet « Semaine
+  prochaine » extraite en `.mjs`, partagée page + bloc). La correction du mail
+  récap du vendredi devient la **tâche 15** (code serveur, demande de fusion
+  séparée). La colonne « Source » du catalogue pour `materiaux_a_commander`
+  (`materiauxACommanderV1`) est remplacée dans les faits par
+  `commandesAPasserV1` ; section de Loris non modifiée, décision notée ici.
 
 ## Comptes rendus
 
@@ -627,4 +669,60 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **Test des écrans** : 69 cas réussis (exemple issu des tests, données
   fictives).
 - **Journal des MAJ** : deux entrées (bloc ; correctif page Alertes).
+
+### Tâche 11 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : le bloc « Planning de la semaine suivante » affiche
+  les heures prévues S+1 par chantier et par personne, les chantiers au-delà
+  de l'horizon, et la ligne « Montant prévisionnel : fonctionnalité à venir » ;
+  lien vers Planning semaine.
+- **Avant / après sur la base réelle** (lecture seule, semaine 2026-W49,
+  30/11–06/12 ; orchestration en ligne contre fonctions extraites, même date
+  de départ) :
+
+  | Chantier | Avant | Après | Écart |
+  |---|---|---|---|
+  | TOURBOUTON 102 | 50,49 h | 50,49 h | 0 |
+  | TOURBOUTON 101 | 39,4 h | 39,4 h | 0 |
+  | MONTILLERS APPT 4 (T2) | 26,25 h | 26,25 h | 0 |
+  | LOUISON APPT 3 (T4) | 17,55 h | 17,55 h | 0 |
+  | FOURMOND COMMUNS | 17,5 h | 17,5 h | 0 |
+  | BRIOLLAY APPT 2 | 16,73 h | 16,73 h | 0 |
+  | LOUISON APPT 1 (T2) | 15 h | 15 h | 0 |
+  | BRIOLLAY APPT 5 / APPT 4 | 5 h / 5 h | identique | 0 |
+  | METOIS | 4,44 h | 4,44 h | 0 |
+  | BRIOLLAY APPT 1 | 2,5 h | 2,5 h | 0 |
+  | LOUISON APPT 2 (T2) | 2,45 h | 2,45 h | 0 |
+  | **Total** | **202,31 h** | **202,31 h** | **0** |
+
+  Par personne : 7 personnes, 202,31 h, sans écart. Au-delà de l'horizon :
+  25 chantiers, identique.
+- **Contrôles** : 16 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
+- **Test des écrans** : 41 cas réussis (exemple issu des tests, données
+  fictives) ; mêmes heures que la page Bilan de semaine.
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 12 — arrêtée, en attente de Loris (24/11/2026)
+
+- **Fait** : analyse uniquement, aucun code modifié, aucune demande de fusion.
+- **Bloque** : la source prévue (`materiauxACommanderV1`) n'a plus de données
+  (0 phasage sur 49 avec des matériaux prévisionnels).
+- **Éléments pour décider** (base réelle, lecture seule, données au 24/11 pour
+  la semaine 2026-W49) :
+
+  | Source | Matériaux à commander en W49 |
+  |---|---|
+  | Ancien calcul `materiauxACommanderV1` | 0 |
+  | Page Commandes à passer, onglet « Semaine prochaine » | 67 articles, 4 chantiers |
+
+  | Chantier | Articles | Date de besoin la plus proche |
+  |---|---|---|
+  | MONTILLERS APPT 4 (T2) | 27 | 30/11/2026 |
+  | MONTILLERS APPT 3 (STUDIO) | 23 | 30/11/2026 |
+  | MONTILLERS APPT 1 (T3) | 9 | 30/11/2026 |
+  | MONTILLERS APPT 2 (T2) | 8 | 30/11/2026 |
+- **Question** : « Le bloc "Matériaux à commander" doit-il reprendre les
+  articles de la page Commandes à passer pour la semaine suivante ? » — Oui /
+  Non.
 

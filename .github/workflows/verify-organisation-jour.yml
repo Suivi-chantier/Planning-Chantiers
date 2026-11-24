@@ -73,6 +73,10 @@ on:
       - 'src/Renovation/bilanDecisionsV3.mjs'
       - 'src/Renovation/planningEngineDataV1.js'
       - 'scripts/verif-bloc-planning-semaine-suivante.mjs'
+      - 'src/Renovation/commandesParSemaineV1.mjs'
+      - 'src/Renovation/commandesParSemaineV1.js'
+      - 'src/Renovation/commandesOuvrageV1.mjs'
+      - 'scripts/verif-bloc-materiaux-a-commander.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
   pull_request:
     paths:
@@ -145,6 +149,10 @@ on:
       - 'src/Renovation/bilanDecisionsV3.mjs'
       - 'src/Renovation/planningEngineDataV1.js'
       - 'scripts/verif-bloc-planning-semaine-suivante.mjs'
+      - 'src/Renovation/commandesParSemaineV1.mjs'
+      - 'src/Renovation/commandesParSemaineV1.js'
+      - 'src/Renovation/commandesOuvrageV1.mjs'
+      - 'scripts/verif-bloc-materiaux-a-commander.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
 
 permissions:
@@ -172,3 +180,5 @@ jobs:
         run: node scripts/verif-bloc-tournee-chantiers.mjs
       - name: Bloc « Planning de la semaine suivante » — même lancement du moteur, même découpe et mêmes noms que la carte « La semaine qui vient » de la page Bilan de semaine, total, par chantier, par personne, aucune heure, erreur, ligne « Montant prévisionnel : fonctionnalité à venir » (données fictives)
         run: node scripts/verif-bloc-planning-semaine-suivante.mjs
+      - name: Bloc « Matériaux à commander » — même rangement par semaine que la fenêtre « Commandes de la semaine » de la page Commandes à passer (onglet « Semaine prochaine »), même liste, par chantier, articles les plus urgents, aucun article, erreur, chargement, fuseau de Paris (données fictives)
+        run: node scripts/verif-bloc-materiaux-a-commander.mjs

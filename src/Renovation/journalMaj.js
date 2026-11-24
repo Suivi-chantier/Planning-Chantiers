@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
     type: "amelioration",
+    titre: "Tableau de bord : le bloc « Matériaux à commander » liste les articles à commander pour la semaine prochaine",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "planning-commandes", label: "Commandes à passer" }],
+    quoi: "Le bloc « Matériaux à commander » du tableau de bord (le vendredi, pour qui l'a choisi dans son organisation) affiche les articles de la page Commandes à passer dont la date de besoin tombe la semaine prochaine : exactement ceux de l'onglet « Semaine prochaine » de la fenêtre « Commandes de la semaine » de la page, même liste et même rangement par semaine. La date de besoin d'un article est la date prévue la plus proche des tâches de son ouvrage dans le phasage. Le bloc donne le nombre d'articles, puis, par chantier, le nombre d'articles et la date de besoin la plus proche, puis les articles les plus urgents (article, quantité, chantier, date de besoin).",
+    comment: "Le bloc détaille les six articles les plus urgents, puis « et N autres » ; le bouton « Commandes à passer » ouvre la page (bouton « Commandes de la semaine », onglet « Semaine prochaine », pour passer les commandes). Sur téléphone, le nombre d'articles de la semaine prochaine s'affiche dans l'en-tête du bloc. Si rien n'est à commander, le bloc l'écrit (« Aucun matériau à commander pour la semaine 49 ») ; pendant la lecture, il affiche « chargement » ; si les données ne peuvent pas être lues, il le dit au lieu d'afficher zéro.",
+  },
+  {
+    date: "2026-11-24",
+    type: "amelioration",
     titre: "Tableau de bord : le bloc « Planning de la semaine suivante » montre les heures prévues la semaine prochaine",
     pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "planning", label: "Planning semaine" }, { id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "Le bloc « Planning de la semaine suivante » du tableau de bord (le vendredi, pour qui l'a choisi dans son organisation) affiche ce que le moteur de planning placerait la semaine prochaine : le total d'heures de main-d'œuvre prévues, les heures par chantier (du plus chargé au moins chargé) et les heures par personne. Ce sont exactement les chiffres de la carte « La semaine qui vient » de la page Bilan de semaine : même calcul, mêmes noms. C'est une proposition : rien n'est enregistré ni appliqué au planning. Une ligne « Montant prévisionnel : fonctionnalité à venir » réserve la place du montant en euros des tâches placées, qui fera l'objet d'une mise à jour à part.",
