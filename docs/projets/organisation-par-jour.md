@@ -200,11 +200,12 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | en ligne | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | [#261](https://github.com/Suivi-chantier/Planning-Chantiers/pull/261) |
 | 7 | Bloc `commandes_a_saisir` | en ligne | Contrôles verts | Mêmes comptes que la page Commandes à passer | [#262](https://github.com/Suivi-chantier/Planning-Chantiers/pull/262) |
 | 8 | Bloc `chantiers_a_venir` (`cycleVie`) | en ligne | Contrôles verts | Liste identique aux chantiers non démarrés en base | [#263](https://github.com/Suivi-chantier/Planning-Chantiers/pull/263) |
-| 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | en cours | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | — |
-| 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | à faire | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | — |
+| 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | en ligne | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | [#264](https://github.com/Suivi-chantier/Planning-Chantiers/pull/264) |
+| 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | en cours | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | — |
 | 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | à faire | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | — |
 | 12 | Bloc `materiaux_a_commander` | à faire | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | — |
 | 13 | Captures des 5 jours (date simulée) sur le compte de Loris + synthèse de fin de projet | à faire | — | Captures jointes au compte rendu | — |
+| 14 | Aligner le mail du vendredi et la notification « X € HT à payer » (`encoursFournisseursV1`, `api/cron-encours-fournisseurs.js`) sur le calcul de la page Encours fournisseurs (`encoursFournisseursPageV1.mjs`) | à faire | Contrôles verts + tableau avant / après par fournisseur et par mois sur la base réelle (écart attendu : celui de la page) | Le montant du mail = la somme des mois correspondants de la page | — |
 
 ## Journal des décisions
 
@@ -329,6 +330,30 @@ Règle par défaut de `CLAUDE.md`. En plus :
   périmètre).** Un chantier sans statut s'affiche « En cours » dans la liste
   Opérations, « Planifié » dans la synthèse cycle de vie d'Opérations, et l'un
   ou l'autre sur la fiche selon qu'il a un phasage. Le bloc suit la fiche.
+
+- **24/11/2026 — Tâche 9, extraction.** Calcul de la page Encours
+  fournisseurs extrait tel quel (`encoursFournisseursDonnees.js`,
+  `encoursFournisseursPageV1.mjs`) ; historique du rapprochement extrait
+  (`rapprochementDonnees.js`, `historiqueRapprochementV1.mjs`). Les pages et le
+  bloc utilisent les mêmes fonctions. `encoursFournisseursV1.mjs` non modifié.
+- **24/11/2026 — Divergence constatée (question à Loris).** Le mail du
+  vendredi et la notification « X € HT à payer » (`encoursFournisseursV1`)
+  annoncent 32 469,16 € sur 6 mois quand la page donne 32 578,47 € pour les
+  mêmes mois (−109,31 €). Causes : règle « 30 j fin de mois » différente pour
+  un document daté d'une fin de mois (page : 31/08 → 31/10 ; V1 : 31/08 →
+  30/09 ; 5 commandes REXEL, ZOLPAN, Partedis), conversion UTC des dates,
+  échéance saisie sur facture et BL de facture ignorés (sans effet
+  aujourd'hui), fenêtre de 6 mois.
+- **24/11/2026 — Réponse de Loris** : « oui il faut » (aligner le mail et la
+  notification sur la page). Ajout de la **tâche 14**, placée en fin de projet
+  pour ne pas mêler un changement de montants aux blocs du tableau de bord.
+  Ce n'est pas un calcul réutilisé par les blocs (hors périmètre « modules
+  réutilisés » non concerné) ; la décision vient de Loris.
+- **24/11/2026 — Défaut existant signalé, non corrigé.** La page Encours
+  fournisseurs affiche « Aucune dépense enregistrée. » quand la lecture
+  échoue (état inconnu présenté comme vide). Le bloc, lui, signale l'erreur.
+- **24/11/2026 — Mois en cours du bloc Encours** : horloge de l'appareil, comme
+  la page, pour afficher toujours le même chiffre que la page.
 
 ## Comptes rendus
 
@@ -521,5 +546,35 @@ Règle par défaut de `CLAUDE.md`. En plus :
   terminé avec succès.
 - **Test des écrans** : 57 cas réussis (exemple issu des tests, données
   fictives) ; les cases de Préparation de la fiche sont celles du bloc.
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 9 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : le bloc « Administratif fournisseurs » affiche les
+  factures à rapprocher (nombre, 5 plus anciennes) et l'encours à payer avec
+  les cartes de la page Encours (« À payer » et « Payé comptant » du mois),
+  les fournisseurs du mois et les mois suivants ; liens vers les deux pages.
+- **Avant / après sur la base réelle** (lecture seule, 24/11/2026 ; code de la
+  page en ligne contre fonctions extraites, mêmes données) :
+
+  | Chiffre | Avant | Après | Écart |
+  |---|---|---|---|
+  | À payer · novembre 2026 | 6 879,94 € | 6 879,94 € | 0 |
+  | Payé comptant · novembre 2026 | 1 050,05 € | 1 050,05 € | 0 |
+  | REXEL, à payer / payé comptant (tous mois) | 22 506,28 € / 1 535,20 € | identique | 0 |
+  | Partedis | 5 849,28 € / 725,07 € | identique | 0 |
+  | ZOLPAN | 4 758,81 € / 0 € | identique | 0 |
+  | YESSS ELECTRIQUE | 971,97 € / 0 € | identique | 0 |
+  | WURTH | 408,68 € / 0 € | identique | 0 |
+  | LEROY MERLIN | 0 € / 31 774,49 € | identique | 0 |
+  | 15 autres fournisseurs | 0 € / 8 989,52 € | identique | 0 |
+  | **Total** | **34 495,02 € / 43 037,46 €** | identique | **0** |
+  | Factures à rapprocher | 0 | 0 | 0 |
+
+  Les 9 mois d'échéance et les 273 éléments sont identiques un par un.
+- **Contrôles** : 18 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
+- **Test des écrans** : 60 cas réussis (exemple issu des tests, données
+  fictives) ; mêmes chiffres que les pages Encours et Rapprochement.
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
 
