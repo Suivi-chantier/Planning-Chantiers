@@ -47,7 +47,8 @@ function PageLoader({ T }) {
   );
 }
 
-import { Sidebar, BottomNav, LABELS_PAGES } from "./Renovation/Navigation";
+import { Sidebar, BottomNav, LABELS_PAGES, idsPagesDuMenu, useOrganisationDuJour } from "./Renovation/Navigation";
+import { pageAOuvrirAuDemarrage } from "./Renovation/organisationJour.js";
 import BarreOnglets, { MAX_ONGLETS } from "./Renovation/BarreOnglets";
 import PanneauProfil from "./Renovation/ProfilNotifications";
 import { useBoiteNotifications, BoutonCloche, PanneauBoite } from "./Renovation/ClocheNotifications";
@@ -142,6 +143,13 @@ const EspaceOuvrier          = lazy(() => import("./Renovation/EspaceOuvrier"));
 import { loadAccessConfig, canAccess as _canAccess, ROLE_PAGES_DEFAULT_RENOVATION, PAGES_RENOVATION } from "./access";
 // Lot 5 (Refonte Opérations) : Opérations porte d'entrée, liste Chantiers hors menu.
 import { estPageDuMenu, pageDestination } from "./Renovation/navigationOperations.js";
+
+// ─── PAGE D'ARRIVÉE DU JOUR (organisation de la semaine, règle 5) ───────────
+// Décidée une seule fois par ouverture de l'application (chargement de la
+// page, ou connexion par le formulaire) : revenir du portail vers Rénovation
+// ne la réapplique pas. Voir MainApp.
+let pageDArriveeDecidee = false;
+const reinitialiserPageDArrivee = () => { pageDArriveeDecidee = false; };
 
 // ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
 if (typeof window !== "undefined") {
@@ -631,10 +639,12 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
 
   // Config d'accès dynamique (rôles ↔ pages), chargée depuis planning_config.
   const [rolePages, setRolePages] = useState(ROLE_PAGES_DEFAULT_RENOVATION);
+  // Vrai dès que la config d'accès en base a répondu (page d'arrivée du jour).
+  const [accesCharge, setAccesCharge] = useState(false);
   useEffect(() => {
     let cancelled = false;
     loadAccessConfig("renovation").then(({ rolePages: rp }) => {
-      if (!cancelled) setRolePages(rp);
+      if (!cancelled) { setRolePages(rp); setAccesCharge(true); }
     });
     // Realtime : recharger si la matrice d'accès change en base
     const ch = supabase.channel("access-renovation")
@@ -711,8 +721,46 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     if (canAccess(role, page)) return;
     // Lot 5 : jamais la liste Chantiers comme page d'arrivée (hors menu).
     const premiere = PAGES_RENOVATION.map(p => p.id).filter(estPageDuMenu).find(id => canAccess(role, id));
-    if (premiere) setPage(premiere);
+    if (premiere) { navigationAuto.current = true; setPage(premiere); }
   }, [rolePages, role, page]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Page d'arrivée du jour (organisation de la semaine, règle 5) ──
+  // Aujourd'hui l'application s'ouvre toujours sur le tableau de bord (rien
+  // n'est restauré de la session précédente), sauf lien explicite (« ?page=… »
+  // ou « #page » : notification, favori) traité juste au-dessus. Si
+  // l'organisation du jour indique une page d'arrivée autorisée pour le rôle
+  // (mêmes pages que le menu : config en base + ajout automatique admin), on
+  // l'ouvre à la place, une seule fois, et seulement si rien n'a été demandé
+  // explicitement et que l'utilisateur n'a pas encore navigué. Sans
+  // organisation, week-end, mode « ordre habituel aujourd'hui » : rien ne change.
+  const orgJour = useOrganisationDuJour(profil);
+  const [demandeExplicite] = useState(() => {
+    try {
+      const ancre = window.location.hash.replace(/^#\/?/, "").toLowerCase();
+      return new URLSearchParams(window.location.search).has("page")
+        || (ancre !== "" && PAGES_RENOVATION.some(p => p.id === ancre));
+    } catch { return false; }
+  });
+  const navigationAuto = React.useRef(false);   // bascule automatique (page non autorisée), pas un choix de l'utilisateur
+  const dejaNavigue = React.useRef(false);
+  const vuePrecedente = React.useRef(`${ongletActif}:${page}`);
+  useEffect(() => {
+    const vue = `${ongletActif}:${page}`;
+    if (vue === vuePrecedente.current) return;
+    vuePrecedente.current = vue;
+    if (navigationAuto.current) { navigationAuto.current = false; return; }
+    dejaNavigue.current = true;
+  }, [page, ongletActif]);
+  useEffect(() => {
+    if (pageDArriveeDecidee || !accesCharge || !profil || role==="ouvrier") return;
+    pageDArriveeDecidee = true;
+    const cible = pageAOuvrirAuDemarrage({
+      pagesAutorisees: idsPagesDuMenu(role, rolePages),
+      navOrder: orgJour.navOrder, dateIso: orgJour.date,
+      demandeExplicite, dejaNavigue: dejaNavigue.current,
+    });
+    if (cible && canAccess(role, cible) && cible !== page) setPage(cible);
+  }, [accesCharge, profil]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData=useCallback(async()=>{
     setSyncing(true);
@@ -1141,6 +1189,7 @@ export default function App() {
   }, []);
 
   const handleLogin = (u, p) => {
+    reinitialiserPageDArrivee();   // nouvelle connexion = nouvelle ouverture
     setUser(u); setProfil(p);
     setAuthState(destForProfil(p));
   };

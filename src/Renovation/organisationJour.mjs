@@ -373,3 +373,46 @@ export function ordreBarreDuBas(pagesBas, pagesMenu, navOrder, dateIso) {
   if (!ordreDuJourActif(pagesMenu, navOrder, dateIso)) return bas.slice();
   return ordreDesPages(pagesMenu, navOrder, dateIso);
 }
+
+// ─── Page d'arrivée à l'ouverture et bouton « Ordre habituel aujourd'hui » ───
+
+/**
+ * Page à ouvrir au démarrage de l'application (règle 5), ou null pour garder
+ * le comportement actuel. La décision n'est prise qu'une fois par ouverture
+ * (`dejaDecide`), et jamais si une page a été demandée explicitement (lien
+ * « ?page=… » ou « #page » d'une notification ou d'un favori :
+ * `demandeExplicite`) ni si l'utilisateur a déjà navigué (`dejaNavigue`).
+ * @param {{ pagesAutorisees: string[], navOrder: any, dateIso: string,
+ *           dejaDecide?: boolean, demandeExplicite?: boolean, dejaNavigue?: boolean }} p
+ */
+export function pageAOuvrirAuDemarrage({ pagesAutorisees, navOrder, dateIso, dejaDecide = false, demandeExplicite = false, dejaNavigue = false } = {}) {
+  if (dejaDecide || demandeExplicite || dejaNavigue) return null;
+  return pageDArrivee(pagesAutorisees, navOrder, dateIso);
+}
+
+/** Libellés du bouton de la règle 7. */
+export const LIBELLE_ORDRE_HABITUEL = "Ordre habituel aujourd'hui";
+export const LIBELLE_RETOUR_ORGANISATION = "Revenir à l'organisation du jour";
+
+/**
+ * État du bouton « Ordre habituel aujourd'hui » (règle 7) :
+ *   null — bouton masqué (week-end, jour non configuré, sans organisation) ;
+ *   { actif, libelle } — `actif` vrai si le mode est déjà en place ce jour-là
+ *   (le bouton propose alors de revenir à l'organisation du jour).
+ */
+export function boutonOrdreHabituel(navOrder, dateIso) {
+  if (!organisationDuJour(navOrder, dateIso)) return null;
+  const actif = ordreHabituelActif(navOrder, dateIso);
+  return { actif, libelle: actif ? LIBELLE_RETOUR_ORGANISATION : LIBELLE_ORDRE_HABITUEL };
+}
+
+/**
+ * Nouvelle valeur de `nav_order` après un clic sur ce bouton : active le mode
+ * pour la date donnée, ou le désactive s'il l'est déjà. Sans bouton (aucune
+ * organisation ce jour-là), la valeur est rendue telle quelle.
+ */
+export function basculerOrdreHabituel(navOrder, dateIso) {
+  const b = boutonOrdreHabituel(navOrder, dateIso);
+  if (!b) return navOrder ?? null;
+  return b.actif ? desactiverOrdreHabituel(navOrder) : activerOrdreHabituel(navOrder, dateIso);
+}
