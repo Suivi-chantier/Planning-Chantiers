@@ -696,13 +696,17 @@ test("27. tableau de bord : bandeau et blocs AU-DESSUS des widgets actuels, tous
   // Blocs livrés (tâche 6 et suivantes) : leur composant remplace « à venir ».
   assert.match(registre, /bilan_semaine_passee:\s*\{[^\n]*Composant: BlocBilanSemainePassee \}/, "tâche 6 : bloc Bilan de la semaine passée livré");
   assert.match(registre, /commandes_a_saisir:\s*\{[^\n]*Composant: BlocCommandesASaisir \}/, "tâche 7 : bloc Commandes à saisir livré");
+  assert.match(registre, /chantiers_a_venir:\s*\{[^\n]*Composant: BlocChantiersAVenir \}/, "tâche 8 : bloc Chantiers à venir livré");
   assert.match(cadre, /export const MESSAGE_BLOC_A_VENIR = "Contenu de ce bloc : à venir dans une prochaine mise à jour\.";/);
   assert.match(cadre, /<MobileSection /, "téléphone : modèle MobileSection");
   assert.match(cadre, /summary=\{metrique\}/, "téléphone : métrique dans l'en-tête");
   assert.match(registre, /titre=\{LIBELLES_BLOCS\[id\]\}/, "titres métier");
   assert.match(registre, /liens=\{liensDuBloc\(id, pageAutorisee\)\}/, "liens filtrés par rôle");
   assert.match(bandeauSrc, /Ordre habituel aujourd'hui : menu et tableau de bord sans l'organisation du jour, jusqu'à demain\./, "mention du mode");
-  assert.match(app, /<PageDashboard [^>]*pageAutorisee=\{\(id\)=>canAccess\(role,id\)\} onOuvrirPage=\{setPage\}\/>/, "liens : pages autorisées du rôle");
+  assert.match(app, /<PageDashboard [^>]*pageAutorisee=\{\(id\)=>canAccess\(role,id\)\} onOuvrirPage=\{setPage\} onOuvrirChantier=\{canAccess\(role,"operations"\)&&canAccess\(role,"chantiers"\) \? ouvrirFicheChantier : null\}\/>/, "liens : pages autorisées du rôle ; fiche chantier comme depuis Opérations (tâche 8)");
+  assert.match(app, /<PageOperations [^\n]*onOpenChantier=\{canAccess\(role,"chantiers"\) \? ouvrirFicheChantier : null\}/, "Opérations : même mécanisme d'ouverture de la fiche");
+  assert.match(registre, /onOuvrirChantier=\{onOuvrirChantier\}/, "registre : ouverture de la fiche transmise aux blocs");
+  assert.equal((dash.match(/onOuvrirChantier=\{onOuvrirChantier\}/g) || []).length, 2, "tableau de bord : transmis au bureau et au téléphone");
   // Écran « Mon organisation » : plus d'annonce « prochaine mise à jour » pour le bandeau.
   const ecran = lire("src/Renovation/MonOrganisation.jsx");
   assert.ok(!/s'afficheront en haut du tableau de bord lors d'une prochaine mise à jour/.test(ecran));

@@ -28,6 +28,16 @@ on:
       - 'src/Renovation/commandesAPasserV1.mjs'
       - 'src/Renovation/PagePlanningCommandes.jsx'
       - 'scripts/verif-bloc-commandes-a-saisir.mjs'
+      - 'src/Renovation/chantiersAVenirV1.mjs'
+      - 'src/Renovation/chantiersAVenirV1.js'
+      - 'src/Renovation/chantiersAVenirDonnees.js'
+      - 'src/Renovation/cycleVie.mjs'
+      - 'src/Renovation/cycleVieReprise.mjs'
+      - 'src/Renovation/cycleVieDonnees.js'
+      - 'src/Renovation/factureAEmettre.mjs'
+      - 'src/Renovation/chantierActif.mjs'
+      - 'src/Renovation/PageChantiers.jsx'
+      - 'scripts/verif-bloc-chantiers-a-venir.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
   pull_request:
     paths:
@@ -55,6 +65,16 @@ on:
       - 'src/Renovation/commandesAPasserV1.mjs'
       - 'src/Renovation/PagePlanningCommandes.jsx'
       - 'scripts/verif-bloc-commandes-a-saisir.mjs'
+      - 'src/Renovation/chantiersAVenirV1.mjs'
+      - 'src/Renovation/chantiersAVenirV1.js'
+      - 'src/Renovation/chantiersAVenirDonnees.js'
+      - 'src/Renovation/cycleVie.mjs'
+      - 'src/Renovation/cycleVieReprise.mjs'
+      - 'src/Renovation/cycleVieDonnees.js'
+      - 'src/Renovation/factureAEmettre.mjs'
+      - 'src/Renovation/chantierActif.mjs'
+      - 'src/Renovation/PageChantiers.jsx'
+      - 'scripts/verif-bloc-chantiers-a-venir.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
 
 permissions:
@@ -74,3 +94,5 @@ jobs:
         run: node scripts/verif-bloc-bilan-semaine.mjs
       - name: Bloc « Commandes à saisir » — même lecture des demandes que le tableau de bord, mêmes chiffres que la page Commandes à passer, aucune demande, aucun article, erreurs (données fictives)
         run: node scripts/verif-bloc-commandes-a-saisir.mjs
+      - name: Bloc « Chantiers à venir » — statut « Planifié » de la fiche chantier, étapes de la Préparation évaluées comme sur la fiche, aucun chantier, Préparation non renseignée, erreurs (données fictives)
+        run: node scripts/verif-bloc-chantiers-a-venir.mjs

@@ -109,7 +109,7 @@ function weatherInfo(code) {
 }
 
 // ─── PAGE DASHBOARD ───────────────────────────────────────────────────────────
-function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, profil, branch = "renovation", pageAutorisee = null, onOuvrirPage = null }) {
+function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, profil, branch = "renovation", pageAutorisee = null, onOuvrirPage = null, onOuvrirChantier = null }) {
   const acc = getBranchAccent(branch);
   const isMobile = useIsMobile();
   // ── Organisation du jour (projet organisation-par-jour, tâche 5) ──
@@ -246,7 +246,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
 
         {/* Organisation du jour : bandeau puis blocs du jour (rien sans organisation) */}
         <BandeauDuJour bandeau={bandeau} onBasculer={orgJour.basculerOrdreHabituel} T={T} accent={acc.accent} isMobile/>
-        <BlocsDuJour blocs={blocsJour} T={T} isMobile pageAutorisee={pageAutorisee} onOuvrirPage={onOuvrirPage} profil={profil} contexte={contexteBlocs}/>
+        <BlocsDuJour blocs={blocsJour} T={T} isMobile pageAutorisee={pageAutorisee} onOuvrirPage={onOuvrirPage} onOuvrirChantier={onOuvrirChantier} profil={profil} contexte={contexteBlocs}/>
 
         {/* KPI 2×2 */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
@@ -381,7 +381,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
 
       {/* Organisation du jour : bandeau puis blocs du jour (rien sans organisation) */}
       <BandeauDuJour bandeau={bandeau} onBasculer={orgJour.basculerOrdreHabituel} T={T} accent={acc.accent} isMobile={false}/>
-      <BlocsDuJour blocs={blocsJour} T={T} isMobile={false} pageAutorisee={pageAutorisee} onOuvrirPage={onOuvrirPage} profil={profil} contexte={contexteBlocs}/>
+      <BlocsDuJour blocs={blocsJour} T={T} isMobile={false} pageAutorisee={pageAutorisee} onOuvrirPage={onOuvrirPage} onOuvrirChantier={onOuvrirChantier} profil={profil} contexte={contexteBlocs}/>
 
       {/* Stats KPI : 4 tuiles */}
       <div className="dash-stats-grid" style={{

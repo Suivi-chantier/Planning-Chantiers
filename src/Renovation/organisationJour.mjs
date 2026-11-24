@@ -546,8 +546,8 @@ export function trierRendezVous(rendezVous) {
 /**
  * Pages ouvertes par le lien de chaque bloc (colonne « Lien » du catalogue).
  * `chantiers_a_venir` : la fiche chantier s'ouvre depuis Opérations (la liste
- * Chantiers n'est plus dans le menu) ; le lien direct vers chaque fiche
- * viendra avec le contenu du bloc.
+ * Chantiers n'est plus dans le menu) ; chaque chantier du bloc ouvre en plus
+ * sa fiche (tâche 8, BlocChantiersAVenir).
  */
 export const LIENS_BLOCS = deepFreeze({
   bilan_semaine_passee: ["bilan-semaine"],
