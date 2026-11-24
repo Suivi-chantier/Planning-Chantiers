@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
     type: "amelioration",
+    titre: "Tableau de bord : le bloc « Administratif fournisseurs » affiche les factures à rapprocher et l'encours à payer",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "rapprochement", label: "Rapprochement factures" }, { id: "encours-fournisseurs", label: "Encours fournisseurs" }],
+    quoi: "Le bloc « Administratif fournisseurs » du tableau de bord (le mercredi, pour qui l'a choisi dans son organisation) montre deux choses. D'abord les factures fournisseurs au statut « À rapprocher » de la page Rapprochement factures : leur nombre et les cinq plus anciennes, avec le fournisseur, le numéro, la date et le montant HT. Ensuite l'encours fournisseurs, avec exactement les chiffres du haut de la page Encours fournisseurs : « À payer » et « Payé comptant » du mois en cours, regroupés par mois d'échéance de paiement selon le mode de chaque fournisseur, les fournisseurs à payer ce mois-ci (les plus gros d'abord) et les montants à payer des mois suivants.",
+    comment: "Les boutons « Rapprochement factures » et « Encours fournisseurs » ouvrent les pages (seulement si vous y avez accès). Sur téléphone, le montant à payer du mois s'affiche dans l'en-tête du bloc. Quand il n'y a rien, le bloc l'écrit (« Aucune facture à rapprocher », « Aucun encours à payer ») ; si une partie ne peut pas être lue, il le dit sans afficher 0 €, et l'autre partie reste visible.",
+  },
+  {
+    date: "2026-11-24",
+    type: "amelioration",
     titre: "Tableau de bord : le bloc « Chantiers à venir » liste les chantiers à préparer",
     pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "operations", label: "Opérations" }, { id: "chantiers", label: "Fiche chantier" }],
     quoi: "Le bloc « Chantiers à venir » du tableau de bord (le mardi, pour qui l'a choisi dans son organisation) liste les chantiers signés mais pas encore commencés, c'est-à-dire ceux dont la fiche chantier affiche le statut « Planifié ». Pour chacun : où en est sa phase « Préparation » du cycle de vie (par exemple « 2/6 étapes faites ») et les étapes qui manquent encore (les trois premières, puis « et N autres »). Les étapes sont comptées exactement comme sur la fiche chantier : visites, plans techniques, phasage avec matériaux, planning prévisionnel, finalisation.",

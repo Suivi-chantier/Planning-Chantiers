@@ -38,6 +38,18 @@ on:
       - 'src/Renovation/chantierActif.mjs'
       - 'src/Renovation/PageChantiers.jsx'
       - 'scripts/verif-bloc-chantiers-a-venir.mjs'
+      - 'src/Renovation/encoursFournisseursPageV1.mjs'
+      - 'src/Renovation/encoursFournisseursPageV1.js'
+      - 'src/Renovation/encoursFournisseursDonnees.js'
+      - 'src/Renovation/PageEncoursFournisseurs.jsx'
+      - 'src/Renovation/historiqueRapprochementV1.mjs'
+      - 'src/Renovation/historiqueRapprochementV1.js'
+      - 'src/Renovation/rapprochementDonnees.js'
+      - 'src/Renovation/RapprochementFactures.jsx'
+      - 'src/Renovation/administratifFournisseursV1.mjs'
+      - 'src/Renovation/administratifFournisseursV1.js'
+      - 'api/cron-encours-fournisseurs.js'
+      - 'scripts/verif-bloc-administratif-fournisseurs.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
   pull_request:
     paths:
@@ -75,6 +87,18 @@ on:
       - 'src/Renovation/chantierActif.mjs'
       - 'src/Renovation/PageChantiers.jsx'
       - 'scripts/verif-bloc-chantiers-a-venir.mjs'
+      - 'src/Renovation/encoursFournisseursPageV1.mjs'
+      - 'src/Renovation/encoursFournisseursPageV1.js'
+      - 'src/Renovation/encoursFournisseursDonnees.js'
+      - 'src/Renovation/PageEncoursFournisseurs.jsx'
+      - 'src/Renovation/historiqueRapprochementV1.mjs'
+      - 'src/Renovation/historiqueRapprochementV1.js'
+      - 'src/Renovation/rapprochementDonnees.js'
+      - 'src/Renovation/RapprochementFactures.jsx'
+      - 'src/Renovation/administratifFournisseursV1.mjs'
+      - 'src/Renovation/administratifFournisseursV1.js'
+      - 'api/cron-encours-fournisseurs.js'
+      - 'scripts/verif-bloc-administratif-fournisseurs.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
 
 permissions:
@@ -96,3 +120,5 @@ jobs:
         run: node scripts/verif-bloc-commandes-a-saisir.mjs
       - name: Bloc « Chantiers à venir » — statut « Planifié » de la fiche chantier, étapes de la Préparation évaluées comme sur la fiche, aucun chantier, Préparation non renseignée, erreurs (données fictives)
         run: node scripts/verif-bloc-chantiers-a-venir.mjs
+      - name: Bloc « Administratif fournisseurs » — mêmes lectures et même calcul que les pages Rapprochement factures et Encours fournisseurs, aucune facture, aucun encours, erreur d'une partie (données fictives)
+        run: node scripts/verif-bloc-administratif-fournisseurs.mjs
