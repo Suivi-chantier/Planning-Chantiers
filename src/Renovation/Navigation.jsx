@@ -45,20 +45,19 @@ function useNavOrder(profil) {
     window.addEventListener(EVT_NAV_ORDER, surChangement);
     return () => window.removeEventListener(EVT_NAV_ORDER, surChangement);
   }, [cle]);
-  // Enregistre la nouvelle valeur (cache local + base) et prévient l'autre barre.
-  const enregistrer = (valeur, libelle) => {
+  // Applique la nouvelle valeur localement (état + cache) et prévient l'autre
+  // barre. L'écriture en base reste dans Sidebar (persistOrder / resetOrder) :
+  // l'inventaire des écritures vers `utilisateurs` est figé par
+  // scripts/verif-utilisateurs-champs-sensibles.mjs.
+  const appliquerLocal = (valeur) => {
     setNavOrderLocal(valeur);
     try {
       if (valeur === null) localStorage.removeItem(cle);
       else localStorage.setItem(cle, JSON.stringify(valeur));
     } catch {}
     try { window.dispatchEvent(new CustomEvent(EVT_NAV_ORDER, { detail: { cle, valeur } })); } catch {}
-    if (profil?.id) {
-      supabase.from("utilisateurs").update({ nav_order: valeur }).eq("id", profil.id)
-        .then(({ error }) => { if (error) console.warn(`nav_order (${libelle}) :`, error.message); });
-    }
   };
-  return [navOrder, enregistrer];
+  return [navOrder, appliquerLocal];
 }
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
@@ -352,7 +351,7 @@ function Sidebar({
 
   // ── Réorganisation des onglets (mémorisée par utilisateur, voir useNavOrder) ──
   const [editOrder, setEditOrder] = useState(false);
-  const [navOrder, enregistrerNavOrder] = useNavOrder(profil);
+  const [navOrder, appliquerNavOrderLocal] = useNavOrder(profil);
   const ordrePerso = lireNavOrder(navOrder).ordre; // ordre habituel choisi (null = par défaut)
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
@@ -368,8 +367,17 @@ function Sidebar({
     : etatDuJour(idsAutorises, navOrder, dateDuJour()).pages;
   const nav = idsAffiches.map(id => byId.get(id)).filter(Boolean);
 
+  // Enregistre `ids` (liste simple ou objet { ordre, jours, … }) : cache + base.
+  const sauvegarderNavOrder = (ids) => {
+    appliquerNavOrderLocal(ids);
+    if (profil?.id) {
+      supabase.from("utilisateurs").update({ nav_order: ids }).eq("id", profil.id)
+        .then(({ error }) => { if (error) console.warn("nav_order (sauvegarde) :", error.message); });
+    }
+  };
+
   // Règle `ordre` sans effacer `jours` ; sans organisation, liste simple comme avant.
-  const persistOrder = (ordre) => enregistrerNavOrder(ecrireOrdre(navOrder, ordre), "sauvegarde");
+  const persistOrder = (ordre) => sauvegarderNavOrder(ecrireOrdre(navOrder, ordre));
 
   const handleDrop = (targetId) => {
     if (!dragId || dragId === targetId) { setDragId(null); setOverId(null); return; }
@@ -382,8 +390,17 @@ function Sidebar({
     setDragId(null); setOverId(null);
   };
 
-  // Sans organisation : null, comme avant ; avec : on garde les jours.
-  const resetOrder = () => enregistrerNavOrder(reinitialiserOrdre(navOrder), "réinit.");
+  // Sans organisation : null, comme avant ; avec : l'objet sans `ordre` (jours
+  // gardés), enregistré par le même appel que la sauvegarde.
+  const resetOrder = () => {
+    const ids = reinitialiserOrdre(navOrder);
+    if (ids !== null) { sauvegarderNavOrder(ids); return; }
+    appliquerNavOrderLocal(null);
+    if (profil?.id) {
+      supabase.from("utilisateurs").update({ nav_order: null }).eq("id", profil.id)
+        .then(({ error }) => { if (error) console.warn("nav_order (réinit.) :", error.message); });
+    }
+  };
 
   const toggle = () => {
     const next = !collapsed;

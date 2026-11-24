@@ -367,7 +367,11 @@ test("15. Navigation.jsx et App.jsx branchés sur le module ; date du jour uniqu
   assert.match(nav, /ordreBarreDuBas\(/, "barre du bas : même module");
   assert.match(nav, /ordreHabituel\(/, "édition : ordre habituel");
   assert.match(nav, /dateDuJour\(\)/);
-  assert.ok(!/nav_order:\s*ids\b/.test(nav) && !/nav_order:\s*null\b/.test(nav), "plus d'écriture directe de nav_order");
+  // Les deux écritures historiques restent (inventaire figé par
+  // verif-utilisateurs-champs-sensibles) ; `ids` vient désormais du module.
+  assert.match(nav, /const persistOrder = \(ordre\) => sauvegarderNavOrder\(ecrireOrdre\(navOrder, ordre\)\)/, "sauvegarde = ecrireOrdre");
+  assert.match(nav, /const ids = reinitialiserOrdre\(navOrder\);\s*if \(ids !== null\) \{ sauvegarderNavOrder\(ids\); return; \}/, "réinit. avec organisation : jours gardés");
+  assert.equal((nav.match(/from\("utilisateurs"\)/g) || []).length, 2, "deux écritures vers utilisateurs, pas plus");
   assert.match(sansCommentaires(lire("src/App.jsx")), /<BottomNav[^>]*profil=\{profil\}/, "App.jsx passe profil à BottomNav");
   const date = sansCommentaires(lire("src/Renovation/dateDuJour.js"));
   assert.match(date, /export function dateDuJour\(/);
