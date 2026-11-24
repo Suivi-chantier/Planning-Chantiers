@@ -203,9 +203,10 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | en ligne | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | [#264](https://github.com/Suivi-chantier/Planning-Chantiers/pull/264) |
 | 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | en ligne | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | [#265](https://github.com/Suivi-chantier/Planning-Chantiers/pull/265) |
 | 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | en ligne | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | [#266](https://github.com/Suivi-chantier/Planning-Chantiers/pull/266) |
-| 12 | Bloc `materiaux_a_commander` | en attente de Loris | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | — |
+| 12 | Bloc `materiaux_a_commander` | en cours | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | — |
 | 13 | Captures des 5 jours (date simulée) sur le compte de Loris + synthèse de fin de projet | à faire | — | Captures jointes au compte rendu | — |
 | 14 | Aligner le mail du vendredi et la notification « X € HT à payer » (`encoursFournisseursV1`, `api/cron-encours-fournisseurs.js`) sur le calcul de la page Encours fournisseurs (`encoursFournisseursPageV1.mjs`) | à faire | Contrôles verts + tableau avant / après par fournisseur et par mois sur la base réelle (écart attendu : celui de la page) | Le montant du mail = la somme des mois correspondants de la page | — |
+| 15 | Mail récap du vendredi, partie « Commandes prévisionnelles » : remplacer l'ancien calcul `materiauxACommanderV1` (sans données) par les articles de la page Commandes à passer dont la date de besoin tombe la semaine suivante (même règle que le bloc de la tâche 12) | à faire | Contrôles verts + comparaison sur la base réelle : liste du mail = onglet « Semaine prochaine » de la page | Le mail d'un vendredi simulé liste les mêmes articles que le bloc et la page | — |
 
 ## Journal des décisions
 
@@ -406,6 +407,15 @@ Règle par défaut de `CLAUDE.md`. En plus :
   `commandesAPasserDonnees.js` et `commandesAPasserV1`, seule la règle de
   rangement par semaine de la fenêtre « Commandes de la semaine » serait
   extraite en `.mjs`, preuve avant / après).
+
+- **24/11/2026 — Réponse de Loris (tâche 12)** : « oui, et corrige aussi le
+  mail ». Le bloc reprend les articles de la page Commandes à passer dont la
+  date de besoin tombe la semaine suivante (règle de l'onglet « Semaine
+  prochaine » extraite en `.mjs`, partagée page + bloc). La correction du mail
+  récap du vendredi devient la **tâche 15** (code serveur, demande de fusion
+  séparée). La colonne « Source » du catalogue pour `materiaux_a_commander`
+  (`materiauxACommanderV1`) est remplacée dans les faits par
+  `commandesAPasserV1` ; section de Loris non modifiée, décision notée ici.
 
 ## Comptes rendus
 
