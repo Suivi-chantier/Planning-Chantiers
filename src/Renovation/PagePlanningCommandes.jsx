@@ -1,7 +1,10 @@
 import { libelleOuvrage } from "./libellesPhasageV1";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
-import { chargerTousLesMateriaux } from "./chargerMateriaux";
+// Lectures (phasages, lignes de commande, bibliothèque, demandes ouvrier) :
+// partagées avec le bloc du jour « Commandes à saisir » (même service).
+import { lirePhasagesCommandes, lireLignesCommandes, lireMateriauxCommandes, lireBesoinsEnAttente } from "./commandesAPasserDonnees.js";
+import { clePanierBesoin } from "./commandesASaisirV1.js";
 // Écritures versionnées : marquer « commandé » touche plusieurs phasages en
 // une seule action, d'où le lot transactionnel (tout ou rien).
 import { sauvegarderPhasage, sauvegarderPhasagesLot, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
@@ -11,7 +14,6 @@ import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constan
 // marge à terminaison (chantierFinance). La liste des matériaux prévus par
 // ouvrage reste affichée comme aide.
 import { eur } from "../chantierFinance";
-import { lireToutParTranches } from "./lectureParTranches";
 // Règle « à commander / marqué commandé / date de besoin » d'un ouvrage : la
 // même que la section « La semaine qui vient » du Bilan.
 // La liste elle-même (modèle chantier → ouvrage, articles à commander) est
@@ -111,18 +113,12 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
 
   // ── Chargements
   const loadPhasages = async () => {
-    const { data } = await supabase
-      .from("phasages")
-      .select("id, chantier_id, chantier_nom, ouvrages");
+    const { data } = await lirePhasagesCommandes();
     setPhasages(data || []);
   };
   const loadLignesCmd = async () => {
-    // Par tranches : plus de 1 000 lignes en base, une lecture d'un coup serait
-    // tronquée sans erreur (et le reste à commander avec).
-    const { data } = await lireToutParTranches((a, b) => supabase
-      .from("commande_lignes")
-      .select("id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, phasage_id, commande:commandes(id, doc_numero, numero_en_attente, date_doc, fournisseur_nom, statut_completude, statut_facturation, type_evenement)")
-      .order("id").range(a, b));
+    // Par tranches (lireToutParTranches dans commandesAPasserDonnees.js).
+    const { data } = await lireLignesCommandes();
     setLignesCmd(data || []);
   };
   const loadAchats = async () => {
@@ -139,11 +135,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
     await loadAchats();
   };
   const loadBesoins = async () => {
-    const { data } = await supabase
-      .from("besoins")
-      .select("id, panier_id, chantier_id, materiau_id, article, quantite, ouvrier_demandeur, notes, priorite, photo_url, created_at")
-      .eq("statut", "en_attente")
-      .order("created_at", { ascending: false });
+    const { data } = await lireBesoinsEnAttente();
     setBesoins(data || []);
   };
 
@@ -164,7 +156,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       .then(({ data }) => setFournisseurs(data || []));
     loadLots().then(setLots);
     // Plus de 1 000 articles : lecture par tranches (chargerMateriaux.js).
-    chargerTousLesMateriaux("id, nom, reference, unite, prix_unitaire, fournisseur, fournisseur_id, lien_fournisseur, photo_url")
+    lireMateriauxCommandes()
       .then(({ data }) => setMateriaux(data || []));
   }, []);
 
@@ -301,7 +293,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   const paniers = useMemo(() => {
     const map = new Map();
     besoins.forEach(b => {
-      const key = b.panier_id || ("solo_" + b.id); // repli pour les demandes legacy
+      const key = clePanierBesoin(b); // repli pour les demandes legacy
       if (!map.has(key)) {
         const chantier = chantiers.find(c => c.id === b.chantier_id);
         map.set(key, {

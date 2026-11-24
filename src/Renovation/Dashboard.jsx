@@ -7,6 +7,7 @@ import { bandeauDuJour } from "./organisationJour.js";
 import BandeauDuJour from "./blocsDuJour/BandeauDuJour";
 import { BlocsDuJour } from "./blocsDuJour/registre";
 import { estAssigne } from "../todoUtils";
+import { compterBesoinsEnAttente } from "./commandesAPasserDonnees.js";
 import { MobileHero, MobileStat, MobileSection, CARD_SHADOW } from "../mobileUI";
 import {
   HardHat, TriangleAlert, Users, Building2, Package, ClipboardCheck,
@@ -145,8 +146,9 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
   const [weatherCity, setWeatherCity]   = useState(() => localStorage.getItem("dash_weather_city") || "Paris");
 
   useEffect(() => {
-    // Besoins ouvrier en attente (nouveau modèle) = demandes à transformer en commande
-    supabase.from("besoins").select("id", { count: "exact", head: true }).eq("statut", "en_attente")
+    // Besoins ouvrier en attente (nouveau modèle) = demandes à transformer en commande.
+    // Même lecture que le bloc du jour « Commandes à saisir » (commandesAPasserDonnees.js).
+    compterBesoinsEnAttente()
       .then(({ count }) => setCmdCount(count || 0));
 
     // Todos

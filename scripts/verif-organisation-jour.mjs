@@ -695,6 +695,7 @@ test("27. tableau de bord : bandeau et blocs AU-DESSUS des widgets actuels, tous
   assert.deepEqual([...ids].sort(), [...O.CATALOGUE_BLOCS].sort(), "registre complet");
   // Blocs livrés (tâche 6 et suivantes) : leur composant remplace « à venir ».
   assert.match(registre, /bilan_semaine_passee:\s*\{[^\n]*Composant: BlocBilanSemainePassee \}/, "tâche 6 : bloc Bilan de la semaine passée livré");
+  assert.match(registre, /commandes_a_saisir:\s*\{[^\n]*Composant: BlocCommandesASaisir \}/, "tâche 7 : bloc Commandes à saisir livré");
   assert.match(cadre, /export const MESSAGE_BLOC_A_VENIR = "Contenu de ce bloc : à venir dans une prochaine mise à jour\.";/);
   assert.match(cadre, /<MobileSection /, "téléphone : modèle MobileSection");
   assert.match(cadre, /summary=\{metrique\}/, "téléphone : métrique dans l'en-tête");

@@ -22,6 +22,12 @@ on:
       - 'src/Renovation/bilanPeriodeV3.mjs'
       - 'src/Renovation/alertesMargesV2.mjs'
       - 'scripts/verif-bloc-bilan-semaine.mjs'
+      - 'src/Renovation/commandesASaisirV1.mjs'
+      - 'src/Renovation/commandesASaisirV1.js'
+      - 'src/Renovation/commandesAPasserDonnees.js'
+      - 'src/Renovation/commandesAPasserV1.mjs'
+      - 'src/Renovation/PagePlanningCommandes.jsx'
+      - 'scripts/verif-bloc-commandes-a-saisir.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
   pull_request:
     paths:
@@ -43,6 +49,12 @@ on:
       - 'src/Renovation/bilanPeriodeV3.mjs'
       - 'src/Renovation/alertesMargesV2.mjs'
       - 'scripts/verif-bloc-bilan-semaine.mjs'
+      - 'src/Renovation/commandesASaisirV1.mjs'
+      - 'src/Renovation/commandesASaisirV1.js'
+      - 'src/Renovation/commandesAPasserDonnees.js'
+      - 'src/Renovation/commandesAPasserV1.mjs'
+      - 'src/Renovation/PagePlanningCommandes.jsx'
+      - 'scripts/verif-bloc-commandes-a-saisir.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
 
 permissions:
@@ -60,3 +72,5 @@ jobs:
         run: node scripts/verif-organisation-jour.mjs
       - name: Bloc « Bilan de la semaine passée » — même chargement et même calcul que la page Bilan de semaine, aucune donnée, relevé absent (données fictives)
         run: node scripts/verif-bloc-bilan-semaine.mjs
+      - name: Bloc « Commandes à saisir » — même lecture des demandes que le tableau de bord, mêmes chiffres que la page Commandes à passer, aucune demande, aucun article, erreurs (données fictives)
+        run: node scripts/verif-bloc-commandes-a-saisir.mjs

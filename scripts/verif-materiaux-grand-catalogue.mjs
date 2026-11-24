@@ -154,7 +154,10 @@ const lire = f => readFile(resolve(racine, f), "utf8");
     "src/Renovation/Bibliotheque.jsx": /chargerTousLesMateriaux\(/,
     "src/Renovation/PhasageV2.jsx": /chargerTousLesMateriaux\(/,
     "src/Renovation/PageInfoClient.jsx": /chargerTousLesMateriaux\(/,
-    "src/Renovation/PagePlanningCommandes.jsx": /chargerTousLesMateriaux\(/,
+    // Depuis la tâche 7 (organisation-par-jour) : la page lit la bibliothèque
+    // par commandesAPasserDonnees.js (partagé avec le bloc « Commandes à saisir »).
+    "src/Renovation/PagePlanningCommandes.jsx": /lireMateriauxCommandes\(\)/,
+    "src/Renovation/commandesAPasserDonnees.js": /chargerTousLesMateriaux\(COLONNES_MATERIAUX_COMMANDES\)/,
     "src/Renovation/operationExportData.js": /chargerTousLesMateriaux\(/,
     "src/Renovation/OuvrierCommande.jsx": /useCatalogueDemande\(/,
     "src/Renovation/BesoinCommandeDrawer.jsx": /useCatalogueDemande\(/,
