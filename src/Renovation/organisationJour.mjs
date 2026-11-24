@@ -510,3 +510,84 @@ export function filtrerPagesAutorisees(jours, pagesAutorisees) {
   }
   return { jours: res, retirees };
 }
+
+// ─── Tableau de bord du jour (étape 4, tâche 5) ──────────────────────────────
+
+/** Noms des mois, pour le libellé de date du bandeau. */
+const NOMS_MOIS = Object.freeze(["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+  "août", "septembre", "octobre", "novembre", "décembre"]);
+
+/** « Lundi 23 novembre » pour « 2026-11-23 » (null si la date est invalide). */
+export function libelleDateDuJour(dateIso) {
+  const jour = jourDeLaSemaine(dateIso);
+  if (!jour) return null;
+  const [, m, j] = dateIso.split("-").map(Number);
+  return `${jour.charAt(0).toUpperCase()}${jour.slice(1)} ${j} ${NOMS_MOIS[m - 1]}`;
+}
+
+/**
+ * Rendez-vous du jour dans l'ordre d'affichage du bandeau : d'abord ceux qui
+ * ont une heure, du plus tôt au plus tard (à heure égale, ordre saisi) ; puis
+ * ceux sans heure, à la fin, dans l'ordre saisi. Choix : une heure précise est
+ * une contrainte de la journée, elle passe devant ; un rendez-vous sans heure
+ * (« après le bilan ») se cale dans la journée selon ce que l'utilisateur a
+ * écrit, et l'ordre saisi est le seul repère dont on dispose.
+ * Entrées invalides (sans libellé) retirées ; heure invalide = sans heure.
+ * @param {{heure?: string|null, libelle: string}[]} rendezVous
+ */
+export function trierRendezVous(rendezVous) {
+  const propres = normaliserJour({ rendez_vous: rendezVous })?.rendez_vous || [];
+  const avecHeure = propres.map((r, i) => ({ r, i })).filter(({ r }) => r.heure)
+    .sort((a, b) => (a.r.heure < b.r.heure ? -1 : a.r.heure > b.r.heure ? 1 : a.i - b.i))
+    .map(({ r }) => r);
+  return [...avecHeure, ...propres.filter((r) => !r.heure)];
+}
+
+/**
+ * Pages ouvertes par le lien de chaque bloc (colonne « Lien » du catalogue).
+ * `chantiers_a_venir` : la fiche chantier s'ouvre depuis Opérations (la liste
+ * Chantiers n'est plus dans le menu) ; le lien direct vers chaque fiche
+ * viendra avec le contenu du bloc.
+ */
+export const LIENS_BLOCS = deepFreeze({
+  bilan_semaine_passee: ["bilan-semaine"],
+  commandes_a_saisir: ["planning-commandes"],
+  chantiers_a_venir: ["operations"],
+  administratif_fournisseurs: ["rapprochement", "encours-fournisseurs"],
+  tournee_chantiers: ["alertes", "retours-terrain"],
+  planning_semaine_suivante: ["planning"],
+  materiaux_a_commander: ["planning-commandes"],
+});
+
+/**
+ * Liens d'un bloc, limités aux pages autorisées pour le rôle (règle 2 : une
+ * page non autorisée n'est jamais proposée). Bloc inconnu : aucun lien.
+ * @param {string} bloc
+ * @param {(id: string) => boolean} estAutorisee
+ */
+export function liensDuBloc(bloc, estAutorisee) {
+  const liens = Object.prototype.hasOwnProperty.call(LIENS_BLOCS, bloc) ? LIENS_BLOCS[bloc] : [];
+  return typeof estAutorisee === "function" ? liens.filter((id) => estAutorisee(id)) : [];
+}
+
+/**
+ * État du bandeau du tableau de bord, ou null s'il ne s'affiche pas
+ * (week-end, jour non configuré, sans organisation : tableau de bord
+ * strictement identique à avant, règle 1).
+ *   { jour, libelleDate, theme, rendezVous, ordreHabituel, bouton, blocs }
+ * En mode « ordre habituel aujourd'hui », le bandeau reste (règle 7) mais
+ * `blocs` est vide : le tableau de bord reprend sa forme standard.
+ */
+export function bandeauDuJour(navOrder, dateIso) {
+  const org = organisationDuJour(navOrder, dateIso);
+  if (!org) return null;
+  return {
+    jour: org.jour,
+    libelleDate: libelleDateDuJour(dateIso),
+    theme: org.theme,
+    rendezVous: trierRendezVous(org.rendez_vous),
+    ordreHabituel: ordreHabituelActif(navOrder, dateIso),
+    bouton: boutonOrdreHabituel(navOrder, dateIso),
+    blocs: blocsDuJour(navOrder, dateIso),
+  };
+}

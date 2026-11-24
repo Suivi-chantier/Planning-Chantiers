@@ -22,6 +22,10 @@
 //   9. écran « Mon organisation » (tâche 4) : ecrireJours, supprimerOrganisation
 //      (retour exact à la valeur d'avant), modèle filtré par rôle, aucune
 //      nouvelle écriture vers utilisateurs.
+//  10. tableau de bord du jour (tâche 5) : bandeau (jour, thématique,
+//      rendez-vous triés, bouton), absent sans organisation et le week-end ;
+//      blocs au-dessus des widgets actuels, tous conservés ; registre des
+//      blocs complet ; liens limités aux pages autorisées ; aucun bloc vide.
 //
 // Données fictives uniquement. Aucun réseau, aucune base.
 //   node scripts/verif-organisation-jour.mjs
@@ -579,6 +583,128 @@ test("23. écran « Mon organisation » : dans le profil, enregistrement par les
   assert.equal((app.match(/<PanneauProfil /g) || []).length, 1);
   assert.ok(blocMain.includes("{profilOuvert&&role!==\"ouvrier\"&&<PanneauProfil "), "panneau Rénovation, pas pour un ouvrier");
   assert.match(profilSrc, /if \(!roleConcerne\(role\)\) return null;/);
+});
+
+// ═══ 10. Tableau de bord du jour (tâche 5) ═════════════════════════════════
+test("24. rendez-vous du bandeau : heures croissantes, puis sans heure dans l'ordre saisi", () => {
+  const rdv = [
+    { heure: null, libelle: "Sans heure A" },
+    { heure: "14:00", libelle: "Après-midi" },
+    { heure: "09:30", libelle: "Matin 1" },
+    { heure: "9h", libelle: "Heure invalide = sans heure" },
+    { heure: "09:30", libelle: "Matin 2 (même heure, saisi après)" },
+    { libelle: "" },
+    "n'importe quoi",
+    { heure: "08:00", libelle: "Tôt" },
+  ];
+  assert.deepEqual(O.trierRendezVous(rdv).map((r) => r.libelle),
+    ["Tôt", "Matin 1", "Matin 2 (même heure, saisi après)", "Après-midi", "Sans heure A", "Heure invalide = sans heure"]);
+  assert.deepEqual(O.trierRendezVous(null), []);
+  assert.deepEqual(O.trierRendezVous([]), []);
+  assert.equal(O.libelleDateDuJour(LUNDI), "Lundi 23 novembre");
+  assert.equal(O.libelleDateDuJour(SAMEDI), "Samedi 28 novembre");
+  assert.equal(O.libelleDateDuJour("2026-02-30"), null);
+});
+
+test("25. bandeau du jour : seulement avec une organisation ce jour-là ; reste en mode « ordre habituel » sans les blocs", () => {
+  const nav = { ordre: ["planning"], jours: O.copieModeleConducteurTravaux() };
+  // Sans organisation, ancien format, week-end : aucun bandeau (règle 1).
+  for (const v of [null, [], ["planning", "dashboard"], { ordre: ["planning"] }, "texte", 42]) {
+    for (const d of SEMAINE) assert.equal(O.bandeauDuJour(v, d), null, `${JSON.stringify(v)} ${d}`);
+  }
+  assert.equal(O.bandeauDuJour(nav, SAMEDI), null);
+  assert.equal(O.bandeauDuJour(nav, DIMANCHE), null);
+  assert.equal(O.bandeauDuJour(ORG, SAMEDI), null, "samedi configuré à tort : ignoré");
+  assert.equal(O.bandeauDuJour(ORG, MERCREDI), null, "jour invalide : pas de bandeau");
+  // Modèle Conducteur de travaux, chaque jour ouvré.
+  const attendus = {
+    [LUNDI]: ["Bilan, réunion et commandes", ["bilan_semaine_passee", "commandes_a_saisir"], 1],
+    [MARDI]: ["Chantiers à venir", ["chantiers_a_venir"], 0],
+    [MERCREDI]: ["Application, plans et administratif", ["administratif_fournisseurs"], 1],
+    [JEUDI]: ["Tournée des chantiers et anticipation", ["tournee_chantiers"], 0],
+    [VENDREDI]: ["Planning et commandes S+1", ["planning_semaine_suivante", "materiaux_a_commander"], 0],
+  };
+  for (const [d, [theme, blocs, nbRdv]] of Object.entries(attendus)) {
+    const b = O.bandeauDuJour(nav, d);
+    assert.equal(b.theme, theme);
+    assert.deepEqual(b.blocs, blocs, `blocs ${d}`);
+    assert.deepEqual(b.blocs, O.blocsDuJour(nav, d), "mêmes blocs que blocsDuJour");
+    assert.equal(b.rendezVous.length, nbRdv);
+    assert.equal(b.ordreHabituel, false);
+    assert.deepEqual(b.bouton, { actif: false, libelle: O.LIBELLE_ORDRE_HABITUEL });
+  }
+  assert.deepEqual(O.bandeauDuJour(nav, MERCREDI).rendezVous, [{ heure: "09:30", libelle: "Réunion appli et IA avec Matthieu" }]);
+  assert.equal(O.bandeauDuJour(nav, LUNDI).libelleDate, "Lundi 23 novembre");
+  // Mode « ordre habituel aujourd'hui » : bandeau visible (règle 7), plus de blocs.
+  const habituel = O.basculerOrdreHabituel(nav, MARDI);
+  const b = O.bandeauDuJour(habituel, MARDI);
+  assert.equal(b.ordreHabituel, true);
+  assert.deepEqual(b.blocs, []);
+  assert.equal(b.theme, "Chantiers à venir");
+  assert.deepEqual(b.bouton, { actif: true, libelle: O.LIBELLE_RETOUR_ORGANISATION });
+  // Le lendemain : expiré, blocs revenus.
+  assert.deepEqual(O.bandeauDuJour(habituel, MERCREDI).blocs, ["administratif_fournisseurs"]);
+  // Jour avec seulement des blocs (ni thème ni rendez-vous) : bandeau quand même.
+  const seulBlocs = O.bandeauDuJour({ jours: { jeudi: { blocs: ["tournee_chantiers"] } } }, JEUDI);
+  assert.equal(seulBlocs.theme, null);
+  assert.deepEqual(seulBlocs.rendezVous, []);
+});
+
+test("26. liens des blocs : catalogue complet, pages existantes, filtrés par rôle", () => {
+  assert.deepEqual(Object.keys(O.LIENS_BLOCS).sort(), [...O.CATALOGUE_BLOCS].sort());
+  for (const [bloc, liens] of Object.entries(O.LIENS_BLOCS)) {
+    assert.ok(liens.length > 0, `${bloc} : au moins un lien`);
+    for (const id of liens) assert.ok(PAGES_RENOVATION.includes(id) && ALL_NAV.includes(id), `${bloc} → ${id} existe`);
+  }
+  assert.deepEqual(O.liensDuBloc("administratif_fournisseurs", () => true), ["rapprochement", "encours-fournisseurs"]);
+  assert.deepEqual(O.liensDuBloc("tournee_chantiers", (id) => id === "alertes"), ["alertes"]);
+  assert.deepEqual(O.liensDuBloc("bilan_semaine_passee", () => false), [], "page non autorisée : pas de lien");
+  assert.deepEqual(O.liensDuBloc("bilan_semaine_passee", null), []);
+  assert.deepEqual(O.liensDuBloc("bloc_inconnu", () => true), []);
+  assert.deepEqual(O.liensDuBloc("toString", () => true), []);
+  // Rôle commercial (liste par défaut) : pas de lien vers le Bilan de semaine.
+  const commercial = (id) => ROLES.commercial.includes(id);
+  assert.deepEqual(O.liensDuBloc("bilan_semaine_passee", commercial),
+    ROLES.commercial.includes("bilan-semaine") ? ["bilan-semaine"] : []);
+});
+
+test("27. tableau de bord : bandeau et blocs AU-DESSUS des widgets actuels, tous conservés ; registre complet", () => {
+  const dash = sansCommentaires(lire("src/Renovation/Dashboard.jsx"));
+  const registre = sansCommentaires(lire("src/Renovation/blocsDuJour/registre.jsx"));
+  const cadre = sansCommentaires(lire("src/Renovation/blocsDuJour/CadreBloc.jsx"));
+  const bandeauSrc = sansCommentaires(lire("src/Renovation/blocsDuJour/BandeauDuJour.jsx"));
+  const app = sansCommentaires(lire("src/App.jsx"));
+  // Une seule source : le hook partagé et le module (date via dateDuJour dans le hook).
+  assert.match(dash, /const orgJour = useOrganisationDuJour\(profil\);/);
+  assert.match(dash, /const bandeau = bandeauDuJour\(orgJour\.navOrder, orgJour\.date\);/);
+  assert.match(dash, /const blocsJour = bandeau \? bandeau\.blocs : \[\];/);
+  assert.ok(!/from\(\s*["'`]utilisateurs["'`]\s*\)\s*\.(update|insert|upsert|delete)/.test(dash), "Dashboard.jsx n'écrit pas dans utilisateurs");
+  assert.ok(!/supabase/.test(registre + cadre + bandeauSrc), "blocs et bandeau : aucun accès direct à la base dans le socle");
+  assert.match(dash, /onBasculer=\{orgJour\.basculerOrdreHabituel\}/, "bouton = action du hook");
+  // Bureau et téléphone : bandeau puis blocs, avant les KPI et tous les widgets actuels.
+  const mobile = dash.slice(dash.indexOf("if (isMobile) {"), dash.indexOf("className=\"page-padding dashboard-page\" style={{ flex:1, overflowY:\"auto\", padding:\"28px 32px\" }}"));
+  const bureau = dash.slice(dash.indexOf("padding:\"28px 32px\""));
+  const ordre = (src, marques) => marques.map((m) => { const i = src.indexOf(m); assert.ok(i >= 0, `présent : ${m}`); return i; });
+  const im = ordre(mobile, ["<MobileHero", "<BandeauDuJour", "<BlocsDuJour", "gridTemplateColumns:\"1fr 1fr\"", "title=\"Chantiers du jour\"", "title=\"Activité équipe\"", "title=\"Mes tâches\"", "title={`Météo", "<AgendaWidget"]);
+  const ib = ordre(bureau, ["<MobileHero", "<BandeauDuJour", "<BlocsDuJour", "stats.map(", "title=\"Chantiers aujourd'hui\"", "title=\"Activité équipe\"", "title=\"Mes tâches\"", "title={`Météo", "<AgendaWidget"]);
+  for (const ix of [im, ib]) assert.deepEqual([...ix].sort((a, b) => a - b), ix, "ordre : hero, bandeau, blocs, puis widgets actuels");
+  assert.equal((dash.match(/<BandeauDuJour /g) || []).length, 2);
+  assert.equal((dash.match(/<BlocsDuJour /g) || []).length, 2);
+  // Registre : une entrée par bloc du catalogue ; bloc non livré = message explicite (règle 10).
+  const ids = [...registre.matchAll(/^\s{2}(\w+):\s*\{\s*icone:/gm)].map((m) => m[1]);
+  assert.deepEqual([...ids].sort(), [...O.CATALOGUE_BLOCS].sort(), "registre complet");
+  assert.match(cadre, /export const MESSAGE_BLOC_A_VENIR = "Contenu de ce bloc : à venir dans une prochaine mise à jour\.";/);
+  assert.match(cadre, /<MobileSection /, "téléphone : modèle MobileSection");
+  assert.match(cadre, /summary=\{metrique\}/, "téléphone : métrique dans l'en-tête");
+  assert.match(registre, /titre=\{LIBELLES_BLOCS\[id\]\}/, "titres métier");
+  assert.match(registre, /liens=\{liensDuBloc\(id, pageAutorisee\)\}/, "liens filtrés par rôle");
+  assert.match(bandeauSrc, /Ordre habituel aujourd'hui : menu et tableau de bord sans l'organisation du jour, jusqu'à demain\./, "mention du mode");
+  assert.match(app, /<PageDashboard [^>]*pageAutorisee=\{\(id\)=>canAccess\(role,id\)\} onOuvrirPage=\{setPage\}\/>/, "liens : pages autorisées du rôle");
+  // Écran « Mon organisation » : plus d'annonce « prochaine mise à jour » pour le bandeau.
+  const ecran = lire("src/Renovation/MonOrganisation.jsx");
+  assert.ok(!/s'afficheront en haut du tableau de bord lors d'une prochaine mise à jour/.test(ecran));
+  assert.match(ecran, /La thématique et les rendez-vous du jour s'affichent en haut du tableau de bord/);
+  assert.match(lire("src/Renovation/journalMaj.js"), /titre: "Tableau de bord : bandeau du jour et blocs du jour en tête"/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
