@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
     type: "amelioration",
+    titre: "Tableau de bord : le bloc « Chantiers à venir » liste les chantiers à préparer",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "operations", label: "Opérations" }, { id: "chantiers", label: "Fiche chantier" }],
+    quoi: "Le bloc « Chantiers à venir » du tableau de bord (le mardi, pour qui l'a choisi dans son organisation) liste les chantiers signés mais pas encore commencés, c'est-à-dire ceux dont la fiche chantier affiche le statut « Planifié ». Pour chacun : où en est sa phase « Préparation » du cycle de vie (par exemple « 2/6 étapes faites ») et les étapes qui manquent encore (les trois premières, puis « et N autres »). Les étapes sont comptées exactement comme sur la fiche chantier : visites, plans techniques, phasage avec matériaux, planning prévisionnel, finalisation.",
+    comment: "Cliquez sur un chantier pour ouvrir sa fiche, comme depuis la page Opérations (seulement si vous avez accès aux pages Opérations et Chantiers). Sur téléphone, le nombre de chantiers à venir s'affiche dans l'en-tête du bloc. Quand aucune étape de la Préparation n'est encore renseignée, le bloc écrit « Préparation non renseignée » plutôt que 0 ; quand il n'y a aucun chantier au statut « Planifié », il écrit « Aucun chantier à venir » ; si les données ne peuvent pas être lues, il le dit.",
+  },
+  {
+    date: "2026-11-24",
+    type: "amelioration",
     titre: "Tableau de bord : le bloc « Commandes à saisir » affiche les demandes des ouvriers et les articles à commander",
     pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "planning-commandes", label: "Commandes à passer" }],
     quoi: "Le bloc « Commandes à saisir » du tableau de bord (le lundi, pour qui l'a choisi dans son organisation) montre maintenant les demandes de matériel envoyées par les ouvriers et pas encore traitées : le nombre d'articles demandés en attente (le même chiffre que la case « Commandes à passer » du tableau de bord), le nombre de demandes, et les cinq plus récentes avec le chantier, l'article, le demandeur et la date. En dessous, les articles prévus au phasage qui restent à commander, avec exactement les chiffres et les intitulés du haut de la page Commandes à passer : chantiers en cours, articles à commander, reste à commander HT.",

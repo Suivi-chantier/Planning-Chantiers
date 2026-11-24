@@ -14,18 +14,20 @@
 // Props reçues par chaque Composant : idBloc, titre, icone, accent, T,
 // isMobile, liens (pages autorisées), onOuvrirPage, profil, contexte (données
 // déjà chargées par le tableau de bord : chantiers, cells, commandes,
-// notesData, weekId, dateIso).
+// notesData, weekId, dateIso), onOuvrirChantier (ouvre la fiche chantier
+// comme la page Opérations ; null si Opérations ou Chantiers non autorisée).
 import React from "react";
 import { ChartBar, Package, HardHat, Receipt, Route, CalendarRange, Layers } from "lucide-react";
 import { CATALOGUE_BLOCS, LIBELLES_BLOCS, liensDuBloc } from "../organisationJour.js";
 import { BlocAVenir } from "./CadreBloc";
 import BlocBilanSemainePassee from "./BlocBilanSemainePassee";
 import BlocCommandesASaisir from "./BlocCommandesASaisir";
+import BlocChantiersAVenir from "./BlocChantiersAVenir";
 
 export const REGISTRE_BLOCS = Object.freeze({
   bilan_semaine_passee:       { icone: ChartBar,      accent: "#5b8af5", Composant: BlocBilanSemainePassee },
   commandes_a_saisir:         { icone: Package,       accent: "#f5a623", Composant: BlocCommandesASaisir },
-  chantiers_a_venir:          { icone: HardHat,       accent: "#22c55e", Composant: BlocAVenir },
+  chantiers_a_venir:          { icone: HardHat,       accent: "#22c55e", Composant: BlocChantiersAVenir },
   administratif_fournisseurs: { icone: Receipt,       accent: "#a855f7", Composant: BlocAVenir },
   tournee_chantiers:          { icone: Route,         accent: "#ef4444", Composant: BlocAVenir },
   planning_semaine_suivante:  { icone: CalendarRange, accent: "#38bdf8", Composant: BlocAVenir },
@@ -38,14 +40,14 @@ export const REGISTRE_BLOCS = Object.freeze({
  * @param {string[]} blocs     identifiants (blocsDuJour / bandeauDuJour)
  * @param {(id:string)=>boolean} pageAutorisee
  */
-export function BlocsDuJour({ blocs, T, isMobile, pageAutorisee, onOuvrirPage, profil, contexte }) {
+export function BlocsDuJour({ blocs, T, isMobile, pageAutorisee, onOuvrirPage, onOuvrirChantier = null, profil, contexte }) {
   const connus = (blocs || []).filter((id) => CATALOGUE_BLOCS.includes(id) && REGISTRE_BLOCS[id]);
   if (connus.length === 0) return null;
   const liste = connus.map((id) => {
     const { icone, accent, Composant } = REGISTRE_BLOCS[id];
     return (
       <Composant key={id} idBloc={id} titre={LIBELLES_BLOCS[id]} icone={icone} accent={accent} T={T}
-        isMobile={isMobile} liens={liensDuBloc(id, pageAutorisee)} onOuvrirPage={onOuvrirPage}
+        isMobile={isMobile} liens={liensDuBloc(id, pageAutorisee)} onOuvrirPage={onOuvrirPage} onOuvrirChantier={onOuvrirChantier}
         profil={profil} contexte={contexte}/>
     );
   });

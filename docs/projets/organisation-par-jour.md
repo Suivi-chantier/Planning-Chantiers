@@ -198,8 +198,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | en ligne | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | [#259](https://github.com/Suivi-chantier/Planning-Chantiers/pull/259) |
 | 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | en ligne | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | [#260](https://github.com/Suivi-chantier/Planning-Chantiers/pull/260) |
 | 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | en ligne | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | [#261](https://github.com/Suivi-chantier/Planning-Chantiers/pull/261) |
-| 7 | Bloc `commandes_a_saisir` | en cours | Contrôles verts | Mêmes comptes que la page Commandes à passer | — |
-| 8 | Bloc `chantiers_a_venir` (`cycleVie`) | à faire | Contrôles verts | Liste identique aux chantiers non démarrés en base | — |
+| 7 | Bloc `commandes_a_saisir` | en ligne | Contrôles verts | Mêmes comptes que la page Commandes à passer | [#262](https://github.com/Suivi-chantier/Planning-Chantiers/pull/262) |
+| 8 | Bloc `chantiers_a_venir` (`cycleVie`) | en cours | Contrôles verts | Liste identique aux chantiers non démarrés en base | — |
 | 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | à faire | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | — |
 | 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | à faire | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | — |
 | 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | à faire | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | — |
@@ -299,6 +299,17 @@ Règle par défaut de `CLAUDE.md`. En plus :
   modifié.
 - **24/11/2026 — Coût connu.** Le lundi, le bloc relit les relevés comme la
   page (environ 4 000 lignes) à chaque affichage du tableau de bord.
+
+- **24/11/2026 — Tâche 7, extraction.** Lectures de la page Commandes à
+  passer et du compteur du tableau de bord regroupées dans
+  `commandesAPasserDonnees.js` (mêmes 17 requêtes), logique pure dans
+  `commandesASaisirV1.mjs`. Scripts `verif-enveloppes-lots` et
+  `verif-materiaux-grand-catalogue` ajustés pour suivre le déplacement, sans
+  retrait de vérification. Le tableau de bord garde son comportement en cas
+  d'erreur de lecture (0) ; seul le bloc signale l'erreur.
+- **24/11/2026 — Deux compteurs de demandes distincts.** La tuile du tableau de
+  bord compte des articles demandés, l'onglet de la page des envois
+  d'ouvriers ; le bloc montre les deux avec leur intitulé.
 
 ## Comptes rendus
 
@@ -444,5 +455,30 @@ Règle par défaut de `CLAUDE.md`. En plus :
   terminé avec succès.
 - **Test des écrans** : 34 cas réussis (exemple issu des tests, données
   fictives) ; chaque tuile du bloc se retrouve à l'identique sur la page.
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 7 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : le bloc « Commandes à saisir » affiche les demandes de
+  matériel des ouvriers en attente (5 plus récentes) et les articles à
+  commander du phasage, avec les chiffres et intitulés de la page Commandes à
+  passer, et un lien vers elle.
+- **Avant / après sur la base réelle** (lecture seule, 24/11/2026 ; ancien code
+  contre code extrait, mêmes données, mêmes requêtes) :
+
+  | Chiffre | Avant | Après | Écart |
+  |---|---|---|---|
+  | Demandes en attente (tuile du tableau de bord) | 0 | 0 | 0 |
+  | Demandes ouvriers (onglet de la page) | 0 | 0 | 0 |
+  | Chantiers en cours | 42 | 42 | 0 |
+  | Articles à commander | 1 544 | 1 544 | 0 |
+  | Reste à commander HT (enveloppes des lots) | 161 556 € | 161 556 € | 0 |
+
+  Aucune demande en attente en base ce jour (71 annulées, 38 traitées) : le
+  bloc affiche « Aucune demande en attente ».
+- **Contrôles** : 18 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
+- **Test des écrans** : 52 cas réussis (exemple issu des tests, données
+  fictives) ; la tuile, la page et le bloc affichent les mêmes chiffres.
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
 
