@@ -192,7 +192,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Étape 1 — module pur `organisationJour.mjs` (+ façade `.js`), script `verif-organisation-jour.mjs` et son workflow | bloquée | Contrôles verts | Tous les cas du cahier vérifiés sur GitHub ; aucun écran modifié | — |
+| 1 | Étape 1 — module pur `organisationJour.mjs` (+ façade `.js`), script `verif-organisation-jour.mjs` et son workflow | en cours | Contrôles verts | Tous les cas du cahier vérifiés sur GitHub ; aucun écran modifié | — |
 | 2 | Barre latérale et barre du bas lisent `nav_order` sous ses deux formats via le module ; ordre du jour appliqué ; le glisser-déposer règle `ordre` sans effacer `jours` ; la barre du bas suit le même ordre | à faire | Contrôles verts + requête sur la base : chaque `nav_order` existant (format liste) donne exactement le même ordre qu'avant | Tableau « avant / après » de l'ordre de chaque utilisateur concerné, identique | — |
 | 3 | Page d'arrivée à l'ouverture (`App.jsx`, règle 5) + bouton « Ordre habituel aujourd'hui » (règle 7) | à faire | Contrôles verts | Compte de test avec organisation saisie à la main : ordre et page d'arrivée changent selon le jour simulé ; compte sans organisation inchangé | — |
 | 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | à faire | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | — |
@@ -232,6 +232,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
   écriture au dépôt : l'ajout du dépôt avec droit de pousser a été refusé par
   la configuration des autorisations. Conformément à `CLAUDE.md`
   (« Autorisations »), on s'arrête sans contourner.
+- **24/11/2026 — Réponse : « oui ».** Accès en écriture accordé ; reprise.
+  Le fichier projet arrive sur `main` avec la demande de fusion de la tâche 1.
 
 ## Comptes rendus
 
@@ -245,3 +247,5 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **Question** : « Autorises-tu cette session à écrire dans le dépôt
   Planning-Chantiers (pousser des branches, ouvrir et fusionner des demandes
   de fusion) ? » — Oui / Non.
+- **Réponse (24/11/2026)** : « oui ». Accès en écriture accordé, reprise à la
+  tâche 1.
