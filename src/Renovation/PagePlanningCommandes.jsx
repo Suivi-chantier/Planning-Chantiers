@@ -19,6 +19,9 @@ import { eur } from "../chantierFinance";
 // La liste elle-même (modèle chantier → ouvrage, articles à commander) est
 // calculée par commandesAPasserV1, partagé avec la notification C3.
 import { modeleCommandesAPasser, statsCommandesAPasser, lignesACommander, indexMateriaux, indexLots } from "./commandesAPasserV1.js";
+// Rangement par semaine de la fenêtre « Commandes de la semaine » : partagé
+// avec le bloc du jour « Matériaux à commander » (même service).
+import { addDays, semainesCommandesV1, seauxCommandesV1, ongletsCommandesV1 } from "./commandesParSemaineV1.js";
 import { chargerAchatsTermines, achatsTerminesParChantier, marquerAchatsTermines, annulerAchatsTermines } from "./achatsLotsTermines";
 import { Icon } from "../ui";
 import {
@@ -29,33 +32,11 @@ import {
 } from "lucide-react";
 
 // ─── HELPERS DATES ───────────────────────────────────────────────────────────
-// Lundi (00:00) de la semaine contenant `d`. ISO : lundi = début de semaine.
-function lundiSemaine(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  const day = x.getDay(); // 0=Dim ... 6=Sam
-  const diff = day === 0 ? -6 : 1 - day;
-  x.setDate(x.getDate() + diff);
-  return x;
-}
-function addDays(d, n) {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
-}
 function fmtJourMois(d) {
   return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 }
 function fmtDateLongue(d) {
   return d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-}
-function numeroSemaine(d) {
-  // ISO week number
-  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNum = x.getUTCDay() || 7;
-  x.setUTCDate(x.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(x.getUTCFullYear(), 0, 1));
-  return Math.ceil((((x - yearStart) / 86400000) + 1) / 7);
 }
 
 // Hook simple de détection mobile (drill-down master/detail sur petit écran).
@@ -1008,48 +989,15 @@ function ModaleVendredi({ lignes, onClose, onCommander, T, acc }) {
   const card      = T?.card      || "rgba(255,255,255,0.04)";
   const border    = T?.border    || "rgba(255,255,255,0.07)";
 
-  // 5 semaines glissantes
-  const semaines = useMemo(() => {
-    const lundi0 = lundiSemaine(new Date());
-    return Array.from({ length: 5 }, (_, i) => {
-      const debut = addDays(lundi0, i * 7);
-      const fin   = addDays(debut, 6);
-      return {
-        index: i, debut, fin,
-        key: "S" + i,
-        label: i === 0 ? "Cette semaine" : i === 1 ? "Semaine prochaine" : `S+${i}`,
-        num: numeroSemaine(debut),
-      };
-    });
-  }, []);
+  // 5 semaines glissantes (horloge de l'appareil), rangement des lignes et
+  // onglets visibles : commandesParSemaineV1 (déplacé tel quel).
+  const semaines = useMemo(() => semainesCommandesV1(new Date()), []);
 
   // Range chaque ligne dans un seau de semaine. En retard → cette semaine.
-  const seaux = useMemo(() => {
-    const out = {};
-    semaines.forEach(s => { out[s.key] = []; });
-    out["plus"] = [];     // au-delà de S+4
-    out["sansdate"] = []; // pas de date de besoin
-    lignes.forEach(l => {
-      if (!l.dateObj) { out["sansdate"].push(l); return; }
-      const d = new Date(l.dateObj); d.setHours(0, 0, 0, 0);
-      if (d < semaines[0].debut) { out[semaines[0].key].push(l); return; } // en retard → cette semaine
-      let placed = false;
-      for (const s of semaines) {
-        if (d >= s.debut && d <= s.fin) { out[s.key].push(l); placed = true; break; }
-      }
-      if (!placed) out["plus"].push(l);
-    });
-    return out;
-  }, [lignes, semaines]);
+  const seaux = useMemo(() => seauxCommandesV1(lignes, semaines), [lignes, semaines]);
 
   // Onglets visibles = ceux qui ont des lignes
-  const onglets = useMemo(() => {
-    const arr = [];
-    semaines.forEach(s => { if (seaux[s.key].length) arr.push({ key: s.key, label: s.label, num: s.num, deb: s.debut, fin: s.fin }); });
-    if (seaux["plus"].length) arr.push({ key: "plus", label: "Plus tard", num: null });
-    if (seaux["sansdate"].length) arr.push({ key: "sansdate", label: "Sans date", num: null });
-    return arr;
-  }, [seaux, semaines]);
+  const onglets = useMemo(() => ongletsCommandesV1(seaux, semaines), [seaux, semaines]);
 
   const [tab, setTab] = useState(() => onglets[0]?.key || "sansdate");
   // Si l'onglet courant disparaît, recaler
