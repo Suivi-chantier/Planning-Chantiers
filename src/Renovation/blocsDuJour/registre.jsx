@@ -23,12 +23,13 @@ import { BlocAVenir } from "./CadreBloc";
 import BlocBilanSemainePassee from "./BlocBilanSemainePassee";
 import BlocCommandesASaisir from "./BlocCommandesASaisir";
 import BlocChantiersAVenir from "./BlocChantiersAVenir";
+import BlocAdministratifFournisseurs from "./BlocAdministratifFournisseurs";
 
 export const REGISTRE_BLOCS = Object.freeze({
   bilan_semaine_passee:       { icone: ChartBar,      accent: "#5b8af5", Composant: BlocBilanSemainePassee },
   commandes_a_saisir:         { icone: Package,       accent: "#f5a623", Composant: BlocCommandesASaisir },
   chantiers_a_venir:          { icone: HardHat,       accent: "#22c55e", Composant: BlocChantiersAVenir },
-  administratif_fournisseurs: { icone: Receipt,       accent: "#a855f7", Composant: BlocAVenir },
+  administratif_fournisseurs: { icone: Receipt,       accent: "#a855f7", Composant: BlocAdministratifFournisseurs },
   tournee_chantiers:          { icone: Route,         accent: "#ef4444", Composant: BlocAVenir },
   planning_semaine_suivante:  { icone: CalendarRange, accent: "#38bdf8", Composant: BlocAVenir },
   materiaux_a_commander:      { icone: Layers,        accent: "#f59e0b", Composant: BlocAVenir },

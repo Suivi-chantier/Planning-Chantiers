@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { normaliserNumero, rapprocherFacture } from "./rapprochementFactures.mjs";
+import { construireHistoriqueRapprochement, statutHistorique, fmtEur } from "./historiqueRapprochementV1.js";
+import { chargerHistoriqueRapprochement } from "./rapprochementDonnees";
 import { supabase, photoTransform } from "../supabase";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
@@ -354,48 +356,11 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // "déjà payé" sur une saisie la retire d'ici (elle repasse en attente de facture).
   const loadHistorique = useCallback(async () => {
     setLoadingHist(true);
-    // Fournisseurs en mode "30j" (facturés directement : une facture par achat,
-    // payée à 30 jours). Leurs saisies valent facture -> à afficher ici.
-    const { data: fournData } = await supabase.from("fournisseurs").select("id, mode_paiement");
-    const ids30j = (fournData || []).filter(f => f.mode_paiement === "30j").map(f => f.id);
-    const set30j = new Set(ids30j);
-
-    // Commandes à afficher comme documents de dépense : payées comptant, OU
-    // facture directe d'un fournisseur 30j. Jamais celles rattachées à une facture.
-    let cq = supabase.from("commandes")
-      .select("id, fournisseur_id, fournisseur_nom, doc_numero, doc_type, type_evenement, date_doc, montant_ht, statut_completude, statut_facturation, photo_url, notes, created_at, lignes:commande_lignes(id, libelle, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id)")
-      .is("facture_id", null);
-    cq = ids30j.length
-      ? cq.or(`statut_facturation.eq.facture,fournisseur_id.in.(${ids30j.join(",")})`)
-      : cq.eq("statut_facturation", "facture");
-
-    const [fRes, cRes] = await Promise.all([
-      supabase.from("factures")
-        .select("id, fournisseur_id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, type_document, facture_origine_id, photo_url, fichiers, created_at")
-        .order("created_at", { ascending: false }).limit(1000),
-      cq.order("created_at", { ascending: false }).limit(1000),
-    ]);
-    const factures = (fRes.data || []).map(f => ({
-      key: `f_${f.id}`, kind: "facture", id: f.id,
-      fournisseur: f.fournisseur_nom || "", numero: f.numero || "",
-      montant: f.montant_ht, statut: f.statut,
-      dateISO: f.date_facture || (f.created_at || "").slice(0, 10),
-      raw: f,
-    }));
-    const recus = (cRes.data || []).map(c => {
-      const is30j = set30j.has(c.fournisseur_id);
-      return {
-        key: `c_${c.id}`, kind: "recu", id: c.id,
-        fournisseur: c.fournisseur_nom || "", numero: c.doc_numero || "",
-        montant: c.montant_ht,
-        statut: is30j ? "facture30j" : "comptant",
-        paye: c.statut_facturation === "facture",
-        dateISO: c.date_doc || (c.created_at || "").slice(0, 10),
-        raw: c,
-      };
-    });
-    const all = [...factures, ...recus].sort((a, b) => (b.dateISO || "").localeCompare(a.dateISO || ""));
-    setHistorique(all);
+    // Lectures (rapprochementDonnees.js) et construction de la liste
+    // (historiqueRapprochementV1.mjs), partagées avec le bloc du jour
+    // « Administratif fournisseurs » du tableau de bord.
+    const lectures = await chargerHistoriqueRapprochement();
+    setHistorique(construireHistoriqueRapprochement(lectures));
     setLoadingHist(false);
   }, []);
 
@@ -690,15 +655,10 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       g.total += Number(it.montant) || 0;
     }
     const groupesMois = [...groupesMap.values()].sort((a, b) => b.mois.localeCompare(a.mois));
-    const fmtEur = (n) => (Number(n) || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
+    // Statut affiché : historiqueRapprochementV1.mjs (même filtre « À rapprocher » que le bloc du jour).
     const badgeInfo = (it) => {
-      if (it.kind === "recu") {
-        if (it.statut === "facture30j") return { label: it.paye ? "Facture 30j · payée" : "Facture 30j", sem: it.paye ? SEMANTIC.success : SEMANTIC.info };
-        return { label: "Payé comptant", sem: SEMANTIC.success };
-      }
-      if (it.statut === "rapprochee") return { label: "Rapprochée", sem: SEMANTIC.success };
-      if (it.statut === "archivee") return { label: "Archivée", sem: SEMANTIC.info };
-      return { label: "À rapprocher", sem: SEMANTIC.warning };
+      const { label, ton } = statutHistorique(it);
+      return { label, sem: SEMANTIC[ton] };
     };
 
     return (

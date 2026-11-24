@@ -199,8 +199,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | en ligne | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | [#260](https://github.com/Suivi-chantier/Planning-Chantiers/pull/260) |
 | 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | en ligne | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | [#261](https://github.com/Suivi-chantier/Planning-Chantiers/pull/261) |
 | 7 | Bloc `commandes_a_saisir` | en ligne | Contrôles verts | Mêmes comptes que la page Commandes à passer | [#262](https://github.com/Suivi-chantier/Planning-Chantiers/pull/262) |
-| 8 | Bloc `chantiers_a_venir` (`cycleVie`) | en cours | Contrôles verts | Liste identique aux chantiers non démarrés en base | — |
-| 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | à faire | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | — |
+| 8 | Bloc `chantiers_a_venir` (`cycleVie`) | en ligne | Contrôles verts | Liste identique aux chantiers non démarrés en base | [#263](https://github.com/Suivi-chantier/Planning-Chantiers/pull/263) |
+| 9 | Bloc `administratif_fournisseurs` (extraction en `.mjs` de la logique de Rapprochement factures et d'Encours fournisseurs, sans changer leurs chiffres) | en cours | Contrôles verts + chiffres des deux pages identiques avant / après l'extraction | Tableau avant / après des montants des deux pages | — |
 | 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | à faire | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | — |
 | 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | à faire | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | — |
 | 12 | Bloc `materiaux_a_commander` | à faire | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | — |
@@ -310,6 +310,25 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **24/11/2026 — Deux compteurs de demandes distincts.** La tuile du tableau de
   bord compte des articles demandés, l'onglet de la page des envois
   d'ouvriers ; le bloc montre les deux avec leur intitulé.
+
+- **24/11/2026 — Tâche 8, règle « pas encore démarré ».** Aucune règle
+  n'existait : reprise de la plus proche, le statut affiché par la fiche
+  chantier (`statutChantier` = « Planifié » : devis signé, travaux pas
+  commencés ; `factureAEmettre.mjs`). Avancement de la Préparation : les 6
+  étapes de `cv_preparation` (`cycleVie.mjs`), format « x/6 étapes faites »
+  comme la synthèse Opérations. Aucune date de démarrage prévue n'existe en
+  base : non affichée.
+- **24/11/2026 — Question à Loris : le bloc du mardi est vide** (aucun chantier
+  « Planifié » en base ; 25 chantiers sans statut s'affichent « En cours »
+  parce qu'ils ont un phasage, dont 9 sans aucune heure pointée : FOUGERAY ×6,
+  LOUISON APPT 2/3/4). Faut-il les passer en « Planifié » ?
+- **24/11/2026 — Réponse de Loris** : « je passe les 9 chantiers en Planifié,
+  continue ». Saisie faite par Loris dans l'application ; Claude n'écrit rien
+  en base. Règle du bloc inchangée.
+- **24/11/2026 — Incohérence existante signalée, non corrigée (hors
+  périmètre).** Un chantier sans statut s'affiche « En cours » dans la liste
+  Opérations, « Planifié » dans la synthèse cycle de vie d'Opérations, et l'un
+  ou l'autre sur la fiche selon qu'il a un phasage. Le bloc suit la fiche.
 
 ## Comptes rendus
 
@@ -480,5 +499,27 @@ Règle par défaut de `CLAUDE.md`. En plus :
   terminé avec succès.
 - **Test des écrans** : 52 cas réussis (exemple issu des tests, données
   fictives) ; la tuile, la page et le bloc affichent les mêmes chiffres.
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 8 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : le bloc « Chantiers à venir » liste les chantiers
+  « Planifié » avec l'avancement de leur Préparation (« x/6 étapes faites »,
+  « Préparation non renseignée », « Préparation complète ») et les étapes qui
+  manquent ; un clic ouvre la fiche chantier.
+- **Base réelle** (lecture seule, 24/11/2026 ; calcul de la fiche chantier
+  contre calcul du bloc, mêmes données) :
+
+  | Mesure | Fiche chantier | Bloc | Écart |
+  |---|---|---|---|
+  | Statuts, 62 chantiers non archivés | 31 En cours, 15 Terminé, 16 À l'étude, 0 Planifié | identique | 0 |
+  | Chantiers à venir | 0 | 0 (« Aucun chantier à venir ») | 0 |
+  | Préparation, 62 chantiers | 32 non renseignées, 29 à 1/6, 1 à 2/6 | identique | 0 |
+
+  Rien n'a été extrait : les règles étaient déjà dans des modules purs.
+- **Contrôles** : 19 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
+- **Test des écrans** : 57 cas réussis (exemple issu des tests, données
+  fictives) ; les cases de Préparation de la fiche sont celles du bloc.
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
 

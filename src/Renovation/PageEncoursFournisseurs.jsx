@@ -1,49 +1,30 @@
 import React, { useState, useEffect } from "react";
-import { supabase } from "../supabase";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, LOGO_RENO_H } from "../constants";
 import { buildEncoursDocHTML } from "./encoursDoc";
 import { Icon } from "../ui";
 import { Wallet, Loader2, ChevronDown, ChevronRight, Printer } from "lucide-react";
 import VueAchatsParMois from "./VueAchatsParMois";
+import { chargerDonneesEncoursFournisseurs } from "./encoursFournisseursDonnees";
+import {
+  moisLabel, eur, EXPLICATION_ENCOURS, itemsEncoursFournisseurs, aPayerOf, regrouperEncoursParMois,
+  fournisseursTriesDuMois, cleMoisCourant, chiffresMoisCourant,
+} from "./encoursFournisseursPageV1.js";
 
 // Deux lectures des mêmes achats : par échéance de paiement (trésorerie) ou par
 // mois d'achat (coûts et marges). Le dernier choix est mémorisé sur l'appareil.
 const CLE_VUE = "encours.vue";
 const lireVue = () => { try { return localStorage.getItem(CLE_VUE) === "achat" ? "achat" : "echeance"; } catch { return "echeance"; } };
 
-const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-const moisLabel = (ym) => {
-  if (!ym || ym.length < 7) return "Sans date";
-  const [y, m] = ym.split("-");
-  return `${MOIS_FR[parseInt(m, 10) - 1] || m} ${y}`;
-};
-const eur = (n) => (Number(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFR = (iso) => { const d = iso ? new Date(iso + "T00:00:00") : null; return d && !isNaN(d.getTime()) ? d.toLocaleDateString("fr-FR") : ""; };
 const docLabel = (d) => {
   if (d.kind === "fact") return `Facture${d.numero ? " n° " + d.numero : ""}`;
   const type = d.type === "bl" ? "BL" : d.type === "ticket" ? "Ticket" : "Bon de commande";
   return `${type}${d.numero ? " n° " + d.numero : ""}`;
 };
-const normNom = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
 
-// Date d'échéance de paiement selon le mode du fournisseur.
-//  comptant / inconnu -> le jour même (mois du document)
-//  30j                 -> date + 30 jours
-//  echeance (30j FDM)  -> date + 31 jours, PUIS fin de ce mois-là
-//     (ex. facture du 01/07 -> +31 j = 01/08 -> fin de mois = 31/08, payable en août)
-// Renvoie "AAAA-MM-JJ" (heure locale, pas de décalage de fuseau).
-function echeanceISO(docISO, mode) {
-  if (!docISO) return docISO || "";
-  const d = new Date(docISO + "T00:00:00");
-  if (isNaN(d.getTime())) return docISO;
-  if (mode === "30j") { d.setDate(d.getDate() + 30); }
-  else if (mode === "echeance") {
-    d.setDate(d.getDate() + 31);
-    const fdm = new Date(d.getFullYear(), d.getMonth() + 1, 0); // dernier jour du mois atteint
-    return fdm.toLocaleDateString("sv-SE");
-  } else { return docISO; }
-  return d.toLocaleDateString("sv-SE");
-}
+// Lecture et calcul : encoursFournisseursDonnees.js et encoursFournisseursPageV1.mjs
+// (déplacés à l'identique, partagés avec le bloc du jour « Administratif
+// fournisseurs » du tableau de bord).
 
 // Suivi des dépenses par fournisseur et par mois.
 // Sources (sans double comptage) :
@@ -63,50 +44,9 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [fournRes, cRes, fRes, blRes] = await Promise.all([
-        supabase.from("fournisseurs").select("id, nom, mode_paiement"),
-        supabase.from("commandes")
-          .select("id, fournisseur_id, fournisseur_nom, doc_type, doc_numero, montant_ht, date_doc, created_at, statut_facturation, source, lignes:commande_lignes(prix_total)")
-          .is("facture_id", null).limit(5000),
-        supabase.from("factures")
-          .select("id, numero, fournisseur_id, fournisseur_nom, montant_ht, date_facture, date_echeance, created_at, statut")
-          .neq("statut", "archivee").limit(2000),
-        supabase.from("facture_bl").select("facture_id, commande_id, bl_numero, montant_ht, statut").limit(10000),
-      ]);
-      // BL rapprochés par facture
-      const blByFacture = {};
-      (blRes.data || []).forEach(b => { (blByFacture[b.facture_id] = blByFacture[b.facture_id] || []).push(b); });
-      const linkedIds = new Set((blRes.data || []).filter(b => b.commande_id).map(b => b.commande_id));
-      // mode de paiement par fournisseur (par id et par nom normalisé)
-      const modeById = {}, modeByNom = {};
-      (fournRes.data || []).forEach(f => { modeById[f.id] = f.mode_paiement || ""; if (f.nom) modeByNom[normNom(f.nom)] = f.mode_paiement || ""; });
-      const modeOf = (id, nom) => modeById[id] || modeByNom[normNom(nom)] || "";
-
-      const arr = [];
-      (cRes.data || []).forEach(c => {
-        if (c.source === "migration" || linkedIds.has(c.id)) return; // anciennes saisies (avant la refonte) : non comptées
-        const montant = c.montant_ht != null ? Number(c.montant_ht)
-          : (c.lignes || []).reduce((s, l) => s + (Number(l.prix_total) || 0), 0);
-        if (!montant) return;
-        const docISO = c.date_doc || (c.created_at || "").slice(0, 10);
-        const paye = c.statut_facturation === "facture";
-        // payé (comptant) -> le mois du document ; sinon -> mois d'échéance selon le mode
-        const dueISO = paye ? docISO : echeanceISO(docISO, modeOf(c.fournisseur_id, c.fournisseur_nom));
-        arr.push({
-          kind: "cmd", mois: (dueISO || "").slice(0, 7), fournisseur: c.fournisseur_nom || "Sans fournisseur", montant, paye,
-          doc: { kind: "cmd", type: c.doc_type, numero: c.doc_numero, date: docISO, montant, paye },
-        });
-      });
-      (fRes.data || []).forEach(f => {
-        const montant = Number(f.montant_ht) || 0;
-        if (!montant) return;
-        const docISO = f.date_facture || (f.created_at || "").slice(0, 10);
-        const dueISO = f.date_echeance || echeanceISO(docISO, modeOf(f.fournisseur_id, f.fournisseur_nom));
-        arr.push({
-          kind: "fact", mois: (dueISO || "").slice(0, 7), fournisseur: f.fournisseur_nom || "Sans fournisseur", montant, paye: false,
-          doc: { kind: "fact", numero: f.numero, date: docISO, montant, bls: blByFacture[f.id] || [] },
-        });
-      });
+      // Erreur de lecture : comportement inchangé (liste vide), voir encoursFournisseursDonnees.js.
+      const donnees = await chargerDonneesEncoursFournisseurs();
+      const arr = itemsEncoursFournisseurs(donnees);
       setItems(arr);
       setLoading(false);
     })();
@@ -115,34 +55,13 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
   const fournisseurs = [...new Set(items.map(i => i.fournisseur))].sort((a, b) => a.localeCompare(b));
   const filtered = fFilter === "all" ? items : items.filter(i => i.fournisseur === fFilter);
 
-  // Agrégation mois -> fournisseur : saisi (nos commandes), facturé (factures
-  // reçues), payé (comptant déjà réglé). "À payer" = la facture si on en a une
-  // (c'est ce qu'on règle réellement), sinon le saisi (aperçu avant facture).
-  const aPayerOf = (pf) => (pf.facture > 0 ? pf.facture : pf.saisi);
-  const moisMap = new Map();
-  for (const it of filtered) {
-    const m = it.mois || "____";
-    if (!moisMap.has(m)) moisMap.set(m, { mois: m, parFourn: new Map() });
-    const g = moisMap.get(m);
-    if (!g.parFourn.has(it.fournisseur)) g.parFourn.set(it.fournisseur, { nom: it.fournisseur, saisi: 0, facture: 0, paye: 0, docs: [] });
-    const pf = g.parFourn.get(it.fournisseur);
-    if (it.kind === "fact") pf.facture += it.montant;
-    else if (it.paye) pf.paye += it.montant;
-    else pf.saisi += it.montant;
-    if (it.doc) pf.docs.push(it.doc);
-  }
-  for (const g of moisMap.values()) {
-    const list = [...g.parFourn.values()];
-    g.aPayer = list.reduce((s, pf) => s + aPayerOf(pf), 0);
-    g.paye = list.reduce((s, pf) => s + pf.paye, 0);
-    g.total = g.aPayer + g.paye;
-  }
-  const moisList = [...moisMap.values()].sort((a, b) => b.mois.localeCompare(a.mois));
+  // Agrégation mois -> fournisseur (encoursFournisseursPageV1.mjs).
+  const { moisMap, moisList } = regrouperEncoursParMois(filtered);
   // Cartes "ce mois" : uniquement l'échéance / le paiement du mois calendaire en cours.
-  const moisCourantKey = new Date().toLocaleDateString("sv-SE").slice(0, 7);
-  const moisCourantLabel = moisLabel(moisCourantKey);
-  const aPayerMoisCourant = moisMap.get(moisCourantKey)?.aPayer || 0;
-  const payeMoisCourant = moisMap.get(moisCourantKey)?.paye || 0;
+  const ceMois = chiffresMoisCourant(moisMap, cleMoisCourant(new Date()));
+  const moisCourantLabel = ceMois.libelle;
+  const aPayerMoisCourant = ceMois.aPayer;
+  const payeMoisCourant = ceMois.paye;
 
   const page = {
     flex: 1, minHeight: 0, overflowY: "auto", background: T.bg, color: T.text,
@@ -244,7 +163,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
 
   return (
     <div style={page}>
-      {entete({ sousTitre: "Montants regroupés par mois d'échéance de paiement (selon le mode de chaque fournisseur)", onPDF: exporterPDF })}
+      {entete({ sousTitre: EXPLICATION_ENCOURS, onPDF: exporterPDF })}
 
       {/* Totaux + filtre */}
       <div style={{ display: "flex", gap: SPACING.sm, marginBottom: SPACING.md, flexWrap: "wrap" }}>
@@ -272,7 +191,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
         <div style={{ ...card, textAlign: "center", color: T.textSub, padding: 30 }}>Aucune dépense enregistrée.</div>
       ) : (
         moisList.map(g => {
-          const fournTries = [...g.parFourn.values()].sort((a, b) => aPayerOf(b) - aPayerOf(a));
+          const fournTries = fournisseursTriesDuMois(g);
           const ouvert = ouverts[g.mois] ?? (fFilter !== "all"); // déplié d'office si un fournisseur est filtré
           return (
             <div key={g.mois} style={card}>
