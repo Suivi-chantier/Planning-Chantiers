@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-11-24",
+    type: "amelioration",
+    titre: "Navigation : prête à suivre une organisation de la semaine, jour par jour",
+    pages: [],
+    quoi: "La barre de navigation, sur ordinateur comme sur téléphone, peut désormais remonter en tête les pages utiles selon le jour de la semaine (par exemple le Bilan de semaine le lundi, les Alertes le jeudi), pour qui aura réglé son organisation. Sans organisation, rien ne change : mêmes onglets, même ordre qu'avant, y compris l'ordre choisi par glisser-déposer.",
+    comment: "Rien à faire pour l'instant : aucune organisation n'est encore réglable par l'utilisateur. L'écran pour la régler (« Mon organisation », dans le profil) arrive prochainement. Le crayon en bas de la barre latérale règle toujours l'ordre habituel des onglets ; les pages du jour, une fois réglées, passeront simplement devant.",
+  },
+  {
     date: "2026-11-13",
     type: "amelioration",
     titre: "Fiche client : un commentaire général, comme la note de synthèse d'un prospect",

@@ -342,3 +342,34 @@ export function etatDuJour(pagesAutorisees, navOrder, dateIso) {
     blocs: blocsDuJour(navOrder, dateIso),
   };
 }
+
+// ─── Barre du bas (téléphone) ────────────────────────────────────────────────
+
+/**
+ * Vrai si l'organisation du jour change réellement l'ordre du menu : un jour
+ * configuré, hors mode « ordre habituel aujourd'hui », avec au moins une page
+ * de `devant` autorisée.
+ * @param {string[]} pagesAutorisees identifiants autorisés
+ */
+export function ordreDuJourActif(pagesAutorisees, navOrder, dateIso) {
+  const org = organisationAppliquee(navOrder, dateIso);
+  if (!org) return false;
+  const autorisees = new Set(Array.isArray(pagesAutorisees) ? pagesAutorisees : []);
+  return org.devant.some((id) => autorisees.has(id));
+}
+
+/**
+ * Ordre des pages de la barre du bas (téléphone : 4 premiers raccourcis +
+ * « Plus »). Historiquement, cette barre ignore l'ordre personnalisé
+ * (glisser-déposer) et suit son propre ordre par défaut : on le garde tel quel
+ * tant qu'aucune organisation du jour n'est active (règle 1 : rien ne change
+ * sans organisation). Quand l'organisation du jour est active, la barre prend
+ * exactement l'ordre de la barre latérale (ordreDesPages).
+ * @param {string[]} pagesBas    pages autorisées, dans l'ordre par défaut de la barre du bas
+ * @param {string[]} pagesMenu   mêmes pages, dans l'ordre par défaut de la barre latérale
+ */
+export function ordreBarreDuBas(pagesBas, pagesMenu, navOrder, dateIso) {
+  const bas = Array.isArray(pagesBas) ? pagesBas : [];
+  if (!ordreDuJourActif(pagesMenu, navOrder, dateIso)) return bas.slice();
+  return ordreDesPages(pagesMenu, navOrder, dateIso);
+}

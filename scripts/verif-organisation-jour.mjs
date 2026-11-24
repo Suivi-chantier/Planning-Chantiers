@@ -14,7 +14,10 @@
 //      contenu en base identique à aujourd'hui (liste simple ou null) ;
 //   5. modèle « Conducteur de travaux » : toutes ses pages existent, tous ses
 //      blocs sont au catalogue ;
-//   6. aucune page ne disparaît ; module pur (ni Supabase, ni horloge).
+//   6. aucune page ne disparaît ; module pur (ni Supabase, ni horloge) ;
+//   7. navigation (étape 2) : barre du bas inchangée sans organisation active,
+//      même ordre que la barre latérale sinon ; Navigation.jsx branché sur le
+//      module ; date du jour unique (dateDuJour.js, ?date_simulee=).
 //
 // Données fictives uniquement. Aucun réseau, aucune base.
 //   node scripts/verif-organisation-jour.mjs
@@ -314,6 +317,63 @@ test("12. module pur : ni Supabase, ni horloge, façade .js", () => {
   assert.ok(!/new Date\(\s*\)/.test(src), "pas de new Date() sans argument");
   assert.ok(!/Date\.now|performance\.now|localStorage|window\.|document\./.test(src), "aucune horloge ni effet de bord");
   assert.match(lire("src/Renovation/organisationJour.js"), /export \* from "\.\/organisationJour\.mjs";/);
+});
+
+// ═══ 7. Navigation (étape 2, tâche 2) ═════════════════════════════════════
+// Ordre par défaut de la barre du bas (ALL_NAV_ITEMS), lu dans la source.
+const blocBas = navSrc.slice(navSrc.indexOf("const ALL_NAV_ITEMS = ["), navSrc.indexOf("function BottomNav"));
+const ALL_NAV_ITEMS = [...blocBas.matchAll(/id:"([^"]+)"/g)].map((m) => m[1]);
+const basDuRole = (role) => ALL_NAV_ITEMS.filter((id) => ROLES[role].includes(id) && estPageDuMenu(id));
+
+test("13. barre du bas : sans organisation active, ordre par défaut inchangé (glisser-déposer ignoré, comme avant)", () => {
+  assert.ok(memeEnsemble(ALL_NAV_ITEMS, ALL_NAV), "barre du bas et barre latérale listent les mêmes pages");
+  for (const role of Object.keys(ROLES)) {
+    const bas = basDuRole(role), menu = menuDuRole(role);
+    for (const no of [...LISTES_REALISTES, { ordre: ["planning", "alertes"] }]) {
+      for (const d of SEMAINE) assert.deepEqual(O.ordreBarreDuBas(bas, menu, no, d), bas, `${role} ${d} ${JSON.stringify(no)}`);
+    }
+    // Organisation présente mais pas active : week-end, mode « ordre habituel », aucune page `devant` autorisée.
+    for (const d of [SAMEDI, DIMANCHE, JEUDI]) assert.deepEqual(O.ordreBarreDuBas(bas, menu, ORG, d), bas, `${role} ${d}`);
+    assert.deepEqual(O.ordreBarreDuBas(bas, menu, O.activerOrdreHabituel(ORG, LUNDI), LUNDI), bas, `${role} ordre habituel`);
+  }
+  assert.equal(O.ordreDuJourActif(menuDuRole("charge_affaires"), ORG, LUNDI), false, "aucune page en tête autorisée");
+  assert.deepEqual(O.ordreBarreDuBas(basDuRole("charge_affaires"), menuDuRole("charge_affaires"), ORG, LUNDI), basDuRole("charge_affaires"));
+});
+
+test("14. barre du bas : organisation du jour active = exactement l'ordre de la barre latérale", () => {
+  const no = { ordre: ["planning", "dashboard"], jours: O.copieModeleConducteurTravaux() };
+  for (const role of ["admin", "conducteur"]) {
+    const bas = basDuRole(role), menu = menuDuRole(role);
+    for (const d of [LUNDI, MARDI, MERCREDI, JEUDI, VENDREDI]) {
+      assert.equal(O.ordreDuJourActif(menu, no, d), true, `${role} ${d}`);
+      const pages = O.ordreBarreDuBas(bas, menu, no, d);
+      assert.deepEqual(pages, O.ordreDesPages(menu, no, d), `${role} ${d}`);
+      assert.deepEqual(pages, O.etatDuJour(menu, no, d).pages);
+      assert.ok(memeEnsemble(pages, bas), "aucune page ne disparaît");
+    }
+  }
+  // Raccourcis du jeudi pour le conducteur (4 premiers).
+  assert.deepEqual(O.ordreBarreDuBas(basDuRole("conducteur"), menuDuRole("conducteur"), no, JEUDI).slice(0, 4),
+    ["alertes", "retours-terrain", "phasage-v2", "planning"]);
+});
+
+test("15. Navigation.jsx et App.jsx branchés sur le module ; date du jour unique", () => {
+  const nav = sansCommentaires(navSrc);
+  assert.ok(!/Array\.isArray\(\s*profil\?\.nav_order\s*\)/.test(nav), "plus de lecture « liste seulement » de nav_order");
+  assert.match(nav, /from "\.\/organisationJour\.js"/);
+  assert.match(nav, /ecrireOrdre\(/, "glisser-déposer via ecrireOrdre");
+  assert.match(nav, /reinitialiserOrdre\(/, "réinitialisation via reinitialiserOrdre");
+  assert.match(nav, /etatDuJour\(/, "barre latérale : ordre du jour");
+  assert.match(nav, /ordreBarreDuBas\(/, "barre du bas : même module");
+  assert.match(nav, /ordreHabituel\(/, "édition : ordre habituel");
+  assert.match(nav, /dateDuJour\(\)/);
+  assert.ok(!/nav_order:\s*ids\b/.test(nav) && !/nav_order:\s*null\b/.test(nav), "plus d'écriture directe de nav_order");
+  assert.match(sansCommentaires(lire("src/App.jsx")), /<BottomNav[^>]*profil=\{profil\}/, "App.jsx passe profil à BottomNav");
+  const date = sansCommentaires(lire("src/Renovation/dateDuJour.js"));
+  assert.match(date, /export function dateDuJour\(/);
+  assert.match(date, /date_simulee/);
+  assert.match(date, /estDateIso\(/, "date simulée validée");
+  assert.match(date, /getFullYear\(\)[\s\S]*getMonth\(\)[\s\S]*getDate\(\)/, "date locale de l'appareil");
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
