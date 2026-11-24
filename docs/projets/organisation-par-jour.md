@@ -192,8 +192,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Étape 1 — module pur `organisationJour.mjs` (+ façade `.js`), script `verif-organisation-jour.mjs` et son workflow | en cours | Contrôles verts | Tous les cas du cahier vérifiés sur GitHub ; aucun écran modifié | — |
-| 2 | Barre latérale et barre du bas lisent `nav_order` sous ses deux formats via le module ; ordre du jour appliqué ; le glisser-déposer règle `ordre` sans effacer `jours` ; la barre du bas suit le même ordre | à faire | Contrôles verts + requête sur la base : chaque `nav_order` existant (format liste) donne exactement le même ordre qu'avant | Tableau « avant / après » de l'ordre de chaque utilisateur concerné, identique | — |
+| 1 | Étape 1 — module pur `organisationJour.mjs` (+ façade `.js`), script `verif-organisation-jour.mjs` et son workflow | en ligne | Contrôles verts | Tous les cas du cahier vérifiés sur GitHub ; aucun écran modifié | [#256](https://github.com/Suivi-chantier/Planning-Chantiers/pull/256) |
+| 2 | Barre latérale et barre du bas lisent `nav_order` sous ses deux formats via le module ; ordre du jour appliqué ; le glisser-déposer règle `ordre` sans effacer `jours` ; la barre du bas suit le même ordre | en cours | Contrôles verts + requête sur la base : chaque `nav_order` existant (format liste) donne exactement le même ordre qu'avant | Tableau « avant / après » de l'ordre de chaque utilisateur concerné, identique | — |
 | 3 | Page d'arrivée à l'ouverture (`App.jsx`, règle 5) + bouton « Ordre habituel aujourd'hui » (règle 7) | à faire | Contrôles verts | Compte de test avec organisation saisie à la main : ordre et page d'arrivée changent selon le jour simulé ; compte sans organisation inchangé | — |
 | 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | à faire | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | — |
 | 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | à faire | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | — |
@@ -249,3 +249,24 @@ Règle par défaut de `CLAUDE.md`. En plus :
   de fusion) ? » — Oui / Non.
 - **Réponse (24/11/2026)** : « oui ». Accès en écriture accordé, reprise à la
   tâche 1.
+
+### Tâche 1 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : rien de visible. Le module qui calcule l'organisation
+  du jour existe (ordre des pages, page d'arrivée, blocs, mode « ordre
+  habituel aujourd'hui », modèle Conducteur de travaux) avec 13 vérifications
+  automatiques, dont la comparaison avec l'ordre actuel pour tous les rôles.
+- **Modèle Conducteur de travaux** : toutes les pages du tableau existent et
+  sont autorisées par défaut au rôle conducteur (« Commandes à passer » =
+  page `planning-commandes`, « Phasage » = `phasage-v2`).
+- **Sans organisation, rien n'est écrit en base** : le glisser-déposer
+  continue d'enregistrer une simple liste.
+- **Journal des MAJ** : pas d'entrée (rien de visible), comme pour le projet
+  « Préparer le chantier ». L'entrée viendra avec la tâche 2.
+- **Vérification de mise en ligne** : 14 contrôles verts, fusion, déploiement
+  de production Vercel terminé avec succès. L'adresse de l'application n'est
+  pas joignable depuis l'environnement de Claude (réseau) : l'ouverture n'a pas
+  pu être testée dans un navigateur.
+- Hors données réelles : la vérification tourne sur des listes de test
+  (exemple issu des tests, données fictives).
+

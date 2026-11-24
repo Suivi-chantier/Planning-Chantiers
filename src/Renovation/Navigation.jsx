@@ -13,6 +13,52 @@ import { Icon } from "../ui";
 import BoutonAide from "./PageAide";
 import { supabase } from "../supabase";
 import { estPageDuMenu } from "./navigationOperations.js";
+import { lireNavOrder, ordreHabituel, etatDuJour, ecrireOrdre, reinitialiserOrdre, ordreBarreDuBas } from "./organisationJour.js";
+import { dateDuJour } from "./dateDuJour.js";
+
+// ─── ORDRE DES ONGLETS (nav_order) ────────────────────────────────────────────
+// Source de vérité : la colonne utilisateurs.nav_order (Supabase), qui suit
+// l'utilisateur d'un appareil à l'autre. localStorage sert de cache instantané /
+// hors-ligne et stocke exactement la même valeur que la base : une simple liste
+// d'identifiants (ancien format, utilisateurs sans organisation) ou l'objet
+// { ordre, jours, … } (organisation de la semaine). Les deux formats sont lus
+// par organisationJour.mjs. Barre latérale et barre du bas partagent la valeur
+// (événement EVT_NAV_ORDER) pour rester alignées après un glisser-déposer.
+const EVT_NAV_ORDER = "profero:nav-order";
+const cleNavOrder = (profil) => `nav_order_${profil?.id || profil?.email || "anon"}`;
+const estNavOrderLisible = (v) => v !== null && typeof v === "object"; // liste ou objet
+
+function lireNavOrderInitial(profil) {
+  if (estNavOrderLisible(profil?.nav_order)) return profil.nav_order;
+  try {
+    const raw = localStorage.getItem(cleNavOrder(profil));
+    const v = raw ? JSON.parse(raw) : null;
+    return estNavOrderLisible(v) ? v : null;
+  } catch { return null; }
+}
+
+function useNavOrder(profil) {
+  const cle = cleNavOrder(profil);
+  const [navOrder, setNavOrderLocal] = useState(() => lireNavOrderInitial(profil));
+  useEffect(() => {
+    const surChangement = (e) => { if (e.detail?.cle === cle) setNavOrderLocal(e.detail.valeur); };
+    window.addEventListener(EVT_NAV_ORDER, surChangement);
+    return () => window.removeEventListener(EVT_NAV_ORDER, surChangement);
+  }, [cle]);
+  // Applique la nouvelle valeur localement (état + cache) et prévient l'autre
+  // barre. L'écriture en base reste dans Sidebar (persistOrder / resetOrder) :
+  // l'inventaire des écritures vers `utilisateurs` est figé par
+  // scripts/verif-utilisateurs-champs-sensibles.mjs.
+  const appliquerLocal = (valeur) => {
+    setNavOrderLocal(valeur);
+    try {
+      if (valeur === null) localStorage.removeItem(cle);
+      else localStorage.setItem(cle, JSON.stringify(valeur));
+    } catch {}
+    try { window.dispatchEvent(new CustomEvent(EVT_NAV_ORDER, { detail: { cle, valeur } })); } catch {}
+  };
+  return [navOrder, appliquerLocal];
+}
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
 const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable", charge_affaires:"Chargé d'affaires" };
@@ -78,21 +124,29 @@ const ALL_NAV_ITEMS = [
   { id:"admin",            icon:Settings,        label:"Réglages",   longLabel:"Réglages"            },
 ];
 
-function BottomNav({ page, setPage, T, role = "admin", branch = "renovation", rolePages = null }) {
+function BottomNav({ page, setPage, T, role = "admin", branch = "renovation", rolePages = null, profil = null }) {
   const acc = getBranchAccent(branch);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [navOrder] = useNavOrder(profil);
 
   // Si rolePages (config dynamique) est fourni : on l'utilise.
   // Sinon : fallback sur la matrice par défaut hardcodée ROLE_PAGES.
   const allowed = (rolePages && rolePages[role]) || ROLE_PAGES[role] || ROLE_PAGES.admin;
   // Lot 5 : la liste Chantiers n'est plus dans le menu (fiche ouverte via Opérations).
   const allowedItems = ALL_NAV_ITEMS.filter(n => allowed.includes(n.id) && estPageDuMenu(n.id));
+  // Organisation de la semaine : quand l'organisation du jour est active, même
+  // ordre que la barre latérale (raccourcis du jour) ; sinon, ordre par défaut
+  // de la barre du bas, inchangé (elle n'a jamais suivi le glisser-déposer).
+  const idsMenu = allNav.filter(n => allowed.includes(n.id) && estPageDuMenu(n.id)).map(n => n.id);
+  const itemParId = new Map(allowedItems.map(n => [n.id, n]));
+  const itemsDuJour = ordreBarreDuBas(allowedItems.map(n => n.id), idsMenu, navOrder, dateDuJour())
+    .map(id => itemParId.get(id)).filter(Boolean);
 
   // Si ≤ 5 pages au total : on les affiche toutes, pas de bouton Plus.
   // Sinon : 4 raccourcis prioritaires + bouton Plus qui ouvre la feuille avec le reste.
-  const useSheet = allowedItems.length > 5;
-  const mainItems = useSheet ? allowedItems.slice(0, 4) : allowedItems;
-  const sheetItems = useSheet ? allowedItems.slice(4) : [];
+  const useSheet = itemsDuJour.length > 5;
+  const mainItems = useSheet ? itemsDuJour.slice(0, 4) : itemsDuJour;
+  const sheetItems = useSheet ? itemsDuJour.slice(4) : [];
 
   // Si la page courante est dans la feuille, on met le bouton Plus en "actif" pour le signaler visuellement.
   const sheetActive = useSheet && sheetItems.some(n => n.id === page);
@@ -295,43 +349,35 @@ function Sidebar({
   // Lot 5 : la liste Chantiers n'est plus dans le menu (fiche ouverte via Opérations).
   const allowedNav = allNav.filter(n => allowed.includes(n.id) && estPageDuMenu(n.id));
 
-  // ── Réorganisation des onglets (mémorisée par utilisateur) ──
-  const orderKey = `nav_order_${profil?.id || profil?.email || "anon"}`;
+  // ── Réorganisation des onglets (mémorisée par utilisateur, voir useNavOrder) ──
   const [editOrder, setEditOrder] = useState(false);
-  // Source de vérité : la colonne nav_order de l'utilisateur (Supabase), qui suit
-  // l'utilisateur d'un appareil à l'autre. localStorage sert de cache instantané / hors-ligne.
-  const [customOrder, setCustomOrder] = useState(() => {
-    if (Array.isArray(profil?.nav_order)) return profil.nav_order;
-    try {
-      const raw = localStorage.getItem(orderKey);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  });
+  const [navOrder, appliquerNavOrderLocal] = useNavOrder(profil);
+  const ordrePerso = lireNavOrder(navOrder).ordre; // ordre habituel choisi (null = par défaut)
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
 
-  // Applique l'ordre personnalisé : les ids connus d'abord dans l'ordre choisi,
-  // puis toute nouvelle page autorisée non encore classée est ajoutée à la fin.
-  const nav = (() => {
-    if (!customOrder) return allowedNav;
-    const byId = new Map(allowedNav.map(n => [n.id, n]));
-    const seen = new Set();
-    const result = [];
-    customOrder.forEach(id => {
-      if (byId.has(id) && !seen.has(id)) { result.push(byId.get(id)); seen.add(id); }
-    });
-    allowedNav.forEach(n => { if (!seen.has(n.id)) result.push(n); });
-    return result;
-  })();
+  // Hors édition : ordre du jour (pages « en tête » de l'organisation du jour,
+  // puis l'ordre habituel ; sans organisation = l'ordre habituel, comme avant).
+  // En édition : toujours l'ordre HABITUEL, celui que règle le glisser-déposer,
+  // pour ne jamais enregistrer l'ordre d'un jour comme ordre habituel.
+  const byId = new Map(allowedNav.map(n => [n.id, n]));
+  const idsAutorises = allowedNav.map(n => n.id);
+  const idsAffiches = editOrder
+    ? ordreHabituel(idsAutorises, ordrePerso)
+    : etatDuJour(idsAutorises, navOrder, dateDuJour()).pages;
+  const nav = idsAffiches.map(id => byId.get(id)).filter(Boolean);
 
-  const persistOrder = (ids) => {
-    setCustomOrder(ids);
-    try { localStorage.setItem(orderKey, JSON.stringify(ids)); } catch {}
+  // Enregistre `ids` (liste simple ou objet { ordre, jours, … }) : cache + base.
+  const sauvegarderNavOrder = (ids) => {
+    appliquerNavOrderLocal(ids);
     if (profil?.id) {
       supabase.from("utilisateurs").update({ nav_order: ids }).eq("id", profil.id)
         .then(({ error }) => { if (error) console.warn("nav_order (sauvegarde) :", error.message); });
     }
   };
+
+  // Règle `ordre` sans effacer `jours` ; sans organisation, liste simple comme avant.
+  const persistOrder = (ordre) => sauvegarderNavOrder(ecrireOrdre(navOrder, ordre));
 
   const handleDrop = (targetId) => {
     if (!dragId || dragId === targetId) { setDragId(null); setOverId(null); return; }
@@ -344,9 +390,12 @@ function Sidebar({
     setDragId(null); setOverId(null);
   };
 
+  // Sans organisation : null, comme avant ; avec : l'objet sans `ordre` (jours
+  // gardés), enregistré par le même appel que la sauvegarde.
   const resetOrder = () => {
-    try { localStorage.removeItem(orderKey); } catch {}
-    setCustomOrder(null);
+    const ids = reinitialiserOrdre(navOrder);
+    if (ids !== null) { sauvegarderNavOrder(ids); return; }
+    appliquerNavOrderLocal(null);
     if (profil?.id) {
       supabase.from("utilisateurs").update({ nav_order: null }).eq("id", profil.id)
         .then(({ error }) => { if (error) console.warn("nav_order (réinit.) :", error.message); });
@@ -497,7 +546,7 @@ function Sidebar({
           <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:2 }}>
             {editOrder ? (
               <>
-                {customOrder && (
+                {ordrePerso && (
                   <button onClick={resetOrder} title="Rétablir l'ordre par défaut" style={{
                     background:"transparent", border:"none", cursor:"pointer", padding:5,
                     color:"rgba(255,255,255,0.5)", display:"flex", borderRadius:RADIUS.md,

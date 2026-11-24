@@ -1054,7 +1054,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           </Suspense>
         </div>
       </div>
-      <BottomNav page={page} setPage={setPage} T={T} role={role} rolePages={rolePages}/>
+      <BottomNav page={page} setPage={setPage} T={T} role={role} rolePages={rolePages} profil={profil}/>
       {profilOuvert&&role!=="ouvrier"&&<PanneauProfil profil={profil} role={role} T={T} onClose={()=>setProfilOuvert(false)}/>}
       {boiteOuverte&&role!=="ouvrier"&&<PanneauBoite boite={boite} T={T} onClose={()=>setBoiteOuverte(false)} onNaviguer={naviguerVersLien}/>}
       {/* Barre todo persistante : visible sur toutes les pages, chaque

@@ -7,6 +7,8 @@ on:
       - 'src/Renovation/organisationJour.mjs'
       - 'src/Renovation/organisationJour.js'
       - 'src/Renovation/Navigation.jsx'
+      - 'src/Renovation/dateDuJour.js'
+      - 'src/App.jsx'
       - 'src/access.js'
       - 'scripts/verif-organisation-jour.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
@@ -15,6 +17,8 @@ on:
       - 'src/Renovation/organisationJour.mjs'
       - 'src/Renovation/organisationJour.js'
       - 'src/Renovation/Navigation.jsx'
+      - 'src/Renovation/dateDuJour.js'
+      - 'src/App.jsx'
       - 'src/access.js'
       - 'scripts/verif-organisation-jour.mjs'
       - '.github/workflows/verify-organisation-jour.yml'
@@ -30,5 +34,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Organisation par jour — ancien format inchangé, ordre du jour, page d'arrivée, blocs, « ordre habituel aujourd'hui », modèle Conducteur de travaux (données fictives)
+      - name: Organisation par jour — ancien format inchangé, ordre du jour, page d'arrivée, blocs, « ordre habituel aujourd'hui », modèle Conducteur de travaux, barres de navigation (données fictives)
         run: node scripts/verif-organisation-jour.mjs
