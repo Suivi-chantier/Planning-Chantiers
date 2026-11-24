@@ -195,8 +195,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 1 | Étape 1 — module pur `organisationJour.mjs` (+ façade `.js`), script `verif-organisation-jour.mjs` et son workflow | en ligne | Contrôles verts | Tous les cas du cahier vérifiés sur GitHub ; aucun écran modifié | [#256](https://github.com/Suivi-chantier/Planning-Chantiers/pull/256) |
 | 2 | Barre latérale et barre du bas lisent `nav_order` sous ses deux formats via le module ; ordre du jour appliqué ; le glisser-déposer règle `ordre` sans effacer `jours` ; la barre du bas suit le même ordre | en ligne | Contrôles verts + requête sur la base : chaque `nav_order` existant (format liste) donne exactement le même ordre qu'avant | Tableau « avant / après » de l'ordre de chaque utilisateur concerné, identique | [#257](https://github.com/Suivi-chantier/Planning-Chantiers/pull/257) |
 | 3 | Page d'arrivée à l'ouverture (`App.jsx`, règle 5) + bouton « Ordre habituel aujourd'hui » (règle 7) | en ligne | Contrôles verts | Compte de test avec organisation saisie à la main : ordre et page d'arrivée changent selon le jour simulé ; compte sans organisation inchangé | [#258](https://github.com/Suivi-chantier/Planning-Chantiers/pull/258) |
-| 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | en cours | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | — |
-| 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | à faire | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | — |
+| 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | en ligne | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | [#259](https://github.com/Suivi-chantier/Planning-Chantiers/pull/259) |
+| 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | en cours | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | — |
 | 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | à faire | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | — |
 | 7 | Bloc `commandes_a_saisir` | à faire | Contrôles verts | Mêmes comptes que la page Commandes à passer | — |
 | 8 | Bloc `chantiers_a_venir` (`cycleVie`) | à faire | Contrôles verts | Liste identique aux chantiers non démarrés en base | — |
@@ -259,6 +259,19 @@ Règle par défaut de `CLAUDE.md`. En plus :
   haut du menu « Plus » sur téléphone. Limite connue : un rôle à 5 pages ou
   moins n'a pas de menu « Plus » (chargé d'affaires aujourd'hui) ; le bandeau
   du tableau de bord (tâche 5) offrira aussi le bouton.
+
+- **24/11/2026 — Tâche 4, écran.** « Mon profil » → onglet « Mon
+  organisation ». Un jour laissé vide n'est pas enregistré ; enregistrer sans
+  aucun jour rempli revient à supprimer l'organisation. « Supprimer mon
+  organisation » efface aussi le mode « ordre habituel aujourd'hui ». Une page
+  devenue non autorisée est signalée dans l'écran puis retirée au prochain
+  enregistrement.
+- **24/11/2026 — Tâche 4, correction annexe.** La barre relisait l'ancienne
+  valeur du profil après un enregistrement si elle était réaffichée (passage
+  ordinateur ↔ téléphone) : corrigé par une mémoire de session.
+- **24/11/2026 — À faire en tâche 5.** Mettre à jour les phrases de l'écran
+  « Mon organisation » qui annoncent le bandeau « lors d'une prochaine mise à
+  jour ».
 
 ## Comptes rendus
 
@@ -337,5 +350,26 @@ Règle par défaut de `CLAUDE.md`. En plus :
   fictif (exemple issu des tests, données fictives) : 18 cas réussis — lundi
   ouvre Bilan de semaine, jeudi Alertes, samedi et sans organisation le
   tableau de bord, un lien de notification reste prioritaire.
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 4 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : « Mon profil » → onglet « Mon organisation » : pour
+  chaque jour, thématique, page d'arrivée, pages en tête (ordonnées),
+  rendez-vous, blocs du tableau de bord. « Appliquer le modèle Conducteur de
+  travaux » pré-remplit sans enregistrer ; « Supprimer mon organisation »
+  revient exactement à l'état d'avant.
+- **Sécurité** : aucune nouvelle écriture vers `utilisateurs` (toujours les
+  deux écritures de l'ordre de navigation) ; ni droits, ni base modifiés.
+- **Contrôles** : 19 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
+- **Test des écrans** : 26 cas réussis, application lancée avec une base
+  simulée (exemple issu des tests, données fictives) : modèle appliqué sans
+  écriture, enregistrement en une écriture, barre du lundi « Bilan de semaine,
+  Commandes, Saisie commande », téléphone « Bilan, Cmd., Saisie, Planning »,
+  suppression = retour exact à l'avant.
+- **Fin d'étape 3 côté Loris** : il peut désormais appliquer le modèle et
+  l'enregistrer ; la vérification sur son compte réel reste à faire par lui
+  (Claude n'écrit jamais l'organisation dans la base).
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
 
