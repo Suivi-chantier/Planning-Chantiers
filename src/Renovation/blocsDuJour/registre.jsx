@@ -20,10 +20,11 @@ import { ChartBar, Package, HardHat, Receipt, Route, CalendarRange, Layers } fro
 import { CATALOGUE_BLOCS, LIBELLES_BLOCS, liensDuBloc } from "../organisationJour.js";
 import { BlocAVenir } from "./CadreBloc";
 import BlocBilanSemainePassee from "./BlocBilanSemainePassee";
+import BlocCommandesASaisir from "./BlocCommandesASaisir";
 
 export const REGISTRE_BLOCS = Object.freeze({
   bilan_semaine_passee:       { icone: ChartBar,      accent: "#5b8af5", Composant: BlocBilanSemainePassee },
-  commandes_a_saisir:         { icone: Package,       accent: "#f5a623", Composant: BlocAVenir },
+  commandes_a_saisir:         { icone: Package,       accent: "#f5a623", Composant: BlocCommandesASaisir },
   chantiers_a_venir:          { icone: HardHat,       accent: "#22c55e", Composant: BlocAVenir },
   administratif_fournisseurs: { icone: Receipt,       accent: "#a855f7", Composant: BlocAVenir },
   tournee_chantiers:          { icone: Route,         accent: "#ef4444", Composant: BlocAVenir },

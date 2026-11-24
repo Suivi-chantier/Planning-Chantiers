@@ -219,14 +219,20 @@ const ligne = (prix_total, lot_id, extra = {}) => ({ id: `l${Math.random()}`, pr
     "src/Renovation/DiagrammeFinancierConsolide.jsx": 1, "src/Renovation/operationExportData.js": 1,
     "src/Renovation/PageChantiers.jsx": 1, "src/Renovation/PagePlanningCommandes.jsx": 1, "api/_partage/donneesFinanceChantiers.js": 1,
   };
+  // Depuis la tâche 7 (organisation-par-jour), les lectures de la page
+  // Commandes à passer vivent dans commandesAPasserDonnees.js, importé par la
+  // page (et par le bloc du jour « Commandes à saisir ») : on lit les deux.
+  const lireAvecDonnees = (f) => lire(f) + (f === "src/Renovation/PagePlanningCommandes.jsx"
+    ? (ok(/from "\.\/commandesAPasserDonnees\.js"/.test(lire(f)) && /lireLignesCommandes\(\)/.test(lire(f)), "la page Commandes à passer importe commandesAPasserDonnees et lit les lignes par lui"), lire("src/Renovation/commandesAPasserDonnees.js"))
+    : "");
   Object.keys(lectures).forEach(f => {
-    const s = lire(f);
+    const s = lireAvecDonnees(f);
     ok(/lot_id, nature/.test(s), `${f} : lit lot_id et nature`);
     ok(/achats(Termines|_lots_termines|ParCh|ParChantier|Res)/.test(s) || /chargerAchatsTermines/.test(s), `${f} : transmet les lots « achats terminés »`);
   });
   // Plus de lecture d'un coup (tronquée à 1 000 lignes) là où on calcule.
   ["src/Renovation/PageChantiers.jsx", "src/Renovation/DiagrammeFinancierConsolide.jsx", "src/Renovation/PagePlanningCommandes.jsx", "src/Renovation/Commandes.jsx"]
-    .forEach(f => ok(/lireToutParTranches\(/.test(lire(f)), `${f} : lecture par tranches`));
+    .forEach(f => ok(/lireToutParTranches\(/.test(lireAvecDonnees(f)), `${f} : lecture par tranches`));
   // Saisie : les trois écrans contrôlent le lot.
   ["src/Renovation/CaptureCommandeMobile.jsx", "src/Renovation/Commandes.jsx"].forEach(f => {
     const s = lire(f);

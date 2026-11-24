@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
     type: "amelioration",
+    titre: "Tableau de bord : le bloc « Commandes à saisir » affiche les demandes des ouvriers et les articles à commander",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "planning-commandes", label: "Commandes à passer" }],
+    quoi: "Le bloc « Commandes à saisir » du tableau de bord (le lundi, pour qui l'a choisi dans son organisation) montre maintenant les demandes de matériel envoyées par les ouvriers et pas encore traitées : le nombre d'articles demandés en attente (le même chiffre que la case « Commandes à passer » du tableau de bord), le nombre de demandes, et les cinq plus récentes avec le chantier, l'article, le demandeur et la date. En dessous, les articles prévus au phasage qui restent à commander, avec exactement les chiffres et les intitulés du haut de la page Commandes à passer : chantiers en cours, articles à commander, reste à commander HT.",
+    comment: "Sur téléphone, le nombre de demandes en attente s'affiche dans l'en-tête du bloc ; touchez-le pour voir le détail. Le bouton « Commandes à passer » ouvre la page pour valider ou refuser les demandes et passer les commandes. Quand il n'y a rien, le bloc l'écrit (« Aucune demande en attente », « Aucun article à commander ») ; si les données ne peuvent pas être lues, il le dit au lieu d'afficher zéro.",
+  },
+  {
+    date: "2026-11-24",
+    type: "amelioration",
     titre: "Tableau de bord : le bloc « Bilan de la semaine passée » affiche ses chiffres",
     pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "Le bloc « Bilan de la semaine passée » du tableau de bord (le lundi, pour qui l'a choisi dans son organisation) montre maintenant les chiffres clés de la semaine précédente : production, marge de la période, marge probable face au devis, heures validées et, s'il y en a, les comptes rendus non validés. Ce sont exactement les chiffres et les explications du haut de la page Bilan de semaine pour cette semaine-là : ils viennent du même calcul, sur les chantiers ayant eu de l'activité.",
