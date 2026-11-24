@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
+    type: "nouveaute",
+    titre: "Mon organisation : régler sa semaine jour par jour, avec le modèle Conducteur de travaux en un clic",
+    pages: [],
+    quoi: "Chacun peut désormais décrire sa semaine type : pour chaque jour du lundi au vendredi, une thématique, la page sur laquelle l'application s'ouvre, les pages à remonter en tête du menu, les rendez-vous fixes et les blocs à afficher sur le tableau de bord. Le menu, sur ordinateur comme sur téléphone, suit alors le jour. Un modèle « Conducteur de travaux » (bilan le lundi, chantiers à venir le mardi, plans et administratif le mercredi, tournée le jeudi, planning de la semaine suivante le vendredi) se remplit en un clic. Sans organisation, rien ne change.",
+    comment: "Ouvrez « Mon profil » (clic sur votre nom en bas de la barre latérale, ou bouton téléphone en haut de l'écran sur mobile), puis l'onglet « Mon organisation ». Choisissez un jour, remplissez-le, puis cliquez sur « Enregistrer ». « Appliquer le modèle Conducteur de travaux » remplit le formulaire sans rien enregistrer : relisez chaque jour, puis enregistrez. Seules les pages déjà ouvertes à votre rôle sont proposées ; une page du modèle qui ne l'est pas est retirée, et l'écran le signale. Un jour laissé vide garde le menu habituel. « Supprimer mon organisation » ramène exactement au fonctionnement d'avant, en gardant votre ordre des onglets. La thématique, les rendez-vous et le contenu des blocs s'afficheront sur le tableau de bord lors d'une prochaine mise à jour.",
+  },
+  {
+    date: "2026-11-24",
     type: "amelioration",
     titre: "Organisation de la semaine : page d'arrivée du jour et bouton « Ordre habituel aujourd'hui »",
     pages: [],

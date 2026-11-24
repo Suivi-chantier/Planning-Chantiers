@@ -194,8 +194,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Étape 1 — module pur `organisationJour.mjs` (+ façade `.js`), script `verif-organisation-jour.mjs` et son workflow | en ligne | Contrôles verts | Tous les cas du cahier vérifiés sur GitHub ; aucun écran modifié | [#256](https://github.com/Suivi-chantier/Planning-Chantiers/pull/256) |
 | 2 | Barre latérale et barre du bas lisent `nav_order` sous ses deux formats via le module ; ordre du jour appliqué ; le glisser-déposer règle `ordre` sans effacer `jours` ; la barre du bas suit le même ordre | en ligne | Contrôles verts + requête sur la base : chaque `nav_order` existant (format liste) donne exactement le même ordre qu'avant | Tableau « avant / après » de l'ordre de chaque utilisateur concerné, identique | [#257](https://github.com/Suivi-chantier/Planning-Chantiers/pull/257) |
-| 3 | Page d'arrivée à l'ouverture (`App.jsx`, règle 5) + bouton « Ordre habituel aujourd'hui » (règle 7) | en cours | Contrôles verts | Compte de test avec organisation saisie à la main : ordre et page d'arrivée changent selon le jour simulé ; compte sans organisation inchangé | — |
-| 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | à faire | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | — |
+| 3 | Page d'arrivée à l'ouverture (`App.jsx`, règle 5) + bouton « Ordre habituel aujourd'hui » (règle 7) | en ligne | Contrôles verts | Compte de test avec organisation saisie à la main : ordre et page d'arrivée changent selon le jour simulé ; compte sans organisation inchangé | [#258](https://github.com/Suivi-chantier/Planning-Chantiers/pull/258) |
+| 4 | Écran « Mon organisation » dans le profil + « Appliquer le modèle Conducteur de travaux » (pré-remplit sans enregistrer) + « Supprimer mon organisation » | en cours | Contrôles verts | Loris applique le modèle, enregistre, retrouve son organisation sur ordinateur et téléphone | — |
 | 5 | Tableau de bord : bandeau du jour (jour, thématique, rendez-vous, bouton) + emplacement des blocs du jour au-dessus des widgets actuels ; un bloc pas encore livré affiche « bloc à venir » (règle 10) | à faire | Contrôles verts | Widgets actuels tous présents en dessous ; compte sans organisation inchangé | — |
 | 6 | Bloc `bilan_semaine_passee` (extraction préalable en `.mjs` si la logique vit dans la page Bilan de semaine) | à faire | Contrôles verts | Mêmes chiffres que la page Bilan de semaine pour la semaine passée, sur la base | — |
 | 7 | Bloc `commandes_a_saisir` | à faire | Contrôles verts | Mêmes comptes que la page Commandes à passer | — |
@@ -248,6 +248,17 @@ Règle par défaut de `CLAUDE.md`. En plus :
   de sécurité qui fige les écritures vers `utilisateurs` a échoué : le code
   avait regroupé les deux écritures existantes de `nav_order` en une. Corrigé en
   rétablissant les deux écritures à l'identique, sans toucher à la garde.
+
+- **24/11/2026 — Tâche 3, page d'arrivée.** Aujourd'hui l'application
+  s'ouvre toujours sur le tableau de bord (rien n'est restauré de la session
+  précédente). La page d'arrivée du jour ne s'applique qu'une fois par
+  ouverture, jamais si l'adresse demande déjà une page (lien de notification,
+  ancre), jamais après une première navigation, jamais pour l'espace ouvrier
+  ni Invest.
+- **24/11/2026 — Tâche 3, bouton.** Bas de la barre latérale sur ordinateur,
+  haut du menu « Plus » sur téléphone. Limite connue : un rôle à 5 pages ou
+  moins n'a pas de menu « Plus » (chargé d'affaires aujourd'hui) ; le bandeau
+  du tableau de bord (tâche 5) offrira aussi le bouton.
 
 ## Comptes rendus
 
@@ -309,5 +320,22 @@ Règle par défaut de `CLAUDE.md`. En plus :
   fictifs (exemple issu des tests, données fictives) : lundi « Bilan de
   semaine, Commandes, Saisie commande » en tête ; samedi ordre habituel ; sans
   organisation, rien ne change.
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 3 — en ligne (24/11/2026)
+
+- **Ce qui a changé** : à l'ouverture, l'application ira sur la page
+  d'arrivée du jour ; bouton « Ordre habituel aujourd'hui » / « Revenir à
+  l'organisation du jour ». Toujours invisible tant que personne n'a
+  d'organisation (écran de réglage : tâche 4).
+- **Sécurité** : aucune nouvelle écriture vers la table `utilisateurs` ; le
+  bouton réutilise l'écriture existante de l'ordre de navigation.
+- **Contrôles** : 19 verts du premier coup, fusion, déploiement de production
+  terminé avec succès. Ouverture dans un navigateur impossible depuis
+  l'environnement de Claude (réseau).
+- **Test des écrans** : application lancée avec une base simulée et un profil
+  fictif (exemple issu des tests, données fictives) : 18 cas réussis — lundi
+  ouvre Bilan de semaine, jeudi Alertes, samedi et sans organisation le
+  tableau de bord, un lien de notification reste prioritaire.
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
 
