@@ -1,0 +1,34 @@
+name: Verify Organisation par jour (module pur, étape 1)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/Renovation/organisationJour.mjs'
+      - 'src/Renovation/organisationJour.js'
+      - 'src/Renovation/Navigation.jsx'
+      - 'src/access.js'
+      - 'scripts/verif-organisation-jour.mjs'
+      - '.github/workflows/verify-organisation-jour.yml'
+  pull_request:
+    paths:
+      - 'src/Renovation/organisationJour.mjs'
+      - 'src/Renovation/organisationJour.js'
+      - 'src/Renovation/Navigation.jsx'
+      - 'src/access.js'
+      - 'scripts/verif-organisation-jour.mjs'
+      - '.github/workflows/verify-organisation-jour.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Organisation par jour — ancien format inchangé, ordre du jour, page d'arrivée, blocs, « ordre habituel aujourd'hui », modèle Conducteur de travaux (données fictives)
+        run: node scripts/verif-organisation-jour.mjs
