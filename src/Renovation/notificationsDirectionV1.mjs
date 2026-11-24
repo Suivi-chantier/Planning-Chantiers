@@ -2,8 +2,12 @@
 // notificationsDirectionV1 — contenu et décisions des notifications F2, D2, D3
 // et D4 (projet docs/projets/notifications-push.md, tâche 8).
 //
-//   F2 : encours fournisseurs du vendredi (comptable). Le total vient du calcul
-//        du mail (encoursFournisseursV1.mjs) : ce module ne fait que l'écrire.
+//   F2 : encours fournisseurs du vendredi (comptable). Depuis le 24/11/2026
+//        (projet organisation-par-jour, tâche 14) : contenuPushF2V2, chiffre
+//        « À payer · <mois en cours> » de la page Encours fournisseurs
+//        (encoursFournisseursMailV2.mjs) ; ce module ne fait que l'écrire.
+//        contenuPushF2V1 (ancien total « 6 mois », encoursFournisseursV1.mjs)
+//        n'est plus appelé par le job.
 //   D2 : nouveau chantier signé (admin + conducteur). L'événement est l'étape
 //        « Devis signé » du cycle de vie validée (refonte Opérations, lots 3 et
 //        suivants), lue avec la même fonction que la fiche chantier et les
@@ -36,6 +40,7 @@ import { etatsCycleVie } from "./cycleVie.mjs";
 import { estChantierArchive, statutDuChantier, STATUT_PERDU, estChantierActif } from "./chantierActif.mjs";
 import { ETAPE_SIGNATURE } from "./statutsChantier.mjs";
 import { eurEncours } from "./encoursFournisseursV1.mjs";
+import { eur as eurPage } from "./encoursFournisseursPageV1.mjs";
 import {
   periodeSemaineV3, semaineIsoV3, ajouterJoursV3, bornesComparaisonV3, indexerRelevesV3,
   activiteChantiersV3, preselectionChantiersV3, syntheseChantiersV3, bandeauV3,
@@ -58,8 +63,9 @@ function listeNoms(noms, max = 8) {
 // ─── F2 — Encours fournisseurs du vendredi ──────────────────────────────────
 
 /**
- * Notification F2, tirée du résultat de calculerEncoursFournisseursV1 (le
- * calcul du mail). Encours vide → null : rien à envoyer, comme le mail.
+ * ANCIENNE notification F2 (total « 6 mois » de calculerEncoursFournisseursV1).
+ * Plus appelée par le job depuis la tâche 14 (voir contenuPushF2V2) ; gardée,
+ * non modifiée. Encours vide → null.
  * @param {{ mois: Array<{mois, aPayer}>, totalAPayer: number, dateParis: string }} p
  */
 export function contenuPushF2V1({ mois, totalAPayer, dateParis } = {}) {
@@ -69,6 +75,36 @@ export function contenuPushF2V1({ mois, totalAPayer, dateParis } = {}) {
     type: "F2",
     titre: `Encours fournisseurs : ${eurEncours(totalAPayer)} € HT à payer`,
     texte: `Total à payer sur les ${groupes.length} mois d'échéance les plus récents, détaillé par fournisseur dans l'encours (même calcul que le mail du vendredi).`,
+    lien: lienPage("encours-fournisseurs"),
+    cle_regroupement: `F2-${dateParis}`,
+  };
+}
+
+/** Nombre de mois suivants cités dans le texte de F2 (puis « et N autres »). */
+export const NB_MOIS_SUIVANTS_F2 = 6;
+
+/**
+ * Notification F2, tirée de encoursDuMailV2 (calcul de la page Encours
+ * fournisseurs, même contenu que le mail). Chiffre annoncé : la carte
+ * « À payer · <mois en cours> » de la page, même libellé. Page sans aucun
+ * mois (« Aucune dépense enregistrée. ») → null : rien à envoyer, comme le
+ * mail.
+ * @param {{ encours: ReturnType<import("./encoursFournisseursMailV2.mjs").encoursDuMailV2>, dateParis: string }} p
+ */
+export function contenuPushF2V2({ encours, dateParis } = {}) {
+  if (!encours || !encours.nbMoisPage) return null;
+  const { moisCourant } = encours;
+  const montant = `${eurPage(moisCourant.aPayer)} € HT`;
+  const suivants = liste(encours.suivants);
+  const cites = suivants.slice(0, NB_MOIS_SUIVANTS_F2).map((g) => `${g.libelle} : ${g.aPayer} HT`);
+  const reste = suivants.length - cites.length;
+  const phraseSuivants = suivants.length
+    ? `Mois d'échéance suivants : ${cites.join(" ; ")}${reste > 0 ? ` et ${reste} autre${reste > 1 ? "s" : ""}` : ""}.`
+    : "Aucune échéance à payer sur les mois suivants.";
+  return {
+    type: "F2",
+    titre: `Encours fournisseurs : ${montant} à payer · ${moisCourant.libelle}`,
+    texte: `À payer · ${moisCourant.libelle} : ${montant}, comme la carte de la page Encours fournisseurs. ${encours.explication}. ${phraseSuivants}`,
     lien: lienPage("encours-fournisseurs"),
     cle_regroupement: `F2-${dateParis}`,
   };

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-24",
     type: "amelioration",
+    titre: "Encours fournisseurs : le mail du vendredi et la notification annoncent les montants de la page",
+    pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
+    quoi: "Le mail « Encours fournisseurs » du vendredi et la notification « Encours fournisseurs : X € HT à payer » utilisent désormais exactement le calcul et les données de la page Encours fournisseurs. Le montant annoncé est celui de la première carte de la page, « À payer · <mois en cours> » (par exemple « À payer · novembre 2026 »), et non plus un total des 6 derniers mois que la page n'affiche nulle part. Le mail rappelle aussi « Payé comptant · <mois en cours> » ; chaque mois détaillé porte le même montant « à payer » que la ligne du mois sur la page, avec les mêmes fournisseurs. Conséquence : quelques commandes datées d'une fin de mois chez les fournisseurs payés à « 30 jours fin de mois » (REXEL, ZOLPAN, Partedis) tombent désormais dans le même mois d'échéance que sur la page.",
+    comment: "Rien à faire : le mail part toujours le vendredi en fin d'après-midi, aux mêmes destinataires et avec le même titre ; la notification suit le mail et indique le mois (« … € HT à payer · novembre 2026 ») puis les mois d'échéance suivants. Le mois en cours est celui de l'heure de Paris. Si les données de l'encours ne peuvent pas être lues, ni le mail ni la notification ne partent, plutôt que d'annoncer un montant faux.",
+  },
+  {
+    date: "2026-11-24",
+    type: "amelioration",
     titre: "Tableau de bord : le bloc « Matériaux à commander » liste les articles à commander pour la semaine prochaine",
     pages: [{ id: "dashboard", label: "Tableau de bord" }, { id: "planning-commandes", label: "Commandes à passer" }],
     quoi: "Le bloc « Matériaux à commander » du tableau de bord (le vendredi, pour qui l'a choisi dans son organisation) affiche les articles de la page Commandes à passer dont la date de besoin tombe la semaine prochaine : exactement ceux de l'onglet « Semaine prochaine » de la fenêtre « Commandes de la semaine » de la page, même liste et même rangement par semaine. La date de besoin d'un article est la date prévue la plus proche des tâches de son ouvrage dans le phasage. Le bloc donne le nombre d'articles, puis, par chantier, le nombre d'articles et la date de besoin la plus proche, puis les articles les plus urgents (article, quantité, chantier, date de besoin).",
