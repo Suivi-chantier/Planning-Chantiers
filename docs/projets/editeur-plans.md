@@ -141,7 +141,7 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | en cours | Contrôles verts | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu | — |
+| 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | en cours | Contrôles verts | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu |#269 |
 | 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | à faire | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** | — |
 | 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
 | 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
@@ -249,5 +249,146 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   importer un troisième relevé d'ici là. Par ailleurs « Louison RDC » n'est
   rattaché à aucun chantier, alors qu'un plan du nouvel éditeur l'est toujours
   (règle 1) : à quel chantier le rattacher lors de sa copie ?
+- **24/11/2026 — Tâche 1 : forme du modèle de l'existant.** Deux modules
+  purs dans `src/Renovation/planV2/` : `planV2Murs.mjs` (calcul des murs) et
+  `planV2Modele.mjs` (document complet). Le modèle ne recopie pas le relevé :
+  il désigne les pièces et les ouvertures par leur identifiant, et y ajoute ce
+  qui est calculé (pour chaque côté de pièce, ses murs ; pour chaque
+  ouverture, son mur). Nom, type, surface, hauteur et photos restent lus dans
+  le relevé, et les métrés restent ceux de `calculerMetres` : aucun chiffre
+  n'existe en double. Le document prévoit déjà, vides, les emplacements des
+  équipements, des notes, des traits libres et de la liste des modifications
+  du projet. Chaque mur et chaque ouverture porte un état (« existant ») et un
+  corps d'état ; celui des murs est provisoirement « cloisons et plâtrerie »,
+  à confirmer quand les versions seront construites (tâches 10 et 23). Le type
+  constructif d'un mur existant (cloison 45, 70…) n'est pas dans le relevé :
+  l'emplacement existe, vide.
+- **24/11/2026 — Tâche 1 : comment un mur est reconnu, et avec quelles
+  tolérances.** Chaque côté de pièce est découpé en tronçons, et chaque
+  tronçon est la face d'un mur. Quatre cas : mur **partagé** (le côté d'une
+  pièce et le côté parallèle d'une pièce voisine, le plus proche des deux
+  côtés, avec de la matière entre les deux) ; mur **périphérique** (aucune
+  pièce relevée derrière : façade, mitoyen, gaine) ; **raccord** (petit bout
+  de côté adossé au bout d'une cloison perpendiculaire ou à un décrochement :
+  il n'a pas d'épaisseur propre) ; **limite** (pas de mur : une autre pièce
+  commence juste derrière). Tolérances de départ, toutes réglables : côtés
+  parallèles à 5° près (la valeur déjà utilisée pour détecter les portes) ;
+  écart entre les deux faces de 2 cm à 1 m ; longueur commune d'au moins
+  3 cm ; au moins la moitié de l'entre-deux-faces couverte par les murs
+  dessinés du relevé, sinon c'est un vide entre deux pièces et non un mur
+  (ces cas sont listés à part). Essai sur les deux relevés réels : en faisant
+  varier l'angle de 2° à 20° et la part de matière de 10 % à 90 %, le nombre
+  de murs partagés bouge de 1 au plus sur 17 (Louison) et de 3 au plus sur 22
+  (Montillers). Le résultat ne tient donc pas à un réglage fin.
+- **24/11/2026 — Tâche 1 : épaisseurs, et ce qui reste visible quand on ne
+  sait pas.** Mur partagé : l'épaisseur est la distance entre les deux faces,
+  donc la géométrie du relevé ; quand les faces ne sont pas tout à fait
+  parallèles, le plus mince et le plus épais sont gardés (utile au
+  redressement). Mur périphérique : l'épaisseur est lue dans les murs dessinés
+  par iMapper, avec la fonction existante `epaisseurMur`, en cinq points du
+  tronçon (valeur médiane). Cette fonction applique d'office 8 cm quand elle
+  ne trouve rien : ici ce minimum est neutralisé, et une épaisseur qu'on ne
+  peut pas lire vaut « inconnue » avec sa raison (aucun mur dessiné derrière,
+  relevé sans murs, mesures discordantes) — jamais une valeur par défaut.
+  La lecture avance par pas de 1 cm : un mur de 30 cm peut être lu 29.
+  Identifiant d'un mur : pièce, numéro du côté, rang du tronçon. Il ne dépend
+  ni de l'ordre des pièces ni de l'heure : même relevé, mêmes identifiants.
+- **24/11/2026 — Tâche 1 : ouvertures.** Chaque ouverture du relevé est
+  accrochée au mur qui porte son côté de pièce (celui qu'elle recouvre le
+  plus, si elle est à cheval sur plusieurs ; le débord est noté). Une
+  ouverture « vue sur photo, pas encore placée » est accrochée si son côté ne
+  porte qu'un mur ; sinon elle est listée « non rattachée » avec sa raison.
+  Aucune n'est perdue : rattachées + non rattachées = ouvertures du relevé,
+  ce que le script vérifie. Un relevé dont les ouvertures ne sont pas encore
+  relevées garde cette information (ce n'est pas « zéro ouverture »).
+- **24/11/2026 — Tâche 1 : constats sur les deux relevés réels, à reprendre
+  dans les tâches suivantes.**
+  - Louison RDC : ses 55 ouvertures sont toutes « à vérifier » (48 typées
+    fenêtre, 7 porte) et chacune couvre son côté de pièce en entier ; le
+    relevé extrait ne contient aucun point de mesure. 8 d'entre elles sont à
+    cheval sur plusieurs murs. Elles sont toutes accrochées, mais elles ne
+    décrivent pas de vraies portes ni fenêtres : à garder en tête pour
+    l'affichage (tâche 6).
+  - Montillers appt 1 T3 : deux pièces se chevauchent légèrement dans le
+    relevé (environ 0,06 m²). Le modèle le signale (« limite, pièces
+    superposées ») au lieu d'inventer un mur. Par ailleurs 9,5 % de la
+    surface des murs dessinés par iMapper tombe à l'intérieur d'une pièce
+    (0,9 % pour Louison). Ce relevé porte l'alerte « deux versions du plan
+    superposées dans le DXF » ; le lien entre les deux constats n'est pas
+    établi. À traiter comme point à valider au redressement (tâche 2).
+  - Sur les deux relevés, la plupart des murs périphériques sont lus à
+    29 ou 30 cm. C'est ce qu'iMapper dessine quand il n'y a pas de pièce
+    derrière ; rien ne permet de dire s'il s'agit d'une mesure ou d'une
+    épaisseur de convention. La source de chaque épaisseur est inscrite sur
+    le mur (« faces » ou « murs du relevé ») pour ne pas confondre les deux.
+  - Murs de moins de 5 cm de long : 2 (Louison) et 16 (Montillers). Murs
+    périphériques ayant une pièce juste derrière, faces non parallèles : 6 et
+    21, dont 6 de plus de 15 cm (tous à Montillers, angles de 6° à 24°). Ce
+    sont les candidats naturels du redressement (tâche 2).
+  - Affichage (tâche 6) : chaque mur a un contour à dessiner (ses deux faces,
+    ou sa face décalée de l'épaisseur), mais les angles où les murs se
+    rejoignent ne sont pas couverts par ces contours. Il faudra soit dessiner
+    les murs d'iMapper en fond, soit calculer les raccords d'angle.
 
 ## Comptes rendus
+
+### Tâche 1 — modèle de l'existant et murs partagés (24/11/2026)
+
+- **Ce qui a changé** : rien de visible à l'écran. L'application sait
+  maintenant transformer un relevé iMapper en « objets » : des pièces, des
+  murs et des ouvertures accrochées à leur mur. Jusqu'ici un relevé ne
+  contenait que des contours de pièces et des dessins de murs sans lien entre
+  eux ; désormais un mur entre deux pièces est UN seul objet, qui connaît ses
+  deux pièces, sa longueur et son épaisseur. C'est la base de tout le reste
+  (affichage, démolition, métré travaux).
+- **Rien n'est touché dans l'existant** : aucun fichier de l'ancien éditeur
+  modifié, aucune écriture en base, aucune migration. Le relevé d'origine
+  n'est jamais modifié : c'est vérifié par le script.
+- **Essai sur les deux relevés réels de la base** (chiffres agrégés ; les
+  relevés eux-mêmes ne sont pas dans le dépôt) :
+
+  | | Louison RDC | Montillers appt 1 T3 |
+  |---|---|---|
+  | Pièces du relevé / pièces dans le modèle | 8 / 8 | 12 / 12 |
+  | Côtés de pièces | 92 | 132 |
+  | Murs calculés | 95 | 152 |
+  | — partagés entre deux pièces | 17 | 22 |
+  | — périphériques, épaisseur lue | 53 | 103 |
+  | — périphériques, épaisseur inconnue | 0 | 0 |
+  | — raccords (bout de cloison, décrochement : pas d'épaisseur propre) | 25 | 25 |
+  | — limites sans mur (pièces qui se chevauchent dans le relevé) | 0 | 2 |
+  | Paires de pièces voisines | 5 | 10 |
+  | Vis-à-vis écartés (vide entre les deux pièces, pas un mur) | 2 | 2 |
+  | Épaisseurs des murs partagés (cm × nombre) | 7×1, 10×2, 12×2, 16×1, 17×1, 38×3, 43×1, 44×1, 46×1, 54×1, 55×1, 70×1, 92×1 | 7×1, 10×10, 11×1, 14×1, 28×2, 31×1, 36×1, 37×1, 56×1, 57×1, 58×1, 79×1 |
+  | Épaisseurs des murs périphériques (cm × nombre) | 9×1, 10×2, 29×17, 30×21, 40×4, 42×1, 44×1, 46×1, 58×1, 68×2, 76×1, 87×1 | 9×8, 10×10, 11×1, 13×3, 15×3, 16×1, 21×1, 24×2, 29×25, 30×31, 33×1, 41×3, 44×3, 47×2, 55×2, 56×2, 57×1, 79×3, 91×1 |
+  | Ouvertures du relevé | 55 | 4 |
+  | — accrochées à un mur | 55 | 3 |
+  | — non rattachées, avec leur raison | 0 | 1 (vue sur photo, pas encore placée, sur un côté qui porte 2 murs) |
+  | Métrés (`calculerMetres`) identiques avant et après | oui | oui |
+  | Relevé non modifié, deux calculs successifs identiques | oui | oui |
+
+- **Rien de perdu** : toutes les pièces sont là, chaque côté de pièce est
+  couvert en entier par ses murs, chaque ouverture est accrochée ou listée.
+- **Points surprenants, creusés** (détail dans le journal) :
+  - Louison RDC : les 55 ouvertures sont toutes « à vérifier » et chacune
+    couvre un côté de pièce en entier (48 « fenêtres », 7 « portes »). Elles
+    sont bien accrochées, mais ce ne sont pas de vraies portes ni fenêtres.
+  - Montillers : deux pièces se chevauchent un peu dans le relevé. Le modèle
+    le dit au lieu d'inventer un mur entre elles.
+  - Presque tous les murs périphériques font 29 ou 30 cm : c'est ce
+    qu'iMapper dessine, sans qu'on sache si c'est mesuré.
+  - Les 4 « vis-à-vis écartés » sont des pièces qui se font face à 74–88 cm
+    sans aucun mur dessiné entre elles : un vide (gaine, espace non relevé),
+    pas un mur de 80 cm.
+- **Vérifications automatiques** : nouveau script `verif-plan-v2-modele`,
+  15 cas, branché sur GitHub. Les logements dessinés pour les cas (deux
+  pièces côte à côte, pièce en L, côté longeant deux voisins, mur en biais,
+  pièce isolée, poteau, vide entre deux pièces, ouvertures) et le relevé de
+  référence anonymisé : exemple issu des tests, données fictives. Sur ce
+  relevé de référence (6 pièces) : 41 murs dont 10 partagés, 9 paires de
+  pièces voisines, 20 ouvertures toutes accrochées — exemple issu des tests,
+  données fictives.
+- **Journal des MAJ** : pas d'entrée (rien de visible pour les utilisateurs).
+  La première viendra avec la page « Plans (nouveau) ».
+- **Mise en ligne** : demande de fusion #269. L'état réel (contrôles, fusion,
+  déploiement) est confirmé par la session pilote après cette tâche.
