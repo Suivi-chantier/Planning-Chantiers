@@ -109,7 +109,7 @@ function weatherInfo(code) {
 }
 
 // ─── PAGE DASHBOARD ───────────────────────────────────────────────────────────
-function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, profil, branch = "renovation", pageAutorisee = null, onOuvrirPage = null, onOuvrirChantier = null }) {
+function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, profil, branch = "renovation", pageAutorisee = null, onOuvrirPage = null, onOuvrirChantier = null, referentielChantiers = null }) {
   const acc = getBranchAccent(branch);
   const isMobile = useIsMobile();
   // ── Organisation du jour (projet organisation-par-jour, tâche 5) ──
@@ -120,7 +120,10 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
   const orgJour = useOrganisationDuJour(profil);
   const bandeau = bandeauDuJour(orgJour.navOrder, orgJour.date);
   const blocsJour = bandeau ? bandeau.blocs : [];
-  const contexteBlocs = { chantiers, cells, commandes, notesData, weekId, dateIso: orgJour.date };
+  // referentielChantiers : liste complète (non archivés) que reçoit aussi la
+  // page Alertes, pour que le bloc « Tournée des chantiers » calcule les
+  // niveaux d'alerte avec le même référentiel (tâche 10).
+  const contexteBlocs = { chantiers, cells, commandes, notesData, weekId, dateIso: orgJour.date, referentielChantiers };
   const todayJour = getTodayJour();
   const now = new Date();
   const todayIso = now.toISOString().slice(0, 10);

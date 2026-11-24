@@ -698,6 +698,8 @@ test("27. tableau de bord : bandeau et blocs AU-DESSUS des widgets actuels, tous
   assert.match(registre, /commandes_a_saisir:\s*\{[^\n]*Composant: BlocCommandesASaisir \}/, "tâche 7 : bloc Commandes à saisir livré");
   assert.match(registre, /chantiers_a_venir:\s*\{[^\n]*Composant: BlocChantiersAVenir \}/, "tâche 8 : bloc Chantiers à venir livré");
   assert.match(registre, /administratif_fournisseurs:\s*\{[^\n]*Composant: BlocAdministratifFournisseurs \}/, "tâche 9 : bloc Administratif fournisseurs livré");
+  assert.match(registre, /tournee_chantiers:\s*\{[^\n]*Composant: BlocTourneeChantiers \}/, "tâche 10 : bloc Tournée des chantiers livré");
+  assert.match(registre, /import BlocTourneeChantiers from "\.\/BlocTourneeChantiers";/);
   assert.match(cadre, /export const MESSAGE_BLOC_A_VENIR = "Contenu de ce bloc : à venir dans une prochaine mise à jour\.";/);
   assert.match(cadre, /<MobileSection /, "téléphone : modèle MobileSection");
   assert.match(cadre, /summary=\{metrique\}/, "téléphone : métrique dans l'en-tête");
@@ -705,6 +707,11 @@ test("27. tableau de bord : bandeau et blocs AU-DESSUS des widgets actuels, tous
   assert.match(registre, /liens=\{liensDuBloc\(id, pageAutorisee\)\}/, "liens filtrés par rôle");
   assert.match(bandeauSrc, /Ordre habituel aujourd'hui : menu et tableau de bord sans l'organisation du jour, jusqu'à demain\./, "mention du mode");
   assert.match(app, /<PageDashboard [^>]*pageAutorisee=\{\(id\)=>canAccess\(role,id\)\} onOuvrirPage=\{setPage\} onOuvrirChantier=\{canAccess\(role,"operations"\)&&canAccess\(role,"chantiers"\) \? ouvrirFicheChantier : null\}\/>/, "liens : pages autorisées du rôle ; fiche chantier comme depuis Opérations (tâche 8)");
+  // Tâche 10 : le tableau de bord reçoit aussi la liste complète des chantiers (référentiel de la page Alertes).
+  assert.match(app, /<PageDashboard chantiers=\{chantiersExploitation\} referentielChantiers=\{chantiers\} /, "tâche 10 : même référentiel que la page Alertes");
+  assert.match(app, /<PageAlertes T=\{T\} referentielChantiers=\{chantiers\} /);
+  assert.match(dash, /dateIso: orgJour\.date, referentielChantiers \};/, "tâche 10 : référentiel transmis aux blocs");
+  assert.match(lire("src/Renovation/journalMaj.js"), /titre: "Tableau de bord : le bloc « Tournée des chantiers »/);
   assert.match(app, /<PageOperations [^\n]*onOpenChantier=\{canAccess\(role,"chantiers"\) \? ouvrirFicheChantier : null\}/, "Opérations : même mécanisme d'ouverture de la fiche");
   assert.match(registre, /onOuvrirChantier=\{onOuvrirChantier\}/, "registre : ouverture de la fiche transmise aux blocs");
   assert.equal((dash.match(/onOuvrirChantier=\{onOuvrirChantier\}/g) || []).length, 2, "tableau de bord : transmis au bureau et au téléphone");

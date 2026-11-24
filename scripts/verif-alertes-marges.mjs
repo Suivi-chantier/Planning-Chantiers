@@ -151,7 +151,12 @@ ok(alertes(releve("2026-10-18", { marge_probable: null, production_cumulee: null
   ok(retenus.length < complet.length, "lecture allégée : moins de lignes téléchargées");
   ok(JSON.stringify(preparerSemainesRelevesJournaliersV2({ lignes: retenus, weekIds }))
     === JSON.stringify(preparerSemainesRelevesJournaliersV2({ lignes: complet, weekIds })), "lecture allégée : semaines identiques");
-  ok(/chargerRelevesRetenusV2\(/.test(lire("src/Renovation/BilanSemaine.jsx")) && /chargerRelevesRetenusV2\(/.test(lire("src/Renovation/PageAlertes.jsx")),
+  // Page Alertes : la lecture vit dans alertesChantiersDonnees.js (partagée avec le
+  // bloc « Tournée des chantiers », organisation-par-jour tâche 10), importé par la page.
+  ok(/chargerRelevesRetenusV2\(/.test(lire("src/Renovation/BilanSemaine.jsx"))
+    && /chargerRelevesRetenusV2\(/.test(lire("src/Renovation/alertesChantiersDonnees.js"))
+    && /from "\.\/alertesChantiersDonnees"/.test(lire("src/Renovation/PageAlertes.jsx"))
+    && /chargerRelevesAlertesSemaines\(semaines\)/.test(lire("src/Renovation/PageAlertes.jsx")),
     "Bilan et Alertes : lecture allégée des relevés");
 }
 

@@ -7,6 +7,7 @@ on:
       - 'src/Renovation/alertesEcranV1.js'
       - 'src/Renovation/alertesChantiersPushV1.mjs'
       - 'src/Renovation/PageAlertes.jsx'
+      - 'src/Renovation/alertesChantiersDonnees.js'
       - 'src/Renovation/alertesV1.mjs'
       - 'src/Renovation/alertesMargesV2.mjs'
       - 'src/Renovation/pointsAttentionV1.mjs'

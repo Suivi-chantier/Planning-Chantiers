@@ -14,7 +14,8 @@
 // Props reçues par chaque Composant : idBloc, titre, icone, accent, T,
 // isMobile, liens (pages autorisées), onOuvrirPage, profil, contexte (données
 // déjà chargées par le tableau de bord : chantiers, cells, commandes,
-// notesData, weekId, dateIso), onOuvrirChantier (ouvre la fiche chantier
+// notesData, weekId, dateIso, referentielChantiers = liste complète des
+// chantiers non archivés, celle que reçoit la page Alertes), onOuvrirChantier (ouvre la fiche chantier
 // comme la page Opérations ; null si Opérations ou Chantiers non autorisée).
 import React from "react";
 import { ChartBar, Package, HardHat, Receipt, Route, CalendarRange, Layers } from "lucide-react";
@@ -24,13 +25,14 @@ import BlocBilanSemainePassee from "./BlocBilanSemainePassee";
 import BlocCommandesASaisir from "./BlocCommandesASaisir";
 import BlocChantiersAVenir from "./BlocChantiersAVenir";
 import BlocAdministratifFournisseurs from "./BlocAdministratifFournisseurs";
+import BlocTourneeChantiers from "./BlocTourneeChantiers";
 
 export const REGISTRE_BLOCS = Object.freeze({
   bilan_semaine_passee:       { icone: ChartBar,      accent: "#5b8af5", Composant: BlocBilanSemainePassee },
   commandes_a_saisir:         { icone: Package,       accent: "#f5a623", Composant: BlocCommandesASaisir },
   chantiers_a_venir:          { icone: HardHat,       accent: "#22c55e", Composant: BlocChantiersAVenir },
   administratif_fournisseurs: { icone: Receipt,       accent: "#a855f7", Composant: BlocAdministratifFournisseurs },
-  tournee_chantiers:          { icone: Route,         accent: "#ef4444", Composant: BlocAVenir },
+  tournee_chantiers:          { icone: Route,         accent: "#ef4444", Composant: BlocTourneeChantiers },
   planning_semaine_suivante:  { icone: CalendarRange, accent: "#38bdf8", Composant: BlocAVenir },
   materiaux_a_commander:      { icone: Layers,        accent: "#f59e0b", Composant: BlocAVenir },
 });

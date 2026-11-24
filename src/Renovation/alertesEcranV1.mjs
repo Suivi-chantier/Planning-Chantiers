@@ -19,7 +19,7 @@
 
 import { preparerSemainesRelevesJournaliersV2, dimancheSemaineISOV2 } from "./pointsAttentionDonneesV1.mjs";
 import { alertesMargesV2 } from "./alertesMargesV2.mjs";
-import { alertesV1 } from "./alertesV1.mjs";
+import { alertesV1, NIVEAU_CRITIQUE, NIVEAU_A_SURVEILLER, NIVEAU_INFO } from "./alertesV1.mjs";
 import { estChantierActif } from "./chantierActif.mjs";
 import { lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
 import { getISOWeek } from "../rythmeSemaine.mjs";
@@ -31,6 +31,16 @@ export const ALERTES_ECRAN_VERSION = "v1";
 // par scripts/verif-renovation-copilot-v1.mjs) ; l'égalité est vérifiée par
 // scripts/verif-alertes-chantiers.mjs.
 export const CHANTIERS_EXCLUS_ALERTES_V1 = Object.freeze(["DÉPOT"]);
+
+// Présentation des trois niveaux (libellé et couleurs), partagée par la page
+// Alertes et le bloc « Tournée des chantiers » du tableau de bord : un niveau
+// s'affiche partout avec le même mot et la même couleur. (Les icônes restent
+// dans les écrans.)
+export const PRESENTATION_NIVEAUX_ALERTE_V1 = Object.freeze({
+  [NIVEAU_CRITIQUE]:     Object.freeze({ texte: "#e15a5a", fond: "rgba(225,90,90,.10)",  bord: "rgba(225,90,90,.32)",  label: "Critique" }),
+  [NIVEAU_A_SURVEILLER]: Object.freeze({ texte: "#f5a623", fond: "rgba(245,166,35,.10)", bord: "rgba(245,166,35,.32)", label: "À surveiller" }),
+  [NIVEAU_INFO]:         Object.freeze({ texte: "#8a8a8a", fond: "rgba(138,138,138,.10)",bord: "rgba(138,138,138,.30)",label: "Information" }),
+});
 
 // Fenêtre de lecture : du dimanche de la semaine précédente moins 27 jours
 // (un chantier à l'arrêt garde son dernier relevé) au dimanche de la semaine
