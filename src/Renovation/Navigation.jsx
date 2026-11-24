@@ -29,7 +29,16 @@ const EVT_NAV_ORDER = "profero:nav-order";
 const cleNavOrder = (profil) => `nav_order_${profil?.id || profil?.email || "anon"}`;
 const estNavOrderLisible = (v) => v !== null && typeof v === "object"; // liste ou objet
 
+// Dernière valeur appliquée pendant cette session, par utilisateur. Le `profil`
+// d'App.jsx est lu une fois à la connexion : après un enregistrement (glisser-
+// déposer, écran « Mon organisation »…), un composant monté plus tard (panneau
+// du profil rouvert, passage ordinateur ↔ téléphone) doit relire la valeur
+// enregistrée, pas celle de la connexion.
+const valeursDeLaSession = new Map();
+
 function lireNavOrderInitial(profil) {
+  const cle = cleNavOrder(profil);
+  if (valeursDeLaSession.has(cle)) return valeursDeLaSession.get(cle);
   if (estNavOrderLisible(profil?.nav_order)) return profil.nav_order;
   try {
     const raw = localStorage.getItem(cleNavOrder(profil));
@@ -55,12 +64,14 @@ function useNavOrder(profil) {
   }, [cle]);
   // Applique la nouvelle valeur localement (état + cache) et prévient l'autre
   // barre. L'inventaire des écritures vers `utilisateurs` est figé par
-  // scripts/verif-utilisateurs-champs-sensibles.mjs : la seule écriture de la
-  // valeur est sauvegarderNavOrder ci-dessous (glisser-déposer, réinitialisation
-  // avec organisation, bouton « Ordre habituel aujourd'hui »), plus la remise à
-  // null de Sidebar (resetOrder).
+  // scripts/verif-utilisateurs-champs-sensibles.mjs : les deux seules
+  // écritures sont ici — sauvegarderNavOrder (glisser-déposer, réinitialisation
+  // avec organisation, bouton « Ordre habituel aujourd'hui », écran « Mon
+  // organisation ») et la remise à null d'enregistrerNavOrder
+  // (« Réinitialiser l'ordre » sans organisation, « Supprimer mon organisation »).
   const appliquerLocal = (valeur) => {
     setNavOrderLocal(valeur);
+    valeursDeLaSession.set(cle, valeur);
     try {
       if (valeur === null) localStorage.removeItem(cle);
       else localStorage.setItem(cle, JSON.stringify(valeur));
@@ -68,14 +79,31 @@ function useNavOrder(profil) {
     try { window.dispatchEvent(new CustomEvent(EVT_NAV_ORDER, { detail: { cle, valeur } })); } catch {}
   };
   // Enregistre `ids` (liste simple ou objet { ordre, jours, … }) : cache + base.
+  // Renvoie une promesse { error } (l'écran « Mon organisation » l'affiche).
   const sauvegarderNavOrder = (ids) => {
     appliquerLocal(ids);
-    if (profil?.id) {
-      supabase.from("utilisateurs").update({ nav_order: ids }).eq("id", profil.id)
-        .then(({ error }) => { if (error) console.warn("nav_order (sauvegarde) :", error.message); });
-    }
+    if (!profil?.id) return Promise.resolve({ error: null });
+    return supabase.from("utilisateurs").update({ nav_order: ids }).eq("id", profil.id)
+      .then(({ error }) => { if (error) console.warn("nav_order (sauvegarde) :", error.message); return { error }; });
   };
-  return [navOrder, appliquerLocal, sauvegarderNavOrder];
+  // Enregistre n'importe quelle valeur, null compris (null = colonne vidée,
+  // comportement d'avant toute personnalisation). En cas d'échec en base, la
+  // valeur précédente est rétablie localement et l'erreur est rendue.
+  const enregistrerNavOrder = (valeur) => {
+    const precedente = navOrder;
+    let envoi;
+    if (valeur !== null) envoi = sauvegarderNavOrder(valeur);
+    else {
+      appliquerLocal(null);
+      envoi = !profil?.id ? Promise.resolve({ error: null })
+        : supabase.from("utilisateurs").update({ nav_order: null }).eq("id", profil.id)
+          .then(({ error }) => { if (error) console.warn("nav_order (réinit.) :", error.message); return { error }; });
+    }
+    return Promise.resolve(envoi)
+      .catch((e) => ({ error: e }))
+      .then((r) => { if (r?.error) appliquerLocal(precedente); return r || { error: null }; });
+  };
+  return [navOrder, appliquerLocal, sauvegarderNavOrder, enregistrerNavOrder];
 }
 
 // ─── ORGANISATION DU JOUR (hook partagé) ──────────────────────────────────────
@@ -419,7 +447,7 @@ function Sidebar({
 
   // ── Réorganisation des onglets (mémorisée par utilisateur, voir useNavOrder) ──
   const [editOrder, setEditOrder] = useState(false);
-  const [navOrder, appliquerNavOrderLocal, sauvegarderNavOrder] = useNavOrder(profil);
+  const [navOrder, , sauvegarderNavOrder, enregistrerNavOrder] = useNavOrder(profil);
   const orgJour = useOrganisationDuJour(profil); // bouton « Ordre habituel aujourd'hui »
   const ordrePerso = lireNavOrder(navOrder).ordre; // ordre habituel choisi (null = par défaut)
   const [dragId, setDragId] = useState(null);
@@ -455,11 +483,7 @@ function Sidebar({
   const resetOrder = () => {
     const ids = reinitialiserOrdre(navOrder);
     if (ids !== null) { sauvegarderNavOrder(ids); return; }
-    appliquerNavOrderLocal(null);
-    if (profil?.id) {
-      supabase.from("utilisateurs").update({ nav_order: null }).eq("id", profil.id)
-        .then(({ error }) => { if (error) console.warn("nav_order (réinit.) :", error.message); });
-    }
+    enregistrerNavOrder(null);
   };
 
   const toggle = () => {
@@ -661,7 +685,7 @@ function Sidebar({
       {profil && !collapsed && (
         <div
           {...(onOuvrirProfil ? {
-            role:"button", tabIndex:0, title:"Mon profil · notifications sur ce téléphone",
+            role:"button", tabIndex:0, title:"Mon profil · notifications, mon organisation",
             onClick:onOuvrirProfil,
             onKeyDown:e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOuvrirProfil(); } },
           } : {})}
@@ -723,4 +747,4 @@ function Sidebar({
   );
 }
 
-export { useIsMobile, BottomNav, Sidebar, LABELS_PAGES, idsPagesDuMenu, useOrganisationDuJour };
+export { useIsMobile, BottomNav, Sidebar, LABELS_PAGES, idsPagesDuMenu, useOrganisationDuJour, useNavOrder };

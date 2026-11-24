@@ -1046,7 +1046,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
             <BoutonAide page={page} T={T} branch={branch}/>
             {role!=="ouvrier"&&<BoutonCloche boite={boite} variante="haut" T={T} onOuvrir={()=>setBoiteOuverte(true)}/>}
             {role!=="ouvrier"&&(
-              <button className="btn-g topbar-profil-btn" title="Mon profil · notifications sur ce téléphone" aria-label="Mon profil · notifications sur ce téléphone" onClick={()=>setProfilOuvert(true)} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 10px"}}>
+              <button className="btn-g topbar-profil-btn" title="Mon profil · notifications, mon organisation" aria-label="Mon profil · notifications, mon organisation" onClick={()=>setProfilOuvert(true)} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 10px"}}>
                 <Icon as={Smartphone} size={16}/>
               </button>
             )}
@@ -1103,7 +1103,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         </div>
       </div>
       <BottomNav page={page} setPage={setPage} T={T} role={role} rolePages={rolePages} profil={profil}/>
-      {profilOuvert&&role!=="ouvrier"&&<PanneauProfil profil={profil} role={role} T={T} onClose={()=>setProfilOuvert(false)}/>}
+      {profilOuvert&&role!=="ouvrier"&&<PanneauProfil profil={profil} role={role} rolePages={rolePages} T={T} onClose={()=>setProfilOuvert(false)}/>}
       {boiteOuverte&&role!=="ouvrier"&&<PanneauBoite boite={boite} T={T} onClose={()=>setBoiteOuverte(false)} onNaviguer={naviguerVersLien}/>}
       {/* Barre todo persistante : visible sur toutes les pages, chaque
           utilisateur n'y voit que les tâches qui lui sont assignées. */}

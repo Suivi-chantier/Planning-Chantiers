@@ -416,3 +416,97 @@ export function basculerOrdreHabituel(navOrder, dateIso) {
   if (!b) return navOrder ?? null;
   return b.actif ? desactiverOrdreHabituel(navOrder) : activerOrdreHabituel(navOrder, dateIso);
 }
+
+// ─── Écran « Mon organisation » (profil, étape 3) ────────────────────────────
+
+/** Libellés métier des blocs du tableau de bord (écran « Mon organisation »). */
+export const LIBELLES_BLOCS = Object.freeze({
+  bilan_semaine_passee: "Bilan de la semaine passée",
+  commandes_a_saisir: "Commandes à saisir",
+  chantiers_a_venir: "Chantiers à venir",
+  administratif_fournisseurs: "Administratif fournisseurs",
+  tournee_chantiers: "Tournée des chantiers",
+  planning_semaine_suivante: "Planning de la semaine suivante",
+  materiaux_a_commander: "Matériaux à commander",
+});
+
+/** Vrai si la configuration d'un jour (déjà normalisée) ne contient rien. */
+function jourVide(conf) {
+  return !conf || (!conf.theme && !conf.accueil && conf.devant.length === 0
+    && conf.rendez_vous.length === 0 && conf.blocs.length === 0);
+}
+
+/**
+ * Normalise l'objet `jours` saisi dans l'écran : seulement lundi…vendredi,
+ * textes rognés, heures « HH:MM » ou null, rendez-vous sans libellé retirés,
+ * doublons et blocs hors catalogue retirés. Un jour laissé vide n'est pas
+ * gardé (pas d'organisation ce jour-là).
+ */
+export function normaliserJours(jours) {
+  const res = {};
+  if (!estObjet(jours)) return res;
+  for (const j of JOURS_ORGANISATION) {
+    const conf = normaliserJour(jours[j]);
+    if (!jourVide(conf)) res[j] = conf;
+  }
+  return res;
+}
+
+/**
+ * Retire l'organisation de la semaine et revient exactement au comportement
+ * d'avant : l'ordre habituel seul (liste simple, comme le glisser-déposer
+ * l'enregistre sans organisation), ou null s'il n'y en avait pas. Le mode
+ * « Ordre habituel aujourd'hui » disparaît avec l'organisation.
+ */
+export function supprimerOrganisation(navOrder) {
+  return lireNavOrder(navOrder).ordre ?? null;
+}
+
+/**
+ * Nouvelle valeur de `nav_order` après « Enregistrer » dans l'écran « Mon
+ * organisation » : l'objet { ordre, jours } en conservant l'ordre habituel
+ * (liste ou `ordre` de l'objet), le mode « Ordre habituel aujourd'hui » et
+ * les autres clés existantes. Si aucun jour n'est rempli, c'est une
+ * suppression (supprimerOrganisation).
+ */
+export function ecrireJours(navOrder, jours) {
+  const propres = normaliserJours(jours);
+  if (Object.keys(propres).length === 0) return supprimerOrganisation(navOrder);
+  const base = estObjet(navOrder) ? { ...navOrder } : {};
+  const { ordre } = lireNavOrder(navOrder);
+  if (ordre) base.ordre = ordre; else delete base.ordre;
+  return { ...base, jours: propres };
+}
+
+/**
+ * Garde, pour chaque jour, seulement les pages autorisées pour le rôle
+ * (règle 2 : une page non autorisée est ignorée sans erreur, mais l'écran le
+ * signale). Renvoie { jours, retirees: [{ jour, champ: "accueil"|"devant", id }] }.
+ * Les jours, thèmes, rendez-vous et blocs sont gardés tels quels.
+ * @param {object} jours
+ * @param {string[]} pagesAutorisees
+ */
+export function filtrerPagesAutorisees(jours, pagesAutorisees) {
+  const autorisees = new Set(Array.isArray(pagesAutorisees) ? pagesAutorisees : []);
+  const res = {};
+  const retirees = [];
+  if (!estObjet(jours)) return { jours: res, retirees };
+  for (const j of JOURS_ORGANISATION) {
+    const conf = jours[j];
+    if (!estObjet(conf)) continue;
+    const copie = JSON.parse(JSON.stringify(conf));
+    if (typeof copie.accueil === "string" && copie.accueil !== "" && !autorisees.has(copie.accueil)) {
+      retirees.push({ jour: j, champ: "accueil", id: copie.accueil });
+      copie.accueil = null;
+    }
+    if (Array.isArray(copie.devant)) {
+      copie.devant = copie.devant.filter((id) => {
+        if (autorisees.has(id)) return true;
+        retirees.push({ jour: j, champ: "devant", id });
+        return false;
+      });
+    }
+    res[j] = copie;
+  }
+  return { jours: res, retirees };
+}

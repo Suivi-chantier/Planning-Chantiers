@@ -18,6 +18,10 @@
 //   7. navigation (étape 2) : barre du bas inchangée sans organisation active,
 //      même ordre que la barre latérale sinon ; Navigation.jsx branché sur le
 //      module ; date du jour unique (dateDuJour.js, ?date_simulee=).
+//   8. page d'arrivée et bouton « Ordre habituel aujourd'hui » (tâche 3) ;
+//   9. écran « Mon organisation » (tâche 4) : ecrireJours, supprimerOrganisation
+//      (retour exact à la valeur d'avant), modèle filtré par rôle, aucune
+//      nouvelle écriture vers utilisateurs.
 //
 // Données fictives uniquement. Aucun réseau, aucune base.
 //   node scripts/verif-organisation-jour.mjs
@@ -452,6 +456,129 @@ test("18. App.jsx et Navigation.jsx : page d'arrivée et bouton branchés, aucun
   const blocMain = app.slice(app.indexOf("function MainApp("), app.indexOf("export default function"));
   assert.ok(blocMain.includes("pageAOuvrirAuDemarrage("), "seulement dans l'application Rénovation (MainApp)");
   assert.equal((app.match(/pageAOuvrirAuDemarrage\(/g) || []).length, 1);
+});
+
+// ═══ 9. Écran « Mon organisation » (tâche 4) ══════════════════════════════
+test("19. ecrireJours : objet { ordre, jours } ; ordre et « ordre habituel aujourd'hui » conservés", () => {
+  const modele = O.copieModeleConducteurTravaux();
+  // Ancienne liste : devient `ordre`.
+  const liste = ["planning", "dashboard", "operations"];
+  const v1 = O.ecrireJours(liste, modele);
+  assert.deepEqual(v1.ordre, liste);
+  assert.deepEqual(Object.keys(v1.jours), ["lundi", "mardi", "mercredi", "jeudi", "vendredi"]);
+  assert.deepEqual(v1.jours.lundi, O.lireNavOrder({ jours: { lundi: modele.lundi } }).jours.lundi);
+  // null : pas de clé `ordre` inventée.
+  const v2 = O.ecrireJours(null, modele);
+  assert.ok(!("ordre" in v2));
+  assert.equal(O.lireNavOrder(v2).ordre, null);
+  // Objet existant : ordre et ordre_habituel_le gardés, jours remplacés.
+  const existant = { ordre: ["plans", "dashboard"], ordre_habituel_le: "2026-11-23", jours: { mardi: { theme: "Ancien" } } };
+  const v3 = O.ecrireJours(existant, { jeudi: { theme: "Tournée", devant: ["alertes"] } });
+  assert.deepEqual(v3.ordre, ["plans", "dashboard"]);
+  assert.equal(v3.ordre_habituel_le, "2026-11-23");
+  assert.deepEqual(Object.keys(v3.jours), ["jeudi"], "mardi remplacé (retiré du formulaire)");
+  assert.deepEqual(existant.jours, { mardi: { theme: "Ancien" } }, "entrée non modifiée");
+  // L'ordre du jour suit l'organisation enregistrée.
+  const menu = menuDuRole("conducteur");
+  assert.deepEqual(O.ordreDesPages(menu, v1, LUNDI).slice(0, 3), ["bilan-semaine", "commandes", "capture-cmd"]);
+  assert.equal(O.pageDArrivee(menu, v1, JEUDI), "alertes");
+});
+
+test("20. ecrireJours : saisie du formulaire normalisée, jours vides retirés, rien de rempli = suppression", () => {
+  const form = {
+    lundi: { theme: "  Bilan  ", accueil: "", devant: ["bilan-semaine", "bilan-semaine"], rendez_vous: [{ heure: "", libelle: "Réunion" }, { heure: "09:30", libelle: "  " }, { heure: "9h", libelle: "Point" }], blocs: ["inconnu", "bilan_semaine_passee"] },
+    mardi: { theme: "", accueil: "", devant: [], rendez_vous: [{ heure: "10:00", libelle: "" }], blocs: [] },
+    samedi: { theme: "Interdit" },
+  };
+  const v = O.ecrireJours(["dashboard"], form);
+  assert.deepEqual(Object.keys(v.jours), ["lundi"], "mardi vide et samedi ignorés");
+  assert.deepEqual(v.jours.lundi, {
+    theme: "Bilan", accueil: null, devant: ["bilan-semaine"],
+    rendez_vous: [{ heure: null, libelle: "Réunion" }, { heure: null, libelle: "Point" }],
+    blocs: ["bilan_semaine_passee"],
+  });
+  const vide = { lundi: { theme: "", accueil: "", devant: [], rendez_vous: [], blocs: [] } };
+  assert.deepEqual(O.ecrireJours(["dashboard", "planning"], vide), ["dashboard", "planning"]);
+  assert.equal(O.ecrireJours(null, vide), null);
+  assert.equal(O.ecrireJours(null, {}), null);
+});
+
+test("21. supprimerOrganisation : retour EXACT à la valeur d'avant le modèle", () => {
+  const modele = O.copieModeleConducteurTravaux();
+  for (const avant of [null, ["planning", "dashboard", "operations"], []]) {
+    const apres = O.ecrireJours(avant, modele);
+    assert.ok(O.lireNavOrder(apres).aOrganisation);
+    assert.deepEqual(O.supprimerOrganisation(apres), avant, `avant = ${JSON.stringify(avant)}`);
+    // Même chemin après le bouton « Ordre habituel aujourd'hui ».
+    assert.deepEqual(O.supprimerOrganisation(O.activerOrdreHabituel(apres, LUNDI)), avant);
+    // Et après un glisser-déposer : on garde le nouvel ordre habituel, en liste simple.
+    assert.deepEqual(O.supprimerOrganisation(O.ecrireOrdre(apres, ["plans"])), ["plans"]);
+  }
+  assert.equal(O.supprimerOrganisation(undefined), null);
+  assert.equal(O.supprimerOrganisation({ jours: {} }), null);
+  // Sans organisation, l'ordre de chaque rôle est celui d'avant.
+  const menu = menuDuRole("conducteur");
+  const avant = ["planning", "dashboard"];
+  const retour = O.supprimerOrganisation(O.ecrireJours(avant, modele));
+  for (const d of [LUNDI, JEUDI, VENDREDI]) assert.deepEqual(O.ordreDesPages(menu, retour, d), ancienNav(menu, avant));
+});
+
+test("22. modèle filtré par rôle : pages non autorisées retirées et signalées ; libellés des blocs", () => {
+  const modele = O.copieModeleConducteurTravaux();
+  const conducteur = O.filtrerPagesAutorisees(modele, menuDuRole("conducteur"));
+  assert.deepEqual(conducteur.retirees, [], "tout le modèle est autorisé au conducteur");
+  assert.deepEqual(conducteur.jours, modele);
+  const commercial = O.filtrerPagesAutorisees(modele, menuDuRole("commercial"));
+  assert.ok(commercial.retirees.length > 0);
+  assert.ok(commercial.retirees.some((r) => r.jour === "lundi" && r.champ === "accueil" && r.id === "bilan-semaine"));
+  assert.equal(commercial.jours.lundi.accueil, null);
+  for (const j of O.JOURS_ORGANISATION) {
+    assert.ok(commercial.jours[j].devant.every((id) => menuDuRole("commercial").includes(id)));
+    assert.equal(commercial.jours[j].theme, modele[j].theme, "thème et rendez-vous gardés");
+    assert.deepEqual(commercial.jours[j].rendez_vous, modele[j].rendez_vous);
+  }
+  assert.deepEqual(O.MODELE_CONDUCTEUR_TRAVAUX, O.copieModeleConducteurTravaux(), "modèle figé intact");
+  for (const b of O.CATALOGUE_BLOCS) assert.ok(typeof O.LIBELLES_BLOCS[b] === "string" && O.LIBELLES_BLOCS[b].length > 0, b);
+  assert.deepEqual(Object.keys(O.LIBELLES_BLOCS).sort(), [...O.CATALOGUE_BLOCS].sort());
+});
+
+test("23. écran « Mon organisation » : dans le profil, enregistrement par les écritures existantes", () => {
+  const nav = sansCommentaires(navSrc);
+  const ecran = sansCommentaires(lire("src/Renovation/MonOrganisation.jsx"));
+  const profilSrc = sansCommentaires(lire("src/Renovation/ProfilNotifications.jsx"));
+  const app = sansCommentaires(lire("src/App.jsx"));
+  // Aucune écriture directe vers utilisateurs hors Navigation.jsx (2 écritures).
+  for (const [nom, src] of [["MonOrganisation.jsx", ecran], ["ProfilNotifications.jsx", profilSrc]]) {
+    assert.ok(!/from\(\s*["'`]utilisateurs["'`]\s*\)/.test(src), `${nom} n'accède pas à utilisateurs`);
+  }
+  assert.equal((nav.match(/from\("utilisateurs"\)/g) || []).length, 2);
+  assert.match(nav, /from\("utilisateurs"\)\.update\(\{ nav_order: ids \}\)/);
+  assert.match(nav, /from\("utilisateurs"\)\.update\(\{ nav_order: null \}\)/);
+  assert.match(nav, /const enregistrerNavOrder = \(valeur\) =>/);
+  assert.match(nav, /export \{[^}]*useNavOrder[^}]*\}/);
+  // Profil d'App relu après enregistrement (composants montés plus tard).
+  assert.match(nav, /valeursDeLaSession\.set\(cle, valeur\)/);
+  assert.match(nav, /if \(valeursDeLaSession\.has\(cle\)\) return valeursDeLaSession\.get\(cle\);/);
+  // L'écran passe par le hook et le module.
+  assert.match(ecran, /useNavOrder\(profil\)/);
+  assert.match(ecran, /enregistrerNavOrder\(valeur\)/);
+  assert.match(ecran, /const valeur = ecrireJours\(navOrder, form\)/);
+  assert.match(ecran, /enregistrerNavOrder\(supprimerOrganisation\(navOrder\)\)/);
+  assert.match(ecran, /filtrerPagesAutorisees\(copieModeleConducteurTravaux\(\), pages\)/, "modèle : pages du rôle seulement");
+  assert.match(ecran, /idsPagesDuMenu\(role, rolePages\)/, "pages proposées = menu du rôle");
+  assert.ok(!/supabase/i.test(ecran), "l'écran n'appelle pas Supabase lui-même");
+  const blocModele = ecran.slice(ecran.indexOf("const appliquerModele"), ecran.indexOf("const enregistrer = async"));
+  assert.ok(!/enregistrerNavOrder|ecrireJours/.test(blocModele), "le modèle pré-remplit sans enregistrer");
+  // Branché dans le panneau « Mon profil », pas dans le menu ni access.js.
+  assert.match(profilSrc, /import MonOrganisation from "\.\/MonOrganisation"/);
+  assert.match(profilSrc, /<MonOrganisation profil=\{profil\} role=\{role\} rolePages=\{rolePages\}/);
+  assert.match(app, /<PanneauProfil profil=\{profil\} role=\{role\} rolePages=\{rolePages\}/);
+  assert.ok(!/mon-organisation|MonOrganisation/.test(lire("src/access.js")), "pas une page du menu");
+  // Rénovation seulement (MainApp), jamais pour un ouvrier ; rien dans Invest.
+  const blocMain = app.slice(app.indexOf("function MainApp("), app.indexOf("export default function"));
+  assert.equal((app.match(/<PanneauProfil /g) || []).length, 1);
+  assert.ok(blocMain.includes("{profilOuvert&&role!==\"ouvrier\"&&<PanneauProfil "), "panneau Rénovation, pas pour un ouvrier");
+  assert.match(profilSrc, /if \(!roleConcerne\(role\)\) return null;/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -5,6 +5,8 @@
 // qui s'ouvre depuis le nom de l'utilisateur (barre latérale) ou depuis le
 // bouton téléphone de la barre du haut (mobile). Ce n'est PAS une page : il
 // n'est pas enregistré dans src/access.js et ne change aucun droit d'accès.
+// Onglet « Mon organisation » (projet organisation-par-jour, étape 3) :
+// MonOrganisation.jsx.
 //
 // Règles du projet appliquées ici :
 //  - rôles bureau seulement : rien pour « ouvrier » (et ce composant n'est
@@ -19,7 +21,7 @@
 // Le navigateur ne touche jamais la table push_subscriptions : tout passe par
 // les Edge Functions push-abonnement et send-push.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Smartphone, X, BellRing, Send, BellOff, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { supabase } from "../supabase";
 import { isVercelPreviewHost } from "../pwa";
@@ -29,6 +31,7 @@ import {
   roleConcerne, phraseRole, etatNotifications, estAppareilIOS, estAndroid,
   choisirClePublique, base64UrlVersOctets,
 } from "../notificationsPush";
+import MonOrganisation from "./MonOrganisation";
 
 const FONCTION_ABONNEMENT = "push-abonnement";
 const FONCTION_ENVOI = "send-push";
@@ -409,25 +412,49 @@ export function BlocPreferencesNotifications({ role, T }) {
   );
 }
 
-/** Panneau « Mon profil » (bureau). Ne s'affiche jamais pour un ouvrier. */
-export default function PanneauProfil({ profil, role, T, onClose }) {
+/**
+ * Panneau « Mon profil » (bureau et téléphone). Ne s'affiche jamais pour un
+ * ouvrier. Deux onglets : « Notifications » et « Mon organisation » (projet
+ * organisation-par-jour, étape 3). `rolePages` : pages autorisées par rôle
+ * (configuration en base), pour ne proposer que les pages du menu du rôle.
+ */
+export default function PanneauProfil({ profil, role, T, onClose, rolePages = null }) {
+  const [onglet, setOnglet] = useState("notifications");
+  const organisationModifiee = useRef(false);
+  const fermer = useCallback(() => {
+    if (organisationModifiee.current
+      && !window.confirm("Votre organisation a des modifications non enregistrées. Fermer quand même ?")) return;
+    onClose?.();
+  }, [onClose]);
+
   useEffect(() => {
-    const echap = (ev) => { if (ev.key === "Escape") onClose?.(); };
+    const echap = (ev) => { if (ev.key === "Escape") fermer(); };
     document.addEventListener("keydown", echap);
     return () => document.removeEventListener("keydown", echap);
-  }, [onClose]);
+  }, [fermer]);
 
   if (!roleConcerne(role)) return null;
 
+  const ongletBouton = (id, libelle) => {
+    const actif = onglet === id;
+    return (
+      <button type="button" role="tab" aria-selected={actif} onClick={() => setOnglet(id)} style={{
+        flex: 1, padding: "9px 8px", borderRadius: 8, fontFamily: "inherit", fontSize: 14, fontWeight: actif ? 700 : 500,
+        cursor: "pointer", border: `1px solid ${actif ? T.accent : T.border}`,
+        background: actif ? `${T.accent}22` : "transparent", color: actif ? T.text : T.textSub, minHeight: 42,
+      }}>{libelle}</button>
+    );
+  };
+
   return (
-    <div role="dialog" aria-modal="true" aria-label="Mon profil" onClick={onClose} style={{
+    <div role="dialog" aria-modal="true" aria-label="Mon profil" onClick={fermer} style={{
       position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.55)",
       display: "flex", alignItems: "flex-start", justifyContent: "center",
       padding: "max(16px, env(safe-area-inset-top)) 12px 16px", overflowY: "auto",
     }}>
       <div onClick={(ev) => ev.stopPropagation()} style={{
-        width: "100%", maxWidth: 520, background: T.modal, color: T.text,
-        border: `1px solid ${T.border}`, borderRadius: 14, padding: 18,
+        width: "100%", maxWidth: onglet === "organisation" ? 680 : 520, background: T.modal, color: T.text,
+        border: `1px solid ${T.border}`, borderRadius: 14, padding: 18, boxSizing: "border-box",
         display: "flex", flexDirection: "column", gap: 16, marginTop: 24,
       }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
@@ -436,16 +463,25 @@ export default function PanneauProfil({ profil, role, T, onClose }) {
             <div style={{ fontSize: 17, fontWeight: 700, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>{profil?.nom || profil?.email}</div>
             <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{ROLES_DEFAULT_RENOVATION.find((r) => r.id === role)?.label || role}{profil?.email ? ` · ${profil.email}` : ""}</div>
           </div>
-          <button type="button" onClick={onClose} title="Fermer" aria-label="Fermer" style={{
+          <button type="button" onClick={fermer} title="Fermer" aria-label="Fermer" style={{
             background: "transparent", border: "none", cursor: "pointer", padding: 6, color: T.textSub, display: "flex",
           }}>
             <Icon as={X} size={20}/>
           </button>
         </div>
-        <div style={{ height: 1, background: T.border }}/>
-        <BlocNotificationsTelephone role={role} T={T}/>
-        <div style={{ height: 1, background: T.border }}/>
-        <BlocPreferencesNotifications role={role} T={T}/>
+        <div role="tablist" aria-label="Rubriques du profil" style={{ display: "flex", gap: 6 }}>
+          {ongletBouton("notifications", "Notifications")}
+          {ongletBouton("organisation", "Mon organisation")}
+        </div>
+        <div style={{ display: onglet === "notifications" ? "flex" : "none", flexDirection: "column", gap: 16 }}>
+          <BlocNotificationsTelephone role={role} T={T}/>
+          <div style={{ height: 1, background: T.border }}/>
+          <BlocPreferencesNotifications role={role} T={T}/>
+        </div>
+        <div style={{ display: onglet === "organisation" ? "block" : "none" }}>
+          <MonOrganisation profil={profil} role={role} rolePages={rolePages} T={T}
+            onModifie={(m) => { organisationModifiee.current = m; }}/>
+        </div>
       </div>
     </div>
   );
