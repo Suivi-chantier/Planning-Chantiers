@@ -235,3 +235,12 @@ restent ici parce que la base les a enregistrées toutes les deux ; la table
 n'existe plus. Le script et le retour arrière cités dans les commentaires de
 la première n'ont jamais été mis en ligne. Détail :
 `docs/projets/editeur-plans.md`, « Arrêt du projet ».
+
+`20261125121322_securite_fiches_chantier.sql` **appliquée le 25/11/2026**
+(projet « fiche de préparation sécurité chantier », tâche 1, accord de
+François) : 5 tables `securite_`, 2 vues, immuabilité des versions et
+signatures, buckets privés `securite-confidentiel` et `securite-preuves`
+ajoutés au verrou `profero_collaborateurs_seulement`. Appliquée par
+`apply_migration` (version enregistrée 20261125121322 ; le fichier, préparé
+sous 20261125114305, a été renommé pour correspondre). Essayée avant dans des
+transactions annulées. Détail : `docs/projets/fiche-securite-chantier.md`.

@@ -1,0 +1,24 @@
+name: Verify Fiche sécurité chantier (migration et droits)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'supabase/migrations/*securite_fiches*'
+      - 'scripts/verif-securite-fiches-migration.mjs'
+      - '.github/workflows/verify-securite-fiches.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Migration fiche sécurité — verrou collaborateurs, immuabilité des versions et signatures, bucket confidentiel (lecture du SQL)
+        run: node scripts/verif-securite-fiches-migration.mjs
