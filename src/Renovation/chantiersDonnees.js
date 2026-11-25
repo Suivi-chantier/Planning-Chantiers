@@ -18,11 +18,13 @@
 import { supabase } from "../supabase";
 import { marquerEcritureConfig, estEchoConfigLocal } from "../configSync";
 import {
-  calculerEcritures, depuisLigneChantier, depuisLigneOperation, trierLignes,
+  calculerEcritures, depuisLigneChantier, depuisLigneOperation, trierLignes, COLONNES_LECTURE_CHANTIERS,
 } from "./chantiersTables.js";
 
-// Lot 2 : client, chargé d'affaires et perte (colonnes facultatives).
-const COLS_CHANTIER = "id, operation_id, nom, couleur, statut, ordre, donnees, archive_le, created_at, client_id, charge_affaires_id, charge_affaires_nom, perdu_le, perdu_par, perdu_motif, perdu_motif_detail";
+// Lot 2 : client, chargé d'affaires et perte (colonnes facultatives). La liste
+// vit dans chantiersTables.mjs (aussi lue par le serveur : mail récap du
+// vendredi, tâche 15 du projet organisation-par-jour).
+const COLS_CHANTIER = COLONNES_LECTURE_CHANTIERS;
 const COLS_OPERATION = "id, nom, adresse, couleur, ordre, donnees, creee_automatiquement, archive_le, created_at, client_id, charge_affaires_id, charge_affaires_nom";
 // Clés d'anti-écho (configSync) : nos propres écritures reviennent en temps
 // réel quelques centaines de ms plus tard, on ne les réapplique pas.

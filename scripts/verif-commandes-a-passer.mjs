@@ -209,13 +209,19 @@ test("7. la page « Commandes à passer » importe le module et n'a plus sa copi
   assert.match(lire("src/Renovation/commandesAPasserV1.js"), /export \* from "\.\/commandesAPasserV1\.mjs"/);
 });
 
-test("8. le job C3 utilise le module ; le récap du vendredi garde l'ancien calcul", () => {
+// Tâche 15 du projet organisation-par-jour (décision de Loris, « corrige aussi
+// le mail ») : le récap du vendredi n'a plus l'ancien calcul par phase ; il
+// utilise ce module, avec les lectures de la page (commandesAPasserLecture.mjs).
+// Contrôle remplacé : même branchement vérifié, sur le nouveau calcul.
+test("8. le job C3 et le récap du vendredi utilisent le module (plus l'ancien calcul par phase)", () => {
   const job = sansCommentaires(lire("api/_cron/cron-push-materiaux.js"));
   assert.match(job, /import\("\.\.\/\.\.\/src\/Renovation\/commandesAPasserV1\.mjs"\)/);
   assert.ok(!/materiauxACommanderV1/.test(job));
   const recap = sansCommentaires(lire("api/_cron/cron-recap-commandes.js"));
-  assert.match(recap, /materiauxACommanderV1\.mjs/);
-  assert.ok(!/commandesAPasserV1/.test(recap), "le récap du vendredi n'est pas rebranché (règle 8)");
+  assert.match(recap, /import\("\.\.\/\.\.\/src\/Renovation\/commandesAPasserV1\.mjs"\)/);
+  assert.match(recap, /import\("\.\.\/\.\.\/src\/Renovation\/commandesAPasserLecture\.mjs"\)/);
+  assert.match(recap, /C\.lignesACommander\(C\.modeleCommandesAPasser\(\{/);
+  assert.ok(!/materiauxACommanderV1/.test(recap), "le récap du vendredi n'utilise plus l'ancien calcul sans données");
 });
 
 // ═══ 5. Job et anti-répétition (base et réseau simulés) ═════════════════════

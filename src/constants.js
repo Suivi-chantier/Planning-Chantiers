@@ -459,31 +459,14 @@ export async function loadPhases() {
 // code (ex. "E" pour Électricité) sert à l'import devis : un libellé qui
 // commence par "E-001" est auto-attribué au lot Électricité.
 // Personnalisables via Admin → onglet Lots (stockage planning_config/lots_travaux).
-export const LOTS_DEFAUT = [
-  { id: "demolition",    label: "Démolition",             couleur: "#e05c5c", code_prefixe: "D"  },
-  { id: "maconnerie",    label: "Maçonnerie",             couleur: "#a8a29e", code_prefixe: "M"  },
-  { id: "electricite",   label: "Électricité",            couleur: "#eab308", code_prefixe: "E"  },
-  { id: "plomberie",     label: "Plomberie sanitaire",    couleur: "#06b6d4", code_prefixe: "P"  },
-  { id: "murs_cloison",  label: "Murs cloison doublages", couleur: "#6366f1", code_prefixe: "MC" },
-  { id: "menuiserie",    label: "Menuiserie",             couleur: "#b45309", code_prefixe: "ME" },
-  { id: "ouvertures",    label: "Ouvertures",             couleur: "#8b5cf6", code_prefixe: "O"  },
-  { id: "finitions_gen", label: "Finitions générales",    couleur: "#a78bfa", code_prefixe: "FG" },
-];
+// LOTS_DEFAUT et la lecture de loadLots vivent dans src/lotsDefaut.mjs
+// (aussi importé par le serveur : mail récap du vendredi) ; réexportés ici
+// tels quels.
+import { LOTS_DEFAUT, lireLotsTravaux } from "./lotsDefaut.mjs";
+export { LOTS_DEFAUT };
 
 export async function loadLots() {
-  try {
-    const { data } = await _supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle();
-    const items = data?.value?.items;
-    if (Array.isArray(items) && items.length > 0) {
-      return items.map((l, i) => ({
-        id:           l.id           || `lot_${i}`,
-        label:        l.label        || `Lot ${i + 1}`,
-        couleur:      l.couleur      || l.color || "#888888",
-        code_prefixe: l.code_prefixe || "",
-      }));
-    }
-  } catch (e) { console.warn("loadLots:", e?.message || e); }
-  return LOTS_DEFAUT;
+  return lireLotsTravaux(_supabase);
 }
 
 // ─── GROUPES TYPES (référentiel global d'étapes d'exécution) ─────────────────

@@ -4,23 +4,19 @@
 // reste vit dans chantierFinance.mjs (resteACommanderEnveloppes).
 import { supabase } from "../supabase";
 
+import { chargerAchatsTerminesAvec, achatsTerminesParChantier } from "./achatsLotsTerminesLecture.mjs";
+
+// Lecture et index : achatsLotsTerminesLecture.mjs (client en paramètre,
+// partagé avec le serveur depuis la tâche 15 du projet organisation-par-jour).
 // Toutes les lignes (ou celles d'un chantier). Lecture échouée → erreur
 // rendue à l'appelant, qui la signale : une liste vide ne prouve pas
 // « aucun lot terminé ».
-export async function chargerAchatsTermines(chantierId = null) {
-  let q = supabase.from("achats_lots_termines").select("id, chantier_id, lot_id, termine_le, termine_par");
-  if (chantierId) q = q.eq("chantier_id", chantierId);
-  const { data, error } = await q;
-  // `error` : l'objet Supabase (error.message), comme une requête directe.
-  return { data: data || [], error: error || null };
+export function chargerAchatsTermines(chantierId = null) {
+  return chargerAchatsTerminesAvec(supabase, chantierId);
 }
 
 // Index { chantier_id: [lignes] }.
-export function achatsTerminesParChantier(lignes) {
-  const m = {};
-  (lignes || []).forEach(a => { (m[a.chantier_id] ||= []).push(a); });
-  return m;
-}
+export { achatsTerminesParChantier };
 
 export async function marquerAchatsTermines({ chantierId, lotId, auteur = null }) {
   const { error } = await supabase.from("achats_lots_termines")

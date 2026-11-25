@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-11-25",
+    type: "correctif",
+    titre: "Mail récap du vendredi : les matériaux à commander de la semaine prochaine, comme sur la page Commandes à passer",
+    pages: [{ id: "planning-commandes", label: "Commandes à passer" }, { id: "dashboard", label: "Tableau de bord" }],
+    quoi: "La partie « Commandes prévisionnelles » du mail récap des commandes du vendredi annonçait toujours « Aucun matériau prévisionnel à commander aujourd'hui » : elle lisait une ancienne saisie des matériaux, abandonnée depuis que les matériaux sont rattachés aux ouvrages du phasage. Elle devient « Matériaux à commander · semaine prochaine » et liste exactement les articles de l'onglet « Semaine prochaine » de la page Commandes à passer (bouton « Commandes de la semaine »), les mêmes que le bloc « Matériaux à commander » du tableau de bord : nombre d'articles, puis par chantier le nombre d'articles et la première date de besoin, puis chaque article (quantité, ouvrage, chantier, date de besoin). La date de besoin est la date prévue la plus proche des tâches de l'ouvrage.",
+    comment: "Rien à faire : le mail part toujours le vendredi matin, aux mêmes destinataires (administrateurs et conducteurs de travaux), avec le même titre, et la partie « Demandes des ouvriers en attente » ne change pas. La semaine prochaine est calculée à l'heure de Paris. Le mail liste tous les articles jusqu'à 100, puis « et N autres sur la page Commandes à passer ». S'il n'y a rien à commander, il l'écrit (« Aucun matériau à commander pour la semaine 49 ») ; si les données ne peuvent pas être lues, la partie le dit au lieu d'annoncer « aucun », et le mail part quand même.",
+  },
+  {
     date: "2026-11-24",
     type: "amelioration",
     titre: "Encours fournisseurs : le mail du vendredi et la notification annoncent les montants de la page",

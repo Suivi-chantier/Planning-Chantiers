@@ -168,11 +168,22 @@ test("7. tuiles = statsCommandesAPasser, mêmes libellés et format que la page"
 
 // ═══ 4. Statique : même service, module pur, registre ══════════════════════
 test("8. même lecture pour la tuile du tableau de bord, la page et le bloc", () => {
-  const donnees = sansCommentaires(lire("src/Renovation/commandesAPasserDonnees.js"));
+  // Depuis la tâche 15, les lectures de la liste « à commander » vivent dans
+  // commandesAPasserLecture.mjs (client en paramètre, partagé avec le mail
+  // récap du vendredi) : commandesAPasserDonnees.js leur passe le client du
+  // navigateur. On lit les deux, et on vérifie la délégation.
+  const donneesJs = sansCommentaires(lire("src/Renovation/commandesAPasserDonnees.js"));
+  const lecture = sansCommentaires(lire("src/Renovation/commandesAPasserLecture.mjs"));
+  assert.match(donneesJs, /from "\.\/commandesAPasserLecture\.mjs";/);
+  for (const f of ["lirePhasagesCommandesAvec(supabase)", "lireLignesCommandesAvec(supabase)", "lireMateriauxCommandesAvec(supabase)", "lireDonneesCommandesAPasser(supabase)"]) {
+    assert.ok(donneesJs.includes(f), `commandesAPasserDonnees.js : ${f}`);
+  }
+  const donnees = donneesJs + "\n" + lecture;
   assert.match(donnees, /from\("besoins"\)\.select\("id", \{ count: "exact", head: true \}\)\.eq\("statut", STATUT_BESOIN_EN_ATTENTE\)/, "compteur : même requête qu'avant");
   assert.match(donnees, /\.select\(COLONNES_BESOINS_EN_ATTENTE\)\s*\.eq\("statut", STATUT_BESOIN_EN_ATTENTE\)\s*\.order\("created_at", \{ ascending: false \}\)/);
   assert.match(donnees, /lireToutParTranches\(/, "lignes de commande par tranches");
-  assert.match(donnees, /chargerTousLesMateriaux\(COLONNES_MATERIAUX_COMMANDES\)/);
+  assert.match(donnees, /chargerTousLesMateriauxAvec\(client, COLONNES_MATERIAUX_COMMANDES\)/);
+  assert.match(lire("src/Renovation/chargerMateriaux.js"), /return chargerTousLesMateriauxAvec\(supabase, colonnes, options\);/, "navigateur : même lecture de la bibliothèque");
   assert.ok(!/\.(insert|update|upsert|delete)\(/.test(donnees), "lecture seule");
   assert.ok(!/"en_attente"/.test(donnees), "le filtre vient du module pur");
 

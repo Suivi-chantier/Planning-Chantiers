@@ -18,6 +18,9 @@ on:
       - 'scripts/verif-operation-export-modele.mjs'
       - 'supabase/functions/progbat-quote/**'
       - 'scripts/sync-progbat-edge-lib.mjs'
+      - 'src/lotsDefaut.mjs'
+      - 'src/constants.js'
+      - 'scripts/verif-progbat-quote-serveur.mjs'
       - 'scripts/verif-multi-ouvrages.mjs'
       - '.github/workflows/verify-multi-ouvrages.yml'
 

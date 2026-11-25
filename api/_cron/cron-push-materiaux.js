@@ -44,8 +44,10 @@
 // .github/workflows/cron-push-materiaux.yml. Deux créneaux (été / hiver) :
 // avant 8h Paris, le passage ne fait rien (« avant_8h »).
 //
-// Le mail récap du vendredi (cron-recap-commandes.js) reste INCHANGÉ : il
-// garde son calcul par phase (materiauxACommanderV1.mjs, règle 8).
+// Le mail récap du vendredi (cron-recap-commandes.js) avait gardé son calcul
+// par phase (materiauxACommanderV1.mjs, règle 8) ; depuis la tâche 15 du
+// projet organisation-par-jour (décision de Loris), il suit lui aussi la page
+// « Commandes à passer » (onglet « Semaine prochaine »).
 
 const { appelerSendPush } = require("./cron-push-reportes.js");
 

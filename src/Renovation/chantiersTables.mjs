@@ -28,6 +28,13 @@ export const COLONNES_OPERATION_LOT2 = Object.freeze(["client_id", "charge_affai
 /** Champs portés par une colonne ; tout le reste va dans `donnees` (jsonb). */
 export const COLONNES_CHANTIER = Object.freeze(["id", "nom", "couleur", "statut", "operation_id", ...COLONNES_CHANTIER_LOT2]);
 export const COLONNES_OPERATION = Object.freeze(["id", "nom", "adresse", "couleur", ...COLONNES_OPERATION_LOT2]);
+/**
+ * Colonnes LUES dans public.chantiers par chantiersDonnees.js (liste de
+ * l'application). Déplacée telle quelle de chantiersDonnees.js (COLS_CHANTIER)
+ * pour que le serveur (mail récap du vendredi, projet organisation-par-jour,
+ * tâche 15) lise les mêmes colonnes que le navigateur.
+ */
+export const COLONNES_LECTURE_CHANTIERS = "id, operation_id, nom, couleur, statut, ordre, donnees, archive_le, created_at, client_id, charge_affaires_id, charge_affaires_nom, perdu_le, perdu_par, perdu_motif, perdu_motif_detail";
 /** Champs propres aux tables, jamais recopiés dans `donnees`. */
 const CHAMPS_TECHNIQUES = ["ordre", "donnees", "archive_le", "created_at", "updated_at", "creee_automatiquement"];
 

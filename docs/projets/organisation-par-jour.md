@@ -205,8 +205,8 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | en ligne | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | [#266](https://github.com/Suivi-chantier/Planning-Chantiers/pull/266) |
 | 12 | Bloc `materiaux_a_commander` | en ligne | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | [#267](https://github.com/Suivi-chantier/Planning-Chantiers/pull/267) |
 | 13 | Captures des 5 jours (date simulée) sur le compte de Loris + synthèse de fin de projet | à faire | — | Captures jointes au compte rendu | — |
-| 14 | Aligner le mail du vendredi et la notification « X € HT à payer » (`encoursFournisseursV1`, `api/cron-encours-fournisseurs.js`) sur le calcul de la page Encours fournisseurs (`encoursFournisseursPageV1.mjs`) | en cours | Contrôles verts + tableau avant / après par fournisseur et par mois sur la base réelle (écart attendu : celui de la page) | Le montant du mail = la somme des mois correspondants de la page | — |
-| 15 | Mail récap du vendredi, partie « Commandes prévisionnelles » : remplacer l'ancien calcul `materiauxACommanderV1` (sans données) par les articles de la page Commandes à passer dont la date de besoin tombe la semaine suivante (même règle que le bloc de la tâche 12) | à faire | Contrôles verts + comparaison sur la base réelle : liste du mail = onglet « Semaine prochaine » de la page | Le mail d'un vendredi simulé liste les mêmes articles que le bloc et la page | — |
+| 14 | Aligner le mail du vendredi et la notification « X € HT à payer » (`encoursFournisseursV1`, `api/cron-encours-fournisseurs.js`) sur le calcul de la page Encours fournisseurs (`encoursFournisseursPageV1.mjs`) | en ligne | Contrôles verts + tableau avant / après par fournisseur et par mois sur la base réelle (écart attendu : celui de la page) | Le montant du mail = la somme des mois correspondants de la page | [#268](https://github.com/Suivi-chantier/Planning-Chantiers/pull/268) |
+| 15 | Mail récap du vendredi, partie « Commandes prévisionnelles » : remplacer l'ancien calcul `materiauxACommanderV1` (sans données) par les articles de la page Commandes à passer dont la date de besoin tombe la semaine suivante (même règle que le bloc de la tâche 12) | en cours | Contrôles verts + comparaison sur la base réelle : liste du mail = onglet « Semaine prochaine » de la page | Le mail d'un vendredi simulé liste les mêmes articles que le bloc et la page | — |
 
 ## Journal des décisions
 
@@ -424,6 +424,22 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **24/11/2026 — Ordre des tâches restantes modifié.** Tâches 14 et 15 (mails
   du vendredi) avant la tâche 13 (captures des 5 jours et synthèse), pour que
   la synthèse décrive l'état final du projet.
+
+- **24/11/2026 — Tâche 14, question à Loris.** La page Encours n'affiche
+  aucun total « 6 mois » : le chiffre de tête du mail devait-il devenir
+  « À payer · mois en cours » (carte de la page, 6 879,94 € en novembre) (A)
+  ou rester un total 6 mois recalculé comme la page (32 578,47 €) (B) ?
+- **25/11/2026 — Réponse de Loris** : « A, continue ». La preuve prévue au
+  tableau (« montant du mail = somme des mois de la page ») devient « montant
+  du mail = carte « À payer » du mois de la page ».
+- **24/11/2026 — Tâche 14, écart par mois.** Pour REXEL, 542,98 € (2
+  commandes du 31/08, « 30 j fin de mois ») passent de septembre à octobre ;
+  total REXEL inchangé (écart 0). C'est la correction décidée par Loris ;
+  aucun fournisseur ne varie de plus de 109,31 € sur la fenêtre de 6 mois.
+- **24/11/2026 — Tâche 14, comportement en cas d'erreur.** Si la lecture
+  échoue, plus aucun mail ni notification n'est envoyé (avant, le mail
+  partait avec des données incomplètes). `encoursFournisseursV1.mjs` n'est
+  plus utilisé par aucun envoi (non supprimé).
 
 ## Comptes rendus
 
@@ -758,5 +774,42 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **Test des écrans** : 36 cas réussis (exemple issu des tests, données
   fictives) ; l'onglet « Semaine prochaine » compte les mêmes articles que le
   bloc.
+- **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 14 — en ligne (25/11/2026)
+
+- **Ce qui a changé** : le mail du vendredi et la notification « à payer »
+  reprennent les lectures et le calcul de la page Encours fournisseurs. Tête
+  du mail : « À payer · <mois> » et « Payé comptant · <mois> », comme les deux
+  cartes de la page ; détail des 6 mois d'échéance les plus récents, mêmes
+  montants et fournisseurs que la page. Notification : « Encours
+  fournisseurs : X € HT à payer · <mois> ».
+- **Avant / après sur la base réelle** (lecture seule, 24/11/2026 ; ancien
+  code contre nouveau, nouveau contre page : 0 écart) :
+
+  | Mois | Ancien mail | Nouveau = page | Écart |
+  |---|---|---|---|
+  | 2026-07 | 4 370,77 € | 4 480,08 € | +109,31 € |
+  | 2026-08 | 5 630,38 € | 5 630,38 € | 0 |
+  | 2026-09 | 3 611,81 € | 2 832,72 € | −779,09 € |
+  | 2026-10 | 10 210,15 € | 10 989,24 € | +779,09 € |
+  | 2026-11 | 6 879,94 € | 6 879,94 € | 0 |
+  | 2026-12 | 1 766,11 € | 1 766,11 € | 0 |
+  | **6 mois** | **32 469,16 €** | **32 578,47 €** | **+109,31 €** |
+
+  | Fournisseur (6 mois) | Ancien | Nouveau | Écart |
+  |---|---|---|---|
+  | REXEL | 21 174,28 € | 21 174,28 € | 0 (542,98 € déplacés de septembre à octobre) |
+  | Partedis | 5 739,97 € | 5 849,28 € | +109,31 € |
+  | ZOLPAN | 4 741,81 € | 4 741,81 € | 0 |
+  | YESSS ELECTRIQUE | 447,64 € | 447,64 € | 0 |
+  | WURTH | 365,46 € | 365,46 € | 0 |
+
+  Chiffre de tête : 32 469,16 € (ancien total 6 mois) → 6 879,94 € (« À payer
+  · novembre 2026 », identique à la carte de la page).
+- **Essais** : envoi simulé sur les données réelles, aucun mail ni
+  notification réellement envoyé.
+- **Contrôles** : 18 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
 

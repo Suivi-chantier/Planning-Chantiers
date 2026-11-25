@@ -157,7 +157,14 @@ const lire = f => readFile(resolve(racine, f), "utf8");
     // Depuis la tâche 7 (organisation-par-jour) : la page lit la bibliothèque
     // par commandesAPasserDonnees.js (partagé avec le bloc « Commandes à saisir »).
     "src/Renovation/PagePlanningCommandes.jsx": /lireMateriauxCommandes\(\)/,
-    "src/Renovation/commandesAPasserDonnees.js": /chargerTousLesMateriaux\(COLONNES_MATERIAUX_COMMANDES\)/,
+    // Tâche 15 : la lecture vit dans commandesAPasserLecture.mjs (client en
+    // paramètre, partagé avec le mail récap du vendredi) ; le navigateur y
+    // passe par commandesAPasserDonnees.js, et chargerTousLesMateriaux par
+    // chargerMateriauxLecture.mjs (même code, client en paramètre).
+    "src/Renovation/commandesAPasserDonnees.js": /lireMateriauxCommandesAvec\(supabase\)/,
+    "src/Renovation/commandesAPasserLecture.mjs": /chargerTousLesMateriauxAvec\(client, COLONNES_MATERIAUX_COMMANDES\)/,
+    "src/Renovation/chargerMateriaux.js": /return chargerTousLesMateriauxAvec\(supabase, colonnes, options\);/,
+    "src/Renovation/chargerMateriauxLecture.mjs": /\.order\("id", \{ ascending: true \}\)\s*\.range\(debut, debut \+ TAILLE_TRANCHE - 1\)/,
     "src/Renovation/operationExportData.js": /chargerTousLesMateriaux\(/,
     "src/Renovation/OuvrierCommande.jsx": /useCatalogueDemande\(/,
     "src/Renovation/BesoinCommandeDrawer.jsx": /useCatalogueDemande\(/,
