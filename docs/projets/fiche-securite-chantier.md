@@ -99,7 +99,7 @@ attendent l'accord de François.
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en ligne (fusion le 25/11/2026 après une correction du contrôle `verif-securite-preremplissage`, qui lisait par erreur les fonctions de signature ajoutées) ; questions à François : signature bloquée sur fiche « à mettre à jour », points 1-2 hors comparaison | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
 | 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire (François : admin + conducteur) | Accès accordé par François le 25/11 | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
 | 6b | Point 9 : un jour n'est pas « isolé » si un collègue Profero est planifié le même jour sur un autre chantier de la même opération (réponse de François du 25/11) | en ligne (fusion le 25/11/2026, 21 contrôles verts) | Auto | FOUGERAY APPT 101 : les 16 jours « seul » ne sont plus proposés isolés | [#289](https://github.com/Suivi-chantier/Planning-Chantiers/pull/289) |
-| 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | en cours : migration appliquée le 25/11/2026 (types S1/S2, tâche planifiée 7h35 Paris jours ouvrés) ; demande de fusion ouverte ; **après fusion : redéployer `send-push`, `notifications-boite` et `notifications-pilotage`** (catalogue S1/S2) avant le premier passage du 26/11 à 7h35 | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | [#290](https://github.com/Suivi-chantier/Planning-Chantiers/pull/290) |
+| 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | en ligne (fusion le 25/11/2026, #290 ; migration appliquée ; `send-push` v8, `notifications-boite` v4, `notifications-pilotage` v2 redéployées le 25/11 ; premier passage le 26/11 à 7h35) | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | [#290](https://github.com/Suivi-chantier/Planning-Chantiers/pull/290) |
 
 ## Journal des décisions
 
@@ -856,6 +856,18 @@ sont alors cités à part dans la raison et ne s'ajoutent pas aux mesures.
   Sans cela, `send-push` refuse le type S1 : le passage échoue visiblement
   (erreur dans le résumé du dispatcher), rien n'est inscrit, et il est rejoué
   le lendemain.
+
+**25/11/2026 — Tâche 7b en ligne : fonctions serveur redéployées.** Après la
+fusion de #290 (commit `4b04dd0`), redéploiement depuis `main`, avec les
+fichiers complets du dépôt (fonction + dépendances `_partage/…`), réglage
+« Verify JWT » inchangé (activé) : `send-push` v7 → v8 (6 fichiers),
+`notifications-boite` v3 → v4 (4 fichiers), `notifications-pilotage` v1 → v2
+(5 fichiers). Relu après déploiement : les fichiers en ligne sont identiques
+octet pour octet à ceux du dépôt, et le catalogue contient S1 et S2.
+**Non vérifié** : un appel réel aux fonctions (l'environnement de Claude n'a
+pas accès au domaine Supabase, et la simulation `?job=push_simulation&type=S1`
+exige la clé du dispatcher) ; la première exécution réelle sera celle du
+26/11 à 7h35 (résumé dans `cron.job_run_details` et la réponse du dispatcher).
 
 ## Comptes rendus
 
