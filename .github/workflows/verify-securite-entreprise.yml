@@ -20,6 +20,7 @@ on:
       - 'src/Renovation/Navigation.jsx'
       - 'src/Renovation/journalMaj.js'
       - 'src/App.jsx'
+      - 'api/_cron/cron-alertes-securite.js'
       - 'src/access.js'
       - 'supabase/migrations/*securite_fiches*'
       - 'scripts/verif-securite-entreprise.mjs'

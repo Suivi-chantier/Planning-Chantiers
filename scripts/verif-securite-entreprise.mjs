@@ -13,8 +13,9 @@
 //   - contenu figé (format v2) : justificatifs rattachés avec leur origine,
 //     dans l'empreinte ; PDF qui les liste « depuis l'espace entreprise » ;
 //   - page enregistrée (access.js, menu, App) et branchements.
-// Le « Dossier de contrôle » (ZIP) et son filtrage confidentiel relèvent de
-// la tâche 9b (pas encore livrée).
+//   - tâche 9b : alertes « expire sous 30 jours » / « expiré » de l'espace
+//     entreprise (S1 non confidentiels, S2 aptitudes, sans nom), envoyées
+//     une seule fois. Le « Dossier de contrôle » : verif-securite-dossier-controle.mjs.
 //
 // Exemples issus des tests, données fictives : personnes, dates et documents
 // sont inventés pour le calcul. Aucune base, aucun réseau.
@@ -36,7 +37,10 @@ import {
 } from "../src/Renovation/securiteValidation.mjs";
 import { contenuVersion, serialisationCanonique, FORMAT_CONTENU_VERSION, FORMATS_CONTENU_LISIBLES } from "../src/Renovation/securiteVersion.mjs";
 import { modelePdfFiche, htmlFicheSecuritePdf } from "../src/Renovation/securitePdf.mjs";
-import { nbRequisExpires, entreesAlertesSecurite } from "../src/Renovation/securiteAlertesPush.mjs";
+import {
+  nbRequisExpires, entreesAlertesSecurite, alertesEspaceEntreprise, aptitudesBientotExpirees, calculerPlanSecurite, cleObjetAlerte,
+  LIEN_ESPACE_ENTREPRISE, ALERTES_NOTIFIEES,
+} from "../src/Renovation/securiteAlertesPush.mjs";
 import { propositionsMiseAJour, partieRisques } from "../src/Renovation/securiteAccueil.mjs";
 
 const racine = fileURLToPath(new URL("..", import.meta.url));
@@ -294,6 +298,54 @@ await test("12. branchements : la fiche lit l'espace entreprise sans confidentie
 await test("13. journal des MAJ : entrée de la tâche 9 en langage métier", () => {
   const j = lire("src/Renovation/journalMaj.js");
   assert.match(j, /id: "justificatifs-entreprise", label: "Justificatifs entreprise"/);
+});
+
+
+await test("14. alertes 30 jours (tâche 9b) : S1 pour les justificatifs non confidentiels, même règle que la vue", () => {
+  const liste = [
+    ent("b1", "habilitation_electrique", { personne: "Léa Fictive", expire_le: "2026-12-24" }), // J+29
+    ent("b2", "formation_ss4", { expire_le: "2026-12-25" }),                                   // J+30 : valide
+    ent("b3", "duerp", { expire_le: "2026-11-24" }),                                            // expiré
+    ent("b4", "duerp", { expire_le: "2026-11-30", archive_le: "2026-11-20T00:00:00Z" }),        // archivé
+    ent("b5", "kbis"),                                                                          // sans expiration
+    APT, { ...APT, id: "b6", expire_le: "2026-12-01" },                                         // confidentiels : jamais en S1
+    chant("c1", 6, "habilitation_electrique", { expire_le: "2026-12-01" }),                     // portée chantier : pas ici
+  ];
+  const a = alertesEspaceEntreprise({ justificatifs: liste, aujourdhui: AUJ });
+  assert.deepEqual(a.map(cleObjetAlerte), ["justificatif_entreprise_30j:b1", "justificatif_entreprise_expire:b3"]);
+  assert.equal(a[0].lien, LIEN_ESPACE_ENTREPRISE);
+  assert.match(a[0].texte, /Habilitation électrique — Léa Fictive : expire le 24\/12\/2026/);
+  assert.ok(ALERTES_NOTIFIEES.includes("justificatif_entreprise_30j") && ALERTES_NOTIFIEES.includes("justificatif_entreprise_expire"));
+  assert.deepEqual(alertesEspaceEntreprise({ justificatifs: liste, aujourdhui: "" }), [], "sans date : rien");
+  // S2 : aptitude sous 30 jours (b6), pas celle à 2027 (APT).
+  assert.deepEqual(aptitudesBientotExpirees({ justificatifs: liste, aujourdhui: AUJ }).map((j) => j.id), ["b6"]);
+});
+
+await test("15. plan : une seule fois tant que c'est vrai ; à l'expiration, « sous 30 jours » est oublié et « expiré » part ; S2 sans nom", () => {
+  const base = { chantiers: [], fiches: [], phasages: [], dateParis: AUJ };
+  const justifs = [ent("b1", "habilitation_electrique", { personne: "Léa Fictive", expire_le: "2026-12-24" }), { ...APT, id: "b6", expire_le: "2026-12-01" }];
+  const p1 = calculerPlanSecurite({ ...base, justificatifs: justifs, etatsStockes: [] });
+  assert.deepEqual(p1.alertes, [], "alertes des chantiers inchangées");
+  assert.deepEqual(p1.s1.aInscrire, ["justificatif_entreprise_30j:b1"]);
+  assert.equal(p1.s1.contenu.titre, "Justificatif de l'entreprise : expire sous 30 jours — Habilitation électrique — Léa Fictive");
+  assert.equal(p1.s1.contenu.lien, LIEN_ESPACE_ENTREPRISE);
+  assert.deepEqual(p1.s2.aInscrire, ["aptitude_30j:b6"]);
+  assert.equal(p1.s2.contenu.titre, "1 aptitude médicale expire sous 30 jours");
+  assert.ok(!/Léa|Fictive/.test(JSON.stringify(p1.s2.contenu)), "S2 : jamais de nom");
+  const stockes = [...p1.s1.aInscrire.map((c) => ({ type: "S1", cle_objet: c })), ...p1.s2.aInscrire.map((c) => ({ type: "S2", cle_objet: c }))];
+  const p2 = calculerPlanSecurite({ ...base, justificatifs: justifs, etatsStockes: stockes, dateParis: "2026-11-26" });
+  assert.equal(p2.s1.contenu, null); assert.equal(p2.s2.contenu, null); assert.deepEqual(p2.aOublier, []);
+  const p3 = calculerPlanSecurite({ ...base, justificatifs: justifs, etatsStockes: stockes, dateParis: "2026-12-26" });
+  assert.deepEqual(p3.s1.aInscrire, ["justificatif_entreprise_expire:b1"]);
+  assert.deepEqual(p3.s2.aInscrire, ["aptitude:b6"]);
+  assert.deepEqual(p3.aOublier.map((x) => `${x.type} ${x.cle_objet}`).sort(), ["S1 justificatif_entreprise_30j:b1", "S2 aptitude_30j:b6"]);
+  // Document renouvelé puis l'ancien retiré : plus rien, l'état est oublié.
+  const p4 = calculerPlanSecurite({ ...base, justificatifs: [{ ...justifs[0], archive_le: "2026-12-01T00:00:00Z" }], etatsStockes: [{ type: "S1", cle_objet: "justificatif_entreprise_30j:b1" }] });
+  assert.equal(p4.s1.contenu, null);
+  assert.deepEqual(p4.aOublier, [{ type: "S1", cle_objet: "justificatif_entreprise_30j:b1" }]);
+  // Le job lit la personne (texte de l'alerte) et ne recopie aucun seuil.
+  const job = lire("api/_cron/cron-alertes-securite.js");
+  assert.match(job, /"id, portee, chantier_id, point, type_code, personne, expire_le, archive_le, confidentiel, date_document, created_at"/);
 });
 
 console.log(`\n${n} vérifications « Fiche sécurité : justificatifs entreprise » réussies (exemples issus des tests, données fictives).`);

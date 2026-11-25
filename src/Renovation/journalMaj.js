@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
     type: "nouveaute",
+    titre: "Fiche sécurité : bouton « Dossier de contrôle » et alerte 30 jours avant l'expiration des justificatifs de l'entreprise",
+    pages: [{ id: "operations", label: "Opérations" }, { id: "justificatifs-entreprise", label: "Justificatifs entreprise" }],
+    quoi: "En cas de contrôle (inspection du travail, CARSAT, OPPBTP), un seul clic prépare un fichier ZIP avec le PDF de la dernière version validée de la fiche et tous ses justificatifs : ceux du chantier et ceux de l'espace entreprise repris dans la fiche, rangés par dossier et nommés par point et par type. Les aptitudes médicales n'y figurent que pour un administrateur. Si un document ne peut pas être lu, le ZIP est quand même produit avec un fichier « A_LIRE.txt » qui dit lequel manque, et l'écran l'affiche en rouge. Par ailleurs, la notification du matin prévient 30 jours avant l'expiration d'un document de l'espace entreprise (habilitation, formation, DUERP…), puis à son expiration ; pour les aptitudes médicales, l'alerte va aux seuls administrateurs, sans nom.",
+    comment: "Fiche sécurité d'un chantier (page Opérations → « Fiche sécurité » → « Ouvrir la fiche ») : bouton « Dossier de contrôle » en haut. Il reste grisé, avec la raison, tant qu'aucune version n'est validée ou que son PDF n'est pas généré. Les alertes arrivent dans la cloche avec les autres alertes de fiche sécurité ; les toucher ouvre la page « Justificatifs entreprise ». Chaque alerte ne part qu'une fois.",
+  },
+  {
+    date: "2026-11-25",
+    type: "nouveaute",
     titre: "Fiche sécurité : nouvelle page « Justificatifs entreprise » pour les habilitations, formations et documents permanents",
     pages: [{ id: "justificatifs-entreprise", label: "Justificatifs entreprise" }, { id: "operations", label: "Opérations" }],
     quoi: "Les documents de Profero qui servent sur tous les chantiers (habilitations électriques, formations amiante SS4 et échafaudage, DUERP, modes opératoires amiante, consigne de travail isolé, Kbis, attestations…) se rangent une seule fois dans une page dédiée, avec leur date d'expiration. La liste est triée par expiration la plus proche et dit pour chacun : valide, expire sous 30 jours ou expiré. Les fiches sécurité des chantiers les reprennent toutes seules : une habilitation électrique valide suffit pour le point 6, une consigne de travail isolé pour le point 9, sans joindre à nouveau le document sur chaque chantier ; ils figurent dans la version validée et dans son PDF. Les aptitudes médicales restent confidentielles : seuls les administrateurs les voient, les ajoutent et les ouvrent ; elles n'apparaissent jamais sur les fiches des chantiers.",

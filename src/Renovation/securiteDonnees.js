@@ -12,8 +12,9 @@
 import { supabase } from "../supabase";
 import {
   uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, deposerPreuveSecurite, urlPreuveSecurite, lirePreuveSecurite,
-  deposerDocumentConfidentiel, urlDocumentConfidentiel,
+  deposerDocumentConfidentiel, urlDocumentConfidentiel, lireFichierDossier,
 } from "./storageChantier.js";
+import { derniereVersionPourDossier, planDossierControle, texteALire, zipStocke, nomZip, NOM_A_LIRE } from "./securiteDossierControle.js";
 import { journaliserStatut } from "./chantiersDonnees.js";
 import {
   serialisationCanonique, contenuVersion, motifDepuisJournal, entreeJournalValidation, entreeJournalMiseAJour,
@@ -790,4 +791,62 @@ export async function ajouterJustificatifEntreprise({ ligne, fichier, auteur }) 
 export async function urlJustificatifEntreprise(j) {
   const url = j?.confidentiel ? await urlDocumentConfidentiel(j.fichier_path) : await urlDocumentChantier(j?.fichier_path);
   return { url, erreur: url ? null : (derniereErreurDocument() || "lecture impossible") };
+}
+
+// ─── Tâche 9b : « Dossier de contrôle » (ZIP) ───────────────────────────────
+// Plan et ZIP : module pur securiteDossierControle.mjs. Ici : lectures.
+// Jamais d'échec silencieux : un fichier illisible est listé dans A_LIRE.txt
+// (dans le ZIP) et renvoyé à l'écran. Un non-admin ne reçoit aucun document
+// confidentiel (plan filtré, et la base lui refuse de toute façon ce bucket) ;
+// ses aptitudes médicales ne sont même pas lues.
+
+/** Heure locale « AAAA-MM-JJTHH:MM:SS » (le module pur la reçoit en paramètre). */
+function horodatageLocal() {
+  const d = new Date(), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/**
+ * Prépare le ZIP du dossier de contrôle d'une fiche.
+ * → { blob, nom, version, nbDocuments, manquants: [{ nom, libelle, raison }], erreur }
+ */
+export async function preparerDossierControle({ ficheId, chantierNom, estAdmin }) {
+  try {
+    const v = await chargerVersionsAvecContenu(ficheId);
+    if (v.erreur) return { erreur: `versions illisibles (${v.erreur})` };
+    const d = derniereVersionPourDossier(v.liste);
+    if (!d.ok) return { erreur: d.raison };
+    const aujourdhui = dateDuJourLocale();
+    const horodatage = horodatageLocal();
+    const manquants = [];
+    let aptitudes = [];
+    if (estAdmin === true) {
+      const { data, error } = await supabase.from("securite_justificatifs").select(COLS_JUSTIF)
+        .eq("portee", "entreprise").eq("type_code", "aptitude_medicale").is("archive_le", null);
+      if (error) manquants.push({ nom: "Confidentiel/", libelle: "Aptitudes médicales (espace entreprise)", raison: `liste illisible (${error.message})` });
+      else aptitudes = data || [];
+    }
+    const { fichiers } = planDossierControle({ version: d.version, chantierNom, estAdmin: estAdmin === true, aptitudes, aujourdhui });
+    const contenus = [];
+    for (const f of fichiers) {
+      const blob = await lireFichierDossier(f.bucket, f.path);
+      if (!blob) { manquants.push({ nom: f.nom, libelle: f.libelle, raison: derniereErreurDocument() || "lecture impossible" }); continue; }
+      contenus.push({ nom: f.nom, octets: new Uint8Array(await blob.arrayBuffer()) });
+    }
+    if (manquants.length) {
+      const texte = texteALire({ manquants, chantierNom, version: d.version.version, date: horodatage.replace("T", " ") });
+      contenus.unshift({ nom: NOM_A_LIRE, octets: new TextEncoder().encode(texte) });
+    }
+    const zip = zipStocke(contenus, horodatage);
+    return {
+      blob: new Blob([zip], { type: "application/zip" }),
+      nom: nomZip({ chantierNom, version: d.version.version, date: aujourdhui }),
+      version: d.version.version,
+      nbDocuments: contenus.length - (manquants.length ? 1 : 0),
+      manquants,
+      erreur: null,
+    };
+  } catch (e) {
+    return { erreur: msg(e) };
+  }
 }

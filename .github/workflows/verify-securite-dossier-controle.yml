@@ -1,0 +1,33 @@
+name: Verify Fiche sécurité (dossier de contrôle)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/securite/**'
+      - 'src/Renovation/securiteDossierControle.mjs'
+      - 'src/Renovation/securiteDossierControle.js'
+      - 'src/Renovation/securiteValidation.mjs'
+      - 'src/Renovation/securiteVersion.mjs'
+      - 'src/Renovation/securiteDonnees.js'
+      - 'src/Renovation/storageChantier.js'
+      - 'src/Renovation/FicheSecuriteChantier.jsx'
+      - 'src/Renovation/journalMaj.js'
+      - 'package.json'
+      - 'scripts/verif-securite-dossier-controle.mjs'
+      - '.github/workflows/verify-securite-dossier-controle.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fiche sécurité — dossier de contrôle (ZIP), filtrage confidentiel, A_LIRE.txt (module pur, exemples fictifs)
+        run: node scripts/verif-securite-dossier-controle.mjs

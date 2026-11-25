@@ -61,7 +61,8 @@ test("1. le job serveur passe par le module de l'appli, sans recalcul", () => {
   assert.ok(!/ajouterJours|STATUT_PLANIFIE|STATUT_EN_COURS|"planifie"|"en_cours"/.test(MODULE), "le module ne refait pas les règles de statut ni le seuil");
   // Le seuil reste écrit une seule fois, dans alertesSecurite.
   assert.equal((CYCLE.match(/ajouterJours\(jour, 7\)/g) || []).length, 1, "seuil 7 jours écrit une fois");
-  assert.deepEqual([...ALERTES_NOTIFIEES].sort(), Object.keys(TYPES_ALERTE_SECURITE).sort());
+  // Tâche 9b : + les deux alertes de l'espace entreprise (verif-securite-entreprise.mjs).
+  assert.deepEqual([...ALERTES_NOTIFIEES].sort(), [...Object.keys(TYPES_ALERTE_SECURITE), "justificatif_entreprise_30j", "justificatif_entreprise_expire"].sort());
 });
 
 test("2. la migration ne contient aucune règle métier (pas de seuil, pas de statut de chantier)", () => {
