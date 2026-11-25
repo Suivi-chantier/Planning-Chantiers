@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
+    type: "nouveaute",
+    titre: "Fiche de préparation sécurité de chaque chantier : remplie, signée, validée et exportée en PDF",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "La procédure papier de préparation de chantier (12 points) passe dans l'appli. Chaque chantier a sa fiche sécurité : intervenants, données de base, synthèse des risques et les points amiante, chute de hauteur, électricité, poussières, manutention, travail isolé, EPI, sanitaires et coordination. Les justificatifs se joignent à chaque point, la fiche est signée par la personne qui l'établit et par le chef d'équipe, puis validée : elle est alors figée et un PDF à la charte Profero est rangé automatiquement, prêt à présenter lors d'un contrôle (inspection du travail, CARSAT, OPPBTP). Ni les versions validées, ni les signatures, ni les PDF ne peuvent être modifiés ou effacés, même par un administrateur.",
+    comment: "Page Opérations → bouton « Fiche sécurité » dans l'en-tête. En haut du panneau, le bloc « Bâtiment » se remplit une fois pour l'immeuble (date du permis, copropriété, étage, ascenseur, repérage amiante) ; en dessous, chaque chantier a une pastille (à créer, brouillon 7/12, justificatifs manquants, validée…) et un bouton « Créer la fiche » ou « Ouvrir la fiche ». Dans la fiche, tout s'enregistre seul ; « Ajouter un justificatif » sous chaque point permet de prendre une photo ou de choisir un fichier. En bas, la liste de ce qui manque, puis « Signer » (au doigt, en dernier) et « Valider la fiche ». Après validation, « Télécharger le PDF » donne le document de la version ; si le PDF n'a pas pu être fabriqué, la version affiche « PDF non généré » avec un bouton « Générer le PDF ». Une fiche en brouillon peut être exportée en aperçu marqué « BROUILLON — non validé », qui n'est pas conservé. Pour changer une fiche validée : « Mettre à jour » avec un motif, puis signer et valider la nouvelle version.",
+  },
+  {
+    date: "2026-11-25",
     type: "correctif",
     titre: "Lecture des factures fournisseurs : réservée aux comptes autorisés",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],

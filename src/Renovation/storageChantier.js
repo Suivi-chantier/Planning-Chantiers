@@ -170,11 +170,13 @@ export async function deposerPreuveSecurite(blob, path, contentType = "image/png
   return { path };
 }
 
-// URL signée temporaire d'une preuve (image de signature).
-export async function urlPreuveSecurite(path, expiresIn = 600) {
+// URL signée temporaire d'une preuve (image de signature, PDF de version).
+// `download` (facultatif) : nom de fichier proposé au téléchargement.
+export async function urlPreuveSecurite(path, expiresIn = 600, { download = null } = {}) {
   derniereErreur = "";
   if (!path) { derniereErreur = "Fichier introuvable."; return null; }
-  const signer = () => supabase.storage.from(BUCKET_PREUVES_SECURITE).createSignedUrl(path, expiresIn);
+  const signer = () => supabase.storage.from(BUCKET_PREUVES_SECURITE)
+    .createSignedUrl(path, expiresIn, download ? { download } : undefined);
   let { data, error } = await signer();
   if (error && erreurDeJeton(error)) {
     const frais = await jetonSession(true);
@@ -186,4 +188,24 @@ export async function urlPreuveSecurite(path, expiresIn = 600) {
     return null;
   }
   return data?.signedUrl || null;
+}
+
+// Lecture d'une preuve (image de signature) → Blob, ou null (raison :
+// derniereErreurDocument()). Sert à intégrer les signatures au PDF de la
+// fiche sans dépendre d'une URL externe au moment du rendu.
+export async function lirePreuveSecurite(path) {
+  derniereErreur = "";
+  if (!path) { derniereErreur = "Fichier introuvable."; return null; }
+  const lire = () => supabase.storage.from(BUCKET_PREUVES_SECURITE).download(path);
+  let { data, error } = await lire();
+  if (error && erreurDeJeton(error)) {
+    const frais = await jetonSession(true);
+    if (!frais) { derniereErreur = MSG_SESSION; return null; }
+    ({ data, error } = await lire());
+  }
+  if (error || !data) {
+    derniereErreur = error && erreurDeJeton(error) ? MSG_SESSION : `Lecture refusée : ${error?.message || "fichier vide"}`;
+    return null;
+  }
+  return data;
 }

@@ -303,7 +303,9 @@ await test("13. modules purs, façades, branchement de l'écran et de la couche 
   assert.match(donnees, /journaliserStatut\(entreeJournalValidation/);
   assert.match(donnees, /journaliserStatut\(entreeJournalMiseAJour/);
   assert.match(donnees, /justificatifsPourPastille\(/, "pastille : même règle que la fiche");
-  assert.ok(!/pdf_path\s*:/.test(donnees), "pdf_path jamais écrit : le PDF arrive à la tâche 5");
+  // Tâche 5 : pdf_path n'est écrit que par enregistrerPdfVersion, et seulement s'il est vide.
+  assert.equal((donnees.match(/pdf_path\s*:/g) || []).length, 1, "pdf_path écrit à un seul endroit");
+  assert.match(donnees, /\.update\(\{ pdf_path: chemin \}\)\.eq\("id", ligne\.id\)\.is\("pdf_path", null\)/, "pdf_path renseigné une seule fois");
 
   const stockage = sansCommentaires(lire("src/Renovation/storageChantier.js"));
   assert.match(stockage, /BUCKET_PREUVES_SECURITE = "securite-preuves"/);
