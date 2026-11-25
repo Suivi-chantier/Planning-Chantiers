@@ -90,7 +90,7 @@ attendent l'accord de François.
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | en ligne (migration appliquée et fusion le 25/11/2026) | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | [#281](https://github.com/Suivi-chantier/Planning-Chantiers/pull/281) |
-| 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | à faire | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | — |
+| 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | en cours (demande de fusion ouverte, contrôles GitHub à attendre) | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | — |
 | 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | à faire | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | — |
 | 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | à faire | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | — |
 | 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | à faire | Auto | PDF conforme au modèle v2 avec signatures | — |
@@ -233,6 +233,41 @@ demande de fusion #281 fusionnée. Vérifié sur la base après fusion : migrati
 l'application dans un navigateur non faite depuis l'environnement de Claude ;
 la tâche 1 ne change aucun écran. Tâche 2 lancée.
 
+**25/11/2026 — Tâche 2 : page Opération, bouton « Fiche sécurité ».**
+
+- Vérifié avant de coder : la page Opérations est une page bureau. En base
+  (`planning_config.access_pages_renovation`), admin, super_admin, conducteur,
+  comptable, commercial et chargé d'affaires l'ont ; ouvrier ne l'a pas.
+  **Aucune page ajoutée à `src/access.js`** : le bouton vit dans la page
+  existante, il est donc visible pour les mêmes rôles qu'elle (admin compris).
+  Côté base, la règle « bureau » de `securite_operations` laisse tous ces rôles
+  modifier le bloc Bâtiment (pas les ouvriers).
+- Pastille calculée par un module pur `securitePastilles.mjs` (+ façade `.js`)
+  à partir de la ligne de `securite_fiches_etat`. Choix faits :
+  - lecture en échec → « état illisible » (pointillés), en cours →
+    « chargement… » : jamais « à créer » ;
+  - chantier terminé sans fiche → « pas de fiche — chantier terminé » (gris),
+    pas « à créer », puisqu'on ne crée pas de fiche pour eux (décision du
+    25/11) ; affaire perdue sans fiche → « pas de fiche — affaire perdue » ;
+  - fiche `verrouillee` → « verrouillée vN » (gris-bleu), prioritaire sur tout ;
+  - `a_mettre_a_jour` (statut prévu en base, pas cité dans la spécification
+    des pastilles) → orange « à mettre à jour — n/12 » ;
+  - rouge : le module accepte déjà `justificatifs { manquants, expires }`,
+    mais la page ne le fournit pas encore (règle des tâches 3-4) : **aucune
+    pastille rouge n'est affichée pour l'instant**. Une fiche validée ne
+    passe pas en « justificatifs manquants », seulement en « expiré ».
+  - statut de fiche inattendu → « état inconnu (…) ».
+- Bloc Bâtiment : enregistrement par bouton « Enregistrer » (pas
+  d'enregistrement automatique : un bloc de six champs, une seule écriture
+  par upsert sur `operation_id`). Une case vide est enregistrée vide, jamais
+  « non ». Le statut du repérage amiante propose les 6 valeurs du check en
+  base, dont `a_completer` (défaut en base) affiché « Non renseigné (à
+  compléter) ». « Avant 1997 / avant 1949 » sont relus dans la base après
+  enregistrement. Si la lecture du bloc échoue, il n'est pas modifiable (sinon
+  on écraserait des données jamais vues).
+- Liste du panneau : chantiers de l'opération non archivés (règle
+  `estChantierArchive`), tous statuts confondus.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -318,4 +353,39 @@ l'application : les écrans arrivent avec les tâches suivantes. Vérifié aprè
 la mise en place : chaque tableau est réservé aux collaborateurs, et personne,
 admin compris, ne peut effacer ni remplacer une signature ou le PDF d'une
 version.
+
+### 25/11/2026 — Tâche 2 : bouton « Fiche sécurité » sur la page Opération
+
+**Ce qui change à l'écran.** Sur la page d'une opération, un nouveau bouton
+« Fiche sécurité » apparaît dans l'en-tête, à côté du choix de l'opération.
+Il ouvre un panneau avec :
+
+- en haut, le bloc **Bâtiment** : date du permis de construire,
+  copropriété, étage, ascenseur utilisable, repérage amiante et notes. On le
+  remplit une fois pour l'immeuble ; chaque fiche de chantier le reprendra.
+  Sous les champs, l'appli indique si le permis date d'avant le
+  1er juillet 1997 et d'avant 1949. Ce qui n'est pas rempli s'affiche
+  « non renseigné », jamais « non » ;
+- en dessous, la liste des chantiers de l'opération, chacun avec une
+  pastille : « à créer » (gris), « brouillon — 7/12 » (orange),
+  « validée v2 » (vert), « verrouillée » pour un chantier terminé. Si l'état
+  des fiches ne peut pas être lu, la pastille dit « état illisible » au lieu
+  de faire croire qu'il n'y a pas de fiche.
+
+Aujourd'hui, aucune fiche n'existe encore (requête sur la vraie base : 0 fiche,
+0 bâtiment saisi) : sur les 62 chantiers rattachés à une opération, les 46 non
+terminés affichent « à créer » et les 16 terminés « pas de fiche — chantier
+terminé ». La création et le remplissage des fiches arrivent à la tâche 3 ;
+la pastille rouge « justificatifs manquants / expiré » aux tâches 3-4.
+
+**Qui le voit.** Les mêmes personnes que la page Opérations : admin, direction
+(super admin), conducteurs, comptable, commercial, chargés d'affaires. Pas les
+ouvriers. Aucune nouvelle page.
+
+**Vérifié.** Nouveau contrôle automatique des pastilles et du bloc Bâtiment
+(14 vérifications, exemples issus des tests, données fictives), lancé en local :
+tout passe. Les colonnes lues par l'écran existent bien en base (requête de
+lecture). Pas vérifié depuis l'environnement de Claude : l'ouverture du
+panneau dans un navigateur ; la compilation de l'application est faite par les
+contrôles GitHub.
 

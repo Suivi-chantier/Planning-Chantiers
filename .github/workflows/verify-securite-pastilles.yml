@@ -1,0 +1,32 @@
+name: Verify Fiche sécurité chantier (pastilles et bloc Bâtiment)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/securitePastilles.mjs'
+      - 'src/Renovation/securitePastilles.js'
+      - 'src/Renovation/securiteDonnees.js'
+      - 'src/Renovation/FicheSecuriteOperation.jsx'
+      - 'src/Renovation/PageOperations.jsx'
+      - 'src/Renovation/chantierActif.mjs'
+      - 'src/Renovation/statutsChantier.mjs'
+      - 'src/access.js'
+      - 'supabase/migrations/*securite_fiches*'
+      - 'scripts/verif-securite-pastilles.mjs'
+      - '.github/workflows/verify-securite-pastilles.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pastilles de la fiche sécurité et bloc Bâtiment (module pur, exemples fictifs)
+        run: node scripts/verif-securite-pastilles.mjs
