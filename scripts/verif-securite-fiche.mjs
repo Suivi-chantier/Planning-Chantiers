@@ -237,7 +237,8 @@ test("12. modules purs, façades et branchement de l'écran", () => {
   assert.match(ecran, /enregistrerFiche\(baseRef\.current\.id, prep\.contenu, \{ updatedAt: baseRef\.current\.updated_at, auteur \}\)/);
   assert.match(ecran, /modeFiche\(lecture\.ligne\)/);
   assert.match(ecran, /setTimeout\([\s\S]*ANTI_REBOND_MS\)/, "anti-rebond");
-  assert.ok(!/upload|storage\.from/i.test(sansCommentaires(ecran)), "pas d'ajout de justificatif (tâche 4)");
+  // Tâche 4 : les fichiers passent par la couche données, jamais directement par l'écran.
+  assert.ok(!/storage\.from/i.test(sansCommentaires(ecran)), "pas d'accès direct au stockage depuis l'écran");
 
   const donnees = sansCommentaires(lire("src/Renovation/securiteDonnees.js"));
   assert.match(donnees, /\.update\(\{ \.\.\.contenu, maj_par: auteur \|\| null \}\)\s*\.eq\("id", ficheId\)\.eq\("statut", "brouillon"\)/, "écriture seulement en brouillon");

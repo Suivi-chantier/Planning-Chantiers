@@ -5,7 +5,10 @@
 //
 // Ordre du PDF v2 : bandeau d'identification, point 1 (intervenants), point 2
 // (données de base + bâtiment en lecture), cartes 4 à 12, synthèse (point 3).
-// Justificatifs : liste de ce qui est attendu, sans ajout (tâche 4).
+// Tâche 4 : justificatifs joints par point (ajout photo / fichier, retrait =
+// archivage), signatures « établie par » et « chef d'équipe », validation avec
+// la liste de ce qui manque, version figée + empreinte, « Mettre à jour ».
+// Règles : securiteValidation.mjs ; contenu figé : securiteVersion.mjs.
 //
 // Enregistrement automatique avec anti-rebond. L'indicateur ne dit
 // « enregistré » qu'après une écriture réussie ; une écriture refusée ou en
@@ -19,7 +22,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FONT, RADIUS, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
-import { ArrowLeft, ShieldCheck, Plus, Trash2, Building2, Paperclip } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Plus, Trash2, Building2, Paperclip, Camera, PenLine, CheckCircle2, History } from "lucide-react";
 import {
   POINTS_CARTES, STATUTS_POINT, pointParNumero, libelleJustificatif, libelleStatutPoint,
 } from "./securite/points.js";
@@ -30,7 +33,19 @@ import {
 import {
   NON_RENSEIGNE, texteOuiNon, texteEtage, texteAvantDate, libelleReperageAmiante,
 } from "./securitePastilles.js";
-import { chargerFiche, chargerBatiment, enregistrerFiche } from "./securiteDonnees.js";
+import {
+  chargerFiche, chargerBatiment, enregistrerFiche,
+  chargerJustificatifs, ajouterJustificatif, archiverJustificatif, urlJustificatif, urlImageSignature,
+  chargerSignatures, chargerVersions, chargerMotifVersion, empreinteContenu,
+  signerFiche, validerFicheSecurite, mettreAJourFiche, dateDuJourLocale,
+} from "./securiteDonnees.js";
+import {
+  SIGNATURES_REQUISES, etatValidation, justificatifsDuPoint, justificatifsRequisManquants, typesJustificatifPoint,
+  preparerJustificatif, estExpire, libelleSignature,
+} from "./securiteValidation.js";
+import { contenuVersion, empreinteCourte, MOTIF_MIN } from "./securiteVersion.js";
+import { ACCEPT_DOCS } from "./storageChantier.js";
+import SignatureFicheSecurite from "./SignatureFicheSecurite.jsx";
 import { chargerClients, libelleClient } from "./clientsDonnees.js";
 import { clientEffectifId } from "./progbatAutomatisation.js";
 
@@ -62,22 +77,123 @@ function Carte({ T, numero, titre, objet, children, droite = null }) {
   );
 }
 
-function Justificatifs({ T, point }) {
-  if (!point?.justificatifs?.length) return null;
+const LIBELLES_RAISON = { absent: "à joindre", expire: "expiré" };
+const dateFr = (d) => (d ? new Date(String(d).length === 10 ? `${d}T00:00:00` : d).toLocaleDateString("fr-FR") : "");
+const dateHeureFr = (d) => (d ? new Date(d).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
+
+/**
+ * Justificatifs d'un point : attendus (requis / selon le cas), joints (ouverture
+ * par URL signée, retrait = archivage), formulaire d'ajout (photo ou fichier).
+ * `ctx` : { liste (null = illisible), charge, erreur, modifiable, aujourdhui,
+ *           onAjouter(point, form, fichier) → erreur|null, onArchiver(j), onOuvrir(j) }
+ */
+function Justificatifs({ T, acc, point, ctx, styles, concerne }) {
+  const [ajout, setAjout] = useState(null); // formulaire ouvert
+  const [envoi, setEnvoi] = useState({ enCours: false, erreurs: [] });
+  const fichierRef = useRef(null);
+  const photoRef = useRef(null);
+  const [fichier, setFichier] = useState(null);
+  if (!point) return null;
+  const joints = ctx.charge && Array.isArray(ctx.liste) ? justificatifsDuPoint(ctx.liste, point.numero) : [];
+  const manquants = ctx.charge && Array.isArray(ctx.liste) && concerne
+    ? (justificatifsRequisManquants({ reponses: ctx.reponses, justificatifs: ctx.liste, aujourdhui: ctx.aujourdhui }) || []).filter((m) => m.numero === point.numero)
+    : [];
+  const types = typesJustificatifPoint(point);
+  const ouvrirAjout = () => { setAjout({ type_code: types[0] || "autre", date_document: ctx.aujourdhui || "", expire_le: "", personne: "", entreprise_nom: "" }); setFichier(null); setEnvoi({ enCours: false, erreurs: [] }); };
+  const envoyer = async () => {
+    const prep = preparerJustificatif({ chantierId: ctx.chantierId, point, form: ajout, aFichier: !!fichier });
+    if (!prep.ok) { setEnvoi({ enCours: false, erreurs: prep.erreurs }); return; }
+    setEnvoi({ enCours: true, erreurs: [] });
+    const erreur = await ctx.onAjouter(prep.ligne, fichier);
+    if (erreur) { setEnvoi({ enCours: false, erreurs: [`Ajout impossible : ${erreur}. Rien n'a été enregistré.`] }); return; }
+    setAjout(null); setFichier(null); setEnvoi({ enCours: false, erreurs: [] });
+  };
+  const petitBouton = (actif = true) => ({ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 11px", minHeight: 36, borderRadius: RADIUS.md,
+    border: `1px solid ${actif ? acc.border : T.border}`, background: actif ? acc.bg10 : "transparent", color: actif ? acc.accent : T.textMuted,
+    fontWeight: 700, fontSize: 12.5, cursor: actif ? "pointer" : "default", fontFamily: "inherit" });
+
   return (
     <div style={{ marginTop: 12, borderTop: `1px dashed ${T.border}`, paddingTop: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 }}>
-        <Icon as={Paperclip} size={12}/> Justificatifs attendus
+        <Icon as={Paperclip} size={12}/> Justificatifs
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        {point.justificatifs.map((j) => (
-          <span key={j.type_code} style={{ fontSize: 12, padding: "4px 10px", borderRadius: RADIUS.pill, border: `1px solid ${T.border}`, color: T.textSub }}>
-            {libelleJustificatif(j.type_code)}
-            <b style={{ marginLeft: 6, fontWeight: 700, color: j.requis ? ORANGE : T.textMuted }}>{j.requis ? "requis si concerné" : "selon le cas"}</b>
-          </span>
-        ))}
-      </div>
-      <div style={{ fontSize: 11, color: T.textMuted, fontStyle: "italic", marginTop: 6 }}>L'ajout des documents arrive avec la prochaine livraison.</div>
+      {point.justificatifs.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {point.justificatifs.filter((j) => j.type_code !== "aptitude_medicale").map((j) => {
+            const m = manquants.find((x) => x.type_code === j.type_code);
+            return (
+              <span key={j.type_code} style={{ fontSize: 12, padding: "4px 10px", borderRadius: RADIUS.pill, border: `1px solid ${m ? ROUGE : T.border}`, color: T.textSub }}>
+                {libelleJustificatif(j.type_code)}
+                <b style={{ marginLeft: 6, fontWeight: 700, color: m ? ROUGE : j.requis ? ORANGE : T.textMuted }}>
+                  {m ? `requis — ${LIBELLES_RAISON[m.raison]}` : j.requis ? "requis si concerné" : "selon le cas"}
+                </b>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {!ctx.charge ? (
+        <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>Chargement des justificatifs…</div>
+      ) : ctx.erreur ? (
+        <div style={{ fontSize: 12, color: ROUGE, fontWeight: 600 }}>Justificatifs illisibles ({ctx.erreur}) : on ne sait pas lesquels sont joints.</div>
+      ) : joints.length === 0 ? (
+        <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>Aucun document joint à ce point.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {joints.map((j) => {
+            const expire = estExpire(j, ctx.aujourdhui);
+            return (
+              <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12.5, color: T.text, padding: "4px 0" }}>
+                <button onClick={() => ctx.onOuvrir(j)} title="Ouvrir le document" style={{ border: "none", background: "transparent", color: acc.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline", textAlign: "left" }}>
+                  {libelleJustificatif(j.type_code)}{j.fichier_nom ? ` — ${j.fichier_nom}` : ""}
+                </button>
+                <span style={{ color: T.textMuted }}>
+                  {[j.date_document ? `du ${dateFr(j.date_document)}` : "date non renseignée", j.personne, j.entreprise_nom].filter(Boolean).join(" · ")}
+                </span>
+                {j.expire_le && (
+                  <span style={{ fontWeight: 700, color: expire ? ROUGE : T.textSub }}>{expire ? `expiré le ${dateFr(j.expire_le)}` : `valable jusqu'au ${dateFr(j.expire_le)}`}</span>
+                )}
+                {ctx.modifiable && (
+                  <button onClick={() => ctx.onArchiver(j)} title="Retirer (le document est archivé, pas supprimé)" style={{ marginLeft: "auto", border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, borderRadius: 8, padding: "4px 9px", minHeight: 32, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>
+                    Retirer
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {ctx.modifiable && ctx.charge && !ctx.erreur && !ajout && (
+        <button onClick={ouvrirAjout} style={{ ...petitBouton(), marginTop: 8 }}><Icon as={Plus} size={14}/> Ajouter un justificatif</button>
+      )}
+      {ajout && (
+        <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: RADIUS.lg, border: `1px solid ${T.border}`, background: T.card || "transparent" }}>
+          <div className="fsc-grille" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+            <div className="fsc-large" style={{ gridColumn: "span 2" }}>
+              <label style={styles.label}>Type de document</label>
+              <select value={ajout.type_code} disabled={envoi.enCours} onChange={(e) => { const v = e.target.value; setAjout((a) => ({ ...a, type_code: v })); }} style={styles.input}>
+                {types.map((t) => <option key={t} value={t}>{libelleJustificatif(t)}</option>)}
+              </select>
+            </div>
+            <div><label style={styles.label}>Date du document</label><input type="date" value={ajout.date_document} disabled={envoi.enCours} style={styles.input} onChange={(e) => { const v = e.target.value; setAjout((a) => ({ ...a, date_document: v })); }}/></div>
+            <div><label style={styles.label}>Expire le (facultatif)</label><input type="date" value={ajout.expire_le} disabled={envoi.enCours} style={styles.input} onChange={(e) => { const v = e.target.value; setAjout((a) => ({ ...a, expire_le: v })); }}/></div>
+            <div className="fsc-large" style={{ gridColumn: "span 2" }}><label style={styles.label}>Personne concernée (facultatif)</label><input value={ajout.personne} disabled={envoi.enCours} style={styles.input} onChange={(e) => { const v = e.target.value; setAjout((a) => ({ ...a, personne: v })); }}/></div>
+            <div className="fsc-large" style={{ gridColumn: "span 2" }}><label style={styles.label}>Entreprise (facultatif)</label><input value={ajout.entreprise_nom} disabled={envoi.enCours} style={styles.input} onChange={(e) => { const v = e.target.value; setAjout((a) => ({ ...a, entreprise_nom: v })); }}/></div>
+          </div>
+          <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={(e) => setFichier(e.target.files?.[0] || null)}/>
+          <input ref={fichierRef} type="file" accept={ACCEPT_DOCS} style={{ display: "none" }} onChange={(e) => setFichier(e.target.files?.[0] || null)}/>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+            <button onClick={() => photoRef.current?.click()} disabled={envoi.enCours} style={petitBouton(!envoi.enCours)}><Icon as={Camera} size={14}/> Prendre une photo</button>
+            <button onClick={() => fichierRef.current?.click()} disabled={envoi.enCours} style={petitBouton(!envoi.enCours)}><Icon as={Paperclip} size={14}/> Choisir un fichier</button>
+            <span style={{ fontSize: 12, color: fichier ? T.text : T.textMuted, fontStyle: fichier ? "normal" : "italic" }}>{fichier ? fichier.name : "aucun fichier choisi"}</span>
+          </div>
+          {envoi.erreurs.length > 0 && <div style={{ marginTop: 8, fontSize: 12.5, color: ROUGE, fontWeight: 600 }}>{envoi.erreurs.map((m, i) => <div key={i}>{m}</div>)}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+            <button onClick={() => setAjout(null)} disabled={envoi.enCours} style={{ ...petitBouton(false), cursor: "pointer" }}>Annuler</button>
+            <button onClick={envoyer} disabled={envoi.enCours} style={petitBouton(!envoi.enCours)}>{envoi.enCours ? "Envoi…" : "Joindre le document"}</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -103,7 +219,7 @@ function ChoixStatut({ T, acc, valeur, modifiable, onChange }) {
   );
 }
 
-function CartePoint({ T, acc, point, reponse, modifiable, onChange, styles }) {
+function CartePoint({ T, acc, point, reponse, modifiable, onChange, styles, ctxJustifs }) {
   const r = reponse && typeof reponse === "object" && !Array.isArray(reponse) ? reponse : {};
   const cases = r.cases && typeof r.cases === "object" ? r.cases : {};
   const statutInconnu = r.statut !== undefined && !STATUTS_POINT.some((s) => s.id === r.statut);
@@ -133,7 +249,7 @@ function CartePoint({ T, acc, point, reponse, modifiable, onChange, styles }) {
           onChange={(e) => onChange({ mesures: e.target.value })} style={{ ...styles.input, resize: "vertical" }}
           placeholder={modifiable ? "Mesures prévues sur ce chantier…" : ""}/>
       </div>
-      <Justificatifs T={T} point={point}/>
+      <Justificatifs T={T} acc={acc} point={point} ctx={ctxJustifs} styles={styles} concerne={r.statut === "concerne"}/>
     </Carte>
   );
 }
@@ -146,6 +262,18 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   const [batiment, setBatiment] = useState({ charge: false, ligne: null, erreur: null });
   const [clients, setClients] = useState({ charge: false, liste: [], erreur: null });
   const [lots, setLots] = useState(LOTS_DEFAUT);
+  // Tâche 4
+  const [ligneEnregistree, setLigneEnregistree] = useState(null); // dernière ligne lue ou écrite (base de l'empreinte)
+  const [justifs, setJustifs] = useState({ charge: false, liste: null, erreur: null });
+  const [sigs, setSigs] = useState({ charge: false, liste: null, erreur: null });
+  const [versions, setVersions] = useState({ charge: false, liste: null, erreur: null });
+  const [motif, setMotif] = useState({ charge: false, motif: null, trouve: false, erreur: null });
+  const [empreinte, setEmpreinte] = useState({ valeur: null, erreur: null });
+  const [signatureOuverte, setSignatureOuverte] = useState(null); // type de signature
+  const [validation, setValidation] = useState({ enCours: false, erreur: null, manquants: null, avertissement: null, versionDejaFigee: false });
+  const [miseAJour, setMiseAJour] = useState(null); // { motif, enCours, erreur, versionDejaFigee }
+  const [messageDoc, setMessageDoc] = useState(null);
+  const aujourdhui = dateDuJourLocale();
 
   const formRef = useRef(null);
   const baseRef = useRef(null);       // dernière ligne lue ou écrite (updated_at de référence)
@@ -162,6 +290,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
       if (!actif) return;
       setLecture({ charge: true, ligne: r.ligne, erreur: r.erreur || (r.ligne ? null : "aucune fiche pour ce chantier") });
       baseRef.current = r.ligne;
+      setLigneEnregistree(r.ligne);
       bloqueRef.current = false;
       echecRef.current = false;
       const f = r.ligne ? formulaireFiche(r.ligne, nouvelId) : null;
@@ -181,6 +310,30 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
     loadLots().then((l) => actif && Array.isArray(l) && l.length && setLots(l)).catch(() => {});
     return () => { actif = false; };
   }, [op.id]);
+
+  // ── Tâche 4 : justificatifs, signatures, versions, motif de la version ──
+  const ficheId = lecture.ligne?.id || null;
+  const ficheVersion = lecture.ligne?.version ?? null;
+  const rechargerJustifs = useCallback(() => {
+    setJustifs((j) => ({ ...j, charge: false }));
+    return chargerJustificatifs(chantier.id).then((r) => setJustifs({ charge: true, liste: r.liste, erreur: r.erreur }));
+  }, [chantier.id]);
+  const rechargerSignatures = useCallback(() => {
+    if (!ficheId) return Promise.resolve();
+    return Promise.all([chargerSignatures(ficheId), chargerVersions(ficheId)]).then(([s1, v1]) => {
+      setSigs({ charge: true, liste: s1.liste, erreur: s1.erreur });
+      setVersions({ charge: true, liste: v1.liste, erreur: v1.erreur });
+    });
+  }, [ficheId]);
+  useEffect(() => { rechargerJustifs(); }, [rechargerJustifs]);
+  useEffect(() => { rechargerSignatures(); }, [rechargerSignatures, ficheVersion]);
+  useEffect(() => {
+    if (!ficheId || !ficheVersion) return undefined;
+    let actif = true;
+    setMotif({ charge: false, motif: null, trouve: false, erreur: null });
+    chargerMotifVersion(chantier.id, ficheVersion).then((r) => actif && setMotif({ charge: true, ...r }));
+    return () => { actif = false; };
+  }, [chantier.id, ficheId, ficheVersion]);
 
   const mode = useMemo(() => modeFiche(lecture.ligne), [lecture.ligne]);
   const structure = useMemo(() => validerStructureFiche(lecture.ligne), [lecture.ligne]);
@@ -204,6 +357,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
         return;
       }
       baseRef.current = r.ligne;
+      setLigneEnregistree(r.ligne);
       echecRef.current = false;
       if (aRefaireRef.current) { aRefaireRef.current = false; await sauver(); return; }
       if (!timerRef.current) setEnreg({ etat: "enregistre", messages: prep.avertissements, conflit: null });
@@ -253,6 +407,110 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
     : clients.erreur ? `client illisible (${clients.erreur})`
     : !idClient ? "aucun client renseigné — à saisir sur la page de l'opération"
     : client ? libelleClient(client) : "client introuvable";
+
+  // ── Tâche 4 : contenu à figer, empreinte, état de validation ──
+  // Le client figé dans la version : son libellé, ou null s'il n'y en a pas ;
+  // illisible / introuvable = impossibilité (pas de signature ni de validation).
+  const clientLibelle = client ? libelleClient(client) : null;
+  const clientErreur = !clients.charge ? "chargement en cours" : clients.erreur ? clients.erreur : (idClient && !client ? "client introuvable" : null);
+  const contexteFige = { chantier, op, clientLibelle, clientErreur };
+
+  useEffect(() => {
+    let actif = true;
+    setEmpreinte({ valeur: null, erreur: null });
+    if (!ligneEnregistree || !batiment.charge || batiment.erreur || !justifs.charge || justifs.erreur || !motif.charge || motif.erreur) return undefined;
+    let contenu;
+    try {
+      contenu = contenuVersion({ fiche: ligneEnregistree, chantier, operation: op, clientLibelle, batiment: batiment.ligne, justificatifs: justifs.liste, motif: motif.motif });
+    } catch (e) {
+      setEmpreinte({ valeur: null, erreur: e?.message || String(e) });
+      return undefined;
+    }
+    empreinteContenu(contenu)
+      .then((h) => actif && setEmpreinte({ valeur: h, erreur: null }))
+      .catch((e) => actif && setEmpreinte({ valeur: null, erreur: e?.message || String(e) }));
+    return () => { actif = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ligneEnregistree, batiment, justifs, motif, clientLibelle, op.id, op.nom, op.adresse, chantier.id, chantier.nom]);
+
+  const etat = etatValidation({
+    fiche: ligneEnregistree,
+    contexte: {
+      adresse: op.adresse || null,
+      batiment: batiment.ligne,
+      batimentErreur: !batiment.charge ? "chargement en cours" : batiment.erreur,
+      clientErreur,
+      motifTrouve: !motif.charge ? undefined : motif.erreur ? false : motif.trouve,
+    },
+    justificatifs: justifs.charge ? justifs.liste : null,
+    signatures: sigs.charge ? sigs.liste : null,
+    empreinte: empreinte.valeur,
+    aujourdhui,
+  });
+  const enregistrementAJour = enreg.etat === "enregistre" && !timerRef.current && !enCoursRef.current;
+  const statutFiche = lecture.ligne?.statut;
+  const empreintesVersions = Object.fromEntries((versions.liste || []).map((v) => [v.version, v.empreinte]));
+
+  const ctxJustifs = {
+    charge: justifs.charge, liste: justifs.liste, erreur: justifs.erreur, modifiable, aujourdhui,
+    chantierId: chantier.id, reponses: form?.reponses,
+    onAjouter: async (ligne, fichier) => {
+      const r = await ajouterJustificatif({ ligne, fichier, auteur });
+      if (r.erreur) return r.erreur;
+      await rechargerJustifs();
+      return null;
+    },
+    onArchiver: async (j) => {
+      if (!window.confirm(`Retirer « ${libelleJustificatif(j.type_code)}${j.fichier_nom ? ` — ${j.fichier_nom}` : ""} » de la fiche ?\nLe document n'est pas supprimé : il est archivé et reste consultable dans l'historique.`)) return;
+      const r = await archiverJustificatif(j.id);
+      setMessageDoc(r.erreur ? `Retrait impossible : ${r.erreur}.` : null);
+      await rechargerJustifs();
+    },
+    onOuvrir: async (j) => {
+      const fenetre = window.open("", "_blank");
+      const r = await urlJustificatif(j.fichier_path);
+      if (r.url) { if (fenetre) fenetre.location.href = r.url; else window.location.assign(r.url); setMessageDoc(null); }
+      else { fenetre?.close(); setMessageDoc(`Ouverture impossible : ${r.erreur}.`); }
+    },
+  };
+
+  const ouvrirImageSignature = async (sig) => {
+    const fenetre = window.open("", "_blank");
+    const r = await urlImageSignature(sig.image_path);
+    if (r.url) { if (fenetre) fenetre.location.href = r.url; else window.location.assign(r.url); setMessageDoc(null); }
+    else { fenetre?.close(); setMessageDoc(`Ouverture impossible : ${r.erreur}.`); }
+  };
+
+  const signer = async (type, v) => {
+    const r = await signerFiche({ ...contexteFige, type, nom: v.nom, entreprise: v.entreprise, pourMoi: v.pourMoi, png: v.png, empreinteAttendue: empreinte.valeur, aujourdhui });
+    if (r.erreur) return `Signature non enregistrée : ${r.erreur}.`;
+    setSignatureOuverte(null);
+    await rechargerSignatures();
+    return null;
+  };
+
+  const valider = async () => {
+    if (!window.confirm(`Valider la fiche (v${lecture.ligne.version}) ?\nElle sera figée et passera en lecture seule. Pour la modifier ensuite, il faudra « Mettre à jour » avec un motif (nouvelle version, nouvelles signatures).`)) return;
+    setValidation({ enCours: true, erreur: null, manquants: null, avertissement: null, versionDejaFigee: false });
+    const r = await validerFicheSecurite({ ...contexteFige, auteur, aujourdhui });
+    if (r.erreur) {
+      setValidation({ enCours: false, erreur: `Validation impossible : ${r.erreur}.`, manquants: r.manquants || null, avertissement: null, versionDejaFigee: !!r.versionDejaFigee });
+      await rechargerSignatures();
+      return;
+    }
+    setValidation({ enCours: false, erreur: null, manquants: null, avertissement: r.avertissement || null, versionDejaFigee: false });
+    await rechargerSignatures();
+    charger();
+  };
+
+  const lancerMiseAJour = async () => {
+    setMiseAJour((m) => ({ ...m, enCours: true, erreur: null }));
+    const r = await mettreAJourFiche({ fiche: lecture.ligne, motif: miseAJour.motif, auteur, versionDejaFigee: !!miseAJour.versionDejaFigee });
+    if (r.erreur) { setMiseAJour((m) => ({ ...m, enCours: false, erreur: `Mise à jour impossible : ${r.erreur}.` })); return; }
+    setMiseAJour(null);
+    setValidation({ enCours: false, erreur: null, manquants: null, avertissement: null, versionDejaFigee: false });
+    charger();
+  };
 
   const styles = {
     label: { fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, marginBottom: 4, display: "block" },
@@ -329,6 +587,9 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                   )}
                 </div>
               )}
+              {messageDoc && (
+                <div style={{ marginBottom: 12, fontSize: 12.5, color: ROUGE, fontWeight: 600 }}>{messageDoc}</div>
+              )}
               {enreg.etat === "enregistre" && enreg.messages.length > 0 && (
                 <div style={{ marginBottom: 12, fontSize: 12.5, color: ORANGE }}>{enreg.messages.map((m, i) => <div key={i}>{m}</div>)}</div>
               )}
@@ -342,7 +603,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                     ["Opération", op.nom],
                     ["Adresse", op.adresse || NON_RENSEIGNE],
                     ["Fiche", `${LIBELLES_STATUT_FICHE[lecture.ligne.statut] || `statut inconnu (${lecture.ligne.statut})`} · v${lecture.ligne.version ?? "?"}`],
-                    ["Points complétés", nbPoints === null ? `?/${NB_POINTS_FICHE}` : `${nbPoints}/${NB_POINTS_FICHE}`],
+                    ["Points renseignés", nbPoints === null ? `?/${NB_POINTS_FICHE}` : `${nbPoints}/${NB_POINTS_FICHE}`],
                   ].map(([k, v]) => (
                     <div key={k}><div style={{ color: "#9aa5c0", fontSize: 11 }}>{k}</div><div style={{ fontWeight: 700 }}>{v}</div></div>
                   ))}
@@ -355,6 +616,11 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                     }}>{p.numero}</span>
                   ))}
                 </div>
+                {statutFiche === "brouillon" && (
+                  <div style={{ marginTop: 10, fontSize: 12.5, fontWeight: 700, color: etat.peutValider ? "#86efac" : "#ffc200" }}>
+                    {etat.resume} — détail dans « Signatures et validation », en bas de la fiche.
+                  </div>
+                )}
               </section>
 
               {/* ── Point 1 : intervenants ── */}
@@ -407,7 +673,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                     <Icon as={Plus} size={14}/> Ajouter une entreprise
                   </button>
                 )}
-                <Justificatifs T={T} point={p1}/>
+                <Justificatifs T={T} acc={acc} point={p1} ctx={ctxJustifs} styles={styles} concerne/>
               </Carte>
 
               {/* ── Point 2 : données de base ── */}
@@ -474,12 +740,12 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                     </div>
                   )}
                 </div>
-                <Justificatifs T={T} point={p2}/>
+                <Justificatifs T={T} acc={acc} point={p2} ctx={ctxJustifs} styles={styles} concerne/>
               </Carte>
 
               {/* ── Points 4 à 12 ── */}
               {POINTS_CARTES.map((p) => (
-                <CartePoint key={p.cle} T={T} acc={acc} point={p} reponse={form.reponses[p.cle]} modifiable={modifiable} styles={styles}
+                <CartePoint key={p.cle} T={T} acc={acc} point={p} reponse={form.reponses[p.cle]} modifiable={modifiable} styles={styles} ctxJustifs={ctxJustifs}
                   onChange={(chg) => modifier((f) => modifierPoint(f, p.cle, chg, { auteur, maintenant: new Date().toISOString() }))}/>
               ))}
 
@@ -499,16 +765,184 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                     </div>
                   );
                 })}
-                <Justificatifs T={T} point={p3}/>
+                <Justificatifs T={T} acc={acc} point={p3} ctx={ctxJustifs} styles={styles} concerne/>
               </Carte>
 
-              <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic", textAlign: "center", marginTop: 6 }}>
-                Justificatifs, signatures et validation de la fiche arrivent avec la prochaine livraison.
-              </div>
+              {/* ── Signatures et validation (tâche 4) ── */}
+              <Carte T={T} numero={null} titre="Signatures et validation"
+                objet="La signature se fait en dernier : toute modification de la fiche après une signature demande de signer à nouveau.">
+                {statutFiche === "brouillon" ? (
+                  <>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: etat.peutValider ? VERT : ORANGE, marginBottom: 4 }}>{etat.resume}</div>
+                    <div style={{ fontSize: 11.5, color: T.textMuted, marginBottom: 10 }}>
+                      Le chiffre « n/12 » (bandeau et pastille) compte un point dès qu'il a quelque chose. Pour valider, chaque point doit être complet,
+                      les justificatifs requis joints et non expirés, la condition amiante remplie, puis les deux signatures faites sur le contenu actuel.
+                    </div>
+                    {etat.nbManquants > 0 && (
+                      <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 10, fontSize: 12.5, background: "rgba(245,166,35,.10)", border: "1px solid rgba(245,166,35,.4)", color: T.text }}>
+                        <div style={{ fontWeight: 800, marginBottom: 4 }}>Ce qui manque pour valider</div>
+                        <ul style={{ margin: 0, paddingLeft: 18 }}>
+                          {etat.bloquants.map((m, i) => <li key={`b${i}`} style={{ color: ROUGE, fontWeight: 600 }}>{m}</li>)}
+                          {etat.pointsIncomplets.map((p) => <li key={`p${p.numero}`}>Point {p.numero} — {p.titre} : {p.manquants.join(", ")}</li>)}
+                          {etat.justificatifsManquants.map((j) => <li key={`j${j.numero}${j.type_code}`}>Point {j.numero} : {j.libelle} ({j.raison === "expire" ? "expiré" : "à joindre"})</li>)}
+                          {etat.signaturesManquantes.map((m, i) => <li key={`s${i}`}>{m}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 10, fontSize: 13, background: "rgba(34,197,94,.10)", border: "1px solid rgba(34,197,94,.4)", color: T.text }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800 }}>
+                      <Icon as={CheckCircle2} size={16} color={VERT}/>
+                      {statutFiche === "validee" ? `Fiche validée — v${lecture.ligne.version}` : `Fiche ${LIBELLES_STATUT_FICHE[statutFiche] || statutFiche} — v${lecture.ligne.version}`}
+                    </div>
+                    {lecture.ligne.validee_le && (
+                      <div style={{ marginTop: 4, color: T.textSub }}>
+                        Validée le {dateHeureFr(lecture.ligne.validee_le)}{lecture.ligne.validee_par ? ` par ${lecture.ligne.validee_par}` : ""}
+                        {empreintesVersions[lecture.ligne.version] ? ` · empreinte ${empreinteCourte(empreintesVersions[lecture.ligne.version])}…` : ""}
+                      </div>
+                    )}
+                    {versions.charge && !versions.erreur && statutFiche === "validee" && !empreintesVersions[lecture.ligne.version] && (
+                      <div style={{ marginTop: 4, color: ROUGE, fontWeight: 600 }}>Version figée introuvable pour la v{lecture.ligne.version}.</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Signatures requises de la version en cours */}
+                {sigs.charge && sigs.erreur ? (
+                  <div style={{ fontSize: 12.5, color: ROUGE, fontWeight: 600, marginBottom: 10 }}>Signatures illisibles ({sigs.erreur}).</div>
+                ) : (
+                  <div className="fsc-grille" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
+                    {etat.signatures.map((sg) => {
+                      const sigVersion = statutFiche !== "brouillon"
+                        ? (sigs.liste || []).filter((x) => x.type === sg.type && x.version === lecture.ligne.version && x.empreinte_version === empreintesVersions[lecture.ligne.version]).slice(-1)[0] || null
+                        : sg.signature;
+                      const signee = statutFiche !== "brouillon" ? !!sigVersion : sg.etat === "signee";
+                      const couleur = signee ? VERT : sg.etat === "contenu_modifie" && statutFiche === "brouillon" ? ROUGE : ORANGE;
+                      return (
+                        <div key={sg.type} style={{ border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: "10px 12px" }}>
+                          <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.6 }}>{sg.libelle}</div>
+                          {!sigs.charge ? (
+                            <div style={{ fontSize: 12.5, color: T.textMuted, fontStyle: "italic", marginTop: 4 }}>Chargement…</div>
+                          ) : sigVersion ? (
+                            <div style={{ marginTop: 4, fontSize: 13, color: T.text }}>
+                              <b>{sigVersion.signataire_nom}</b>{sigVersion.signataire_entreprise ? ` — ${sigVersion.signataire_entreprise}` : ""}
+                              <div style={{ fontSize: 12, color: T.textMuted }}>le {dateHeureFr(sigVersion.signe_le)} ·{" "}
+                                <button onClick={() => ouvrirImageSignature(sigVersion)} style={{ border: "none", background: "transparent", color: acc.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline", fontSize: 12 }}>voir la signature</button>
+                              </div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: couleur }}>
+                                {signee ? "valable pour cette version" : "la fiche a changé depuis : à signer de nouveau"}
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ marginTop: 4, fontSize: 12.5, color: couleur, fontWeight: 700 }}>{statutFiche === "brouillon" ? "à signer" : "non signée sur cette version"}</div>
+                          )}
+                          {statutFiche === "brouillon" && modifiable && !signee && (
+                            <button onClick={() => setSignatureOuverte(sg.type)} disabled={!etat.peutSigner || !enregistrementAJour}
+                              title={!etat.peutSigner ? "La fiche doit être complète avant de signer" : !enregistrementAJour ? "Enregistrement en cours" : undefined}
+                              style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", minHeight: 40, borderRadius: RADIUS.md,
+                                border: `1px solid ${etat.peutSigner && enregistrementAJour ? acc.border : T.border}`, background: etat.peutSigner && enregistrementAJour ? acc.bg10 : "transparent",
+                                color: etat.peutSigner && enregistrementAJour ? acc.accent : T.textMuted, fontWeight: 700, fontSize: 12.5, cursor: etat.peutSigner && enregistrementAJour ? "pointer" : "default", fontFamily: "inherit" }}>
+                              <Icon as={PenLine} size={14}/> Signer
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {statutFiche === "brouillon" && modifiable && !etat.peutSigner && etat.contenuComplet === false && (
+                  <div style={{ fontSize: 11.5, color: T.textMuted, fontStyle: "italic", marginBottom: 10 }}>Les signatures s'ouvrent quand la fiche est complète (liste ci-dessus).</div>
+                )}
+                {empreinte.erreur && <div style={{ fontSize: 12.5, color: ROUGE, fontWeight: 600, marginBottom: 10 }}>Empreinte du contenu non calculable ({empreinte.erreur}).</div>}
+
+                {validation.erreur && (
+                  <div style={{ marginBottom: 10, fontSize: 12.5, color: ROUGE, fontWeight: 600 }}>
+                    {validation.erreur}
+                    {validation.versionDejaFigee && (
+                      <div style={{ marginTop: 4, color: T.textSub, fontWeight: 500 }}>
+                        Pour continuer, ouvrez une nouvelle version (motif demandé) :{" "}
+                        <button onClick={() => setMiseAJour({ motif: "", enCours: false, erreur: null, versionDejaFigee: true })} style={{ border: "none", background: "transparent", color: acc.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline" }}>passer en v{lecture.ligne.version + 1}</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {validation.avertissement && <div style={{ marginBottom: 10, fontSize: 12.5, color: ORANGE, fontWeight: 600 }}>{validation.avertissement}</div>}
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+                  {statutFiche === "brouillon" && modifiable && (
+                    <button onClick={valider} disabled={!etat.peutValider || !enregistrementAJour || validation.enCours}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "11px 18px", minHeight: 44, borderRadius: RADIUS.md,
+                        border: `1px solid ${etat.peutValider && enregistrementAJour ? VERT : T.border}`, background: etat.peutValider && enregistrementAJour ? "rgba(34,197,94,.14)" : "transparent",
+                        color: etat.peutValider && enregistrementAJour ? VERT : T.textMuted, fontWeight: 800, fontSize: 14, cursor: etat.peutValider && enregistrementAJour ? "pointer" : "default", fontFamily: "inherit" }}>
+                      <Icon as={CheckCircle2} size={16}/> {validation.enCours ? "Validation…" : "Valider la fiche"}
+                    </button>
+                  )}
+                  {["validee", "a_mettre_a_jour"].includes(statutFiche) && !miseAJour && (
+                    <button onClick={() => setMiseAJour({ motif: "", enCours: false, erreur: null, versionDejaFigee: false })}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "11px 18px", minHeight: 44, borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>
+                      <Icon as={PenLine} size={16}/> Mettre à jour
+                    </button>
+                  )}
+                </div>
+
+                {miseAJour && (
+                  <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: RADIUS.lg, border: `1px solid ${T.border}`, background: T.card || "transparent" }}>
+                    <label style={styles.label}>Motif de la mise à jour (obligatoire) — la fiche repassera en brouillon en v{lecture.ligne.version + 1}, à signer et valider de nouveau</label>
+                    <textarea rows={2} value={miseAJour.motif} disabled={miseAJour.enCours} style={{ ...styles.input, resize: "vertical" }}
+                      placeholder="Ex. : nouveau sous-traitant électricité à partir de la semaine prochaine"
+                      onChange={(e) => { const v = e.target.value; setMiseAJour((m) => ({ ...m, motif: v })); }}/>
+                    {miseAJour.erreur && <div style={{ marginTop: 6, fontSize: 12.5, color: ROUGE, fontWeight: 600 }}>{miseAJour.erreur}</div>}
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                      <button onClick={() => setMiseAJour(null)} disabled={miseAJour.enCours} style={{ padding: "8px 14px", minHeight: 38, borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Annuler</button>
+                      <button onClick={lancerMiseAJour} disabled={miseAJour.enCours || miseAJour.motif.trim().length < MOTIF_MIN}
+                        style={{ padding: "8px 14px", minHeight: 38, borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+                        {miseAJour.enCours ? "Ouverture…" : `Ouvrir la v${lecture.ligne.version + 1}`}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Carte>
+
+              {/* ── Historique : versions figées et toutes les signatures ── */}
+              {((versions.liste || []).length > 0 || (sigs.liste || []).length > 0 || versions.erreur) && (
+                <Carte T={T} numero={null} titre="Mises à jour et signatures" objet="Versions figées (jamais modifiées) et signatures de chaque version.">
+                  {versions.erreur && <div style={{ fontSize: 12.5, color: ROUGE, fontWeight: 600 }}>Versions illisibles ({versions.erreur}).</div>}
+                  {(versions.liste || []).map((v) => (
+                    <div key={v.id} style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12.5, color: T.text, padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
+                      <Icon as={History} size={14} color={T.textMuted}/>
+                      <b>v{v.version}</b>
+                      <span style={{ color: T.textSub }}>validée le {dateHeureFr(v.cree_le)}{v.cree_par ? ` par ${v.cree_par}` : ""}</span>
+                      {v.motif_changement && <span style={{ color: T.textSub }}>— motif : {v.motif_changement}</span>}
+                      <span style={{ color: T.textMuted }}>empreinte {empreinteCourte(v.empreinte)}…</span>
+                    </div>
+                  ))}
+                  {(sigs.liste || []).filter((x) => x.type !== "accueil").length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      {(sigs.liste || []).filter((x) => x.type !== "accueil").map((x) => (
+                        <div key={x.id} style={{ fontSize: 12, color: T.textSub, padding: "2px 0" }}>
+                          {x.type === "etablie_par" ? "Établie par" : "Chef d'équipe"} : <b style={{ color: T.text }}>{x.signataire_nom}</b>
+                          {x.signataire_entreprise ? ` (${x.signataire_entreprise})` : ""} — {dateHeureFr(x.signe_le)} —{" "}
+                          {libelleSignature(x, { fiche: lecture.ligne, empreinteCourante: statutFiche === "brouillon" ? empreinte.valeur : null, empreintesVersions })}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Carte>
+              )}
             </>
           )}
         </div>
       </div>
+      {signatureOuverte && lecture.ligne && (
+        <SignatureFicheSecurite T={T} acc={acc}
+          libelle={SIGNATURES_REQUISES.find((x) => x.type === signatureOuverte)?.libelle || signatureOuverte}
+          version={lecture.ligne.version} empreinte={empreinte.valeur}
+          synthese={ligneEnregistree?.synthese_risques || []}
+          nomConnecte={auteur || ""} pourMoiParDefaut={signatureOuverte === "etablie_par"}
+          entrepriseParDefaut={signatureOuverte === "etablie_par" ? "Profero" : ""}
+          onSigner={(v) => signer(signatureOuverte, v)} onAnnuler={() => setSignatureOuverte(null)}/>
+      )}
     </div>
   );
 }

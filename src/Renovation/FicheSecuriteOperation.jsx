@@ -7,6 +7,10 @@
 //     opération) : saisi une fois ici, repris en lecture dans chaque fiche ;
 //   - liste des chantiers de l'opération (non archivés), chacun avec la
 //     pastille de sa fiche (règle : securitePastilles.mjs, module pur) ;
+//   - tâche 4 : pastille rouge « justificatifs manquants » / « expiré »,
+//     calculée par la MÊME règle que la fiche (securiteValidation.mjs,
+//     justificatifsPourPastille) ; si les justificatifs sont illisibles, aucun
+//     rouge n'est inventé et le panneau le dit ;
 //   - tâche 3 : bouton « Créer la fiche » (seulement quand la pastille dit
 //     « à créer » : jamais pour un chantier terminé ou perdu, jamais quand
 //     l'état est illisible) et « Ouvrir la fiche » → FicheSecuriteChantier.
@@ -25,7 +29,7 @@ import {
   texteOuiNon, texteEtage, texteAvantDate, libelleReperageAmiante,
   formulaireBatiment, preparerEnregistrementBatiment,
 } from "./securitePastilles.js";
-import { chargerEtatFiches, chargerBatiment, enregistrerBatiment, creerFiche } from "./securiteDonnees.js";
+import { chargerEtatFiches, chargerBatiment, enregistrerBatiment, creerFiche, chargerJustificatifsPastilles, dateDuJourLocale } from "./securiteDonnees.js";
 import { peutCreerFiche } from "./securiteFiche.js";
 import FicheSecuriteChantier from "./FicheSecuriteChantier.jsx";
 
@@ -185,13 +189,19 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
   const chantiersListes = chantiersOp.filter((c) => !estChantierArchive(c));
   const ids = chantiersListes.map((c) => c.id).join("|");
   const [etat, setEtat] = useState({ lecture: "chargement", parChantier: {}, erreur: null });
+  const [justifs, setJustifs] = useState({ parChantier: {}, erreur: null });
 
   const chargerFiches = () => {
     let actif = true;
     setEtat({ lecture: "chargement", parChantier: {}, erreur: null });
-    chargerEtatFiches(ids ? ids.split("|") : []).then((r) => {
+    setJustifs({ parChantier: {}, erreur: null });
+    const liste = ids ? ids.split("|") : [];
+    chargerEtatFiches(liste).then((r) => {
       if (!actif) return;
       setEtat({ lecture: r.erreur ? "erreur" : "ok", parChantier: r.parChantier, erreur: r.erreur });
+    });
+    chargerJustificatifsPastilles(liste, dateDuJourLocale()).then((r) => {
+      if (actif) setJustifs({ parChantier: r.parChantier, erreur: r.erreur });
     });
     return () => { actif = false; };
   };
@@ -263,12 +273,17 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
               <button onClick={chargerFiches} style={{ border: "none", background: "transparent", color: acc.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline" }}>Réessayer</button>
             </div>
           )}
+          {justifs.erreur && (
+            <div style={{ fontSize: FONT.xs.size + 1, color: "#b97a10", fontWeight: 600, marginBottom: 8 }}>
+              Justificatifs illisibles ({justifs.erreur}) : les pastilles « justificatifs manquants / expiré » ne peuvent pas s'afficher.
+            </div>
+          )}
           {chantiersListes.length === 0 ? (
             <div style={{ fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>Aucun chantier rattaché à cette opération.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column" }}>
               {chantiersListes.map((c) => {
-                const p = pastilleFicheSecurite({ chantier: c, fiche: etat.parChantier[c.id] || null, lecture: etat.lecture });
+                const p = pastilleFicheSecurite({ chantier: c, fiche: etat.parChantier[c.id] || null, lecture: etat.lecture, justificatifs: justifs.parChantier[c.id] || null });
                 return (
                   <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
                     <span style={{ width: 9, height: 9, borderRadius: 3, background: c.couleur || "#888", flexShrink: 0 }}/>
@@ -293,7 +308,7 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
             <div style={{ fontSize: FONT.sm.size, color: "#e15a5a", fontWeight: 600, marginTop: 8 }}>{creation.erreur}</div>
           )}
           <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 10, fontStyle: "italic" }}>
-            Pas de fiche pour un chantier déjà terminé. Justificatifs, signatures et validation arrivent avec la prochaine livraison.
+            Pas de fiche pour un chantier déjà terminé. Rouge : un justificatif requis manque ou un justificatif joint est expiré.
           </div>
         </div>
       </div>

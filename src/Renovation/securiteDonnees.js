@@ -10,6 +10,13 @@
 // confondue avec « aucune donnée » (l'écran affiche « état illisible »).
 // ─────────────────────────────────────────────────────────────────────────────
 import { supabase } from "../supabase";
+import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, deposerPreuveSecurite, urlPreuveSecurite } from "./storageChantier.js";
+import { journaliserStatut } from "./chantiersDonnees.js";
+import {
+  serialisationCanonique, contenuVersion, motifDepuisJournal, entreeJournalValidation, entreeJournalMiseAJour,
+  preparerMiseAJour, dossierJustificatifs, cheminSignature, EVENEMENT_JOURNAL,
+} from "./securiteVersion.js";
+import { etatValidation, justificatifsPourPastille } from "./securiteValidation.js";
 
 const COLS_ETAT = "fiche_id, chantier_id, version, statut, points_completes, signe_etablie_par, signe_chef_equipe, nb_signatures_accueil, nb_justificatifs_chantier, demarrage_force";
 const COLS_BATIMENT = "operation_id, date_permis_construire, avant_1997, avant_1949, copropriete, etage, ascenseur_utilisable, reperage_amiante_statut, notes, maj_par, updated_at";
@@ -126,5 +133,293 @@ export async function enregistrerFiche(ficheId, contenu, { updatedAt, auteur } =
     return { ligne: actuelle, erreur: "la fiche a été modifiée par quelqu'un d'autre", conflit: "modifiee_ailleurs" };
   } catch (e) {
     return { ligne: null, erreur: e?.message || String(e), conflit: null };
+  }
+}
+
+// ─── Tâche 4 : justificatifs, signatures, validation, versions ──────────────
+// Règles (module pur) : securiteValidation.mjs ; contenu figé et empreinte :
+// securiteVersion.mjs. Ici : lectures, écritures, hachage sha256 (Web Crypto).
+// Rien n'est supprimé : un justificatif retiré est archivé (archive_le) ;
+// versions et signatures sont immuables en base.
+
+const COLS_JUSTIF = "id, portee, chantier_id, point, type_code, personne, entreprise_nom, fichier_path, fichier_nom, date_document, expire_le, confidentiel, ajoute_par, created_at, archive_le";
+const COLS_SIGNATURE = "id, fiche_id, version, type, signataire_nom, signataire_entreprise, auth_user_id, image_path, empreinte_version, signe_le";
+const COLS_VERSION = "id, fiche_id, version, motif_changement, empreinte, pdf_path, cree_par, cree_le";
+
+const msg = (e) => e?.message || String(e);
+
+/** Date du jour locale AAAA-MM-JJ (les règles pures la reçoivent en paramètre). */
+export function dateDuJourLocale() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Justificatifs ACTIFS (non archivés) d'un chantier → { liste, erreur }. */
+export async function chargerJustificatifs(chantierId) {
+  if (!chantierId) return { liste: null, erreur: "chantier inconnu" };
+  try {
+    const { data, error } = await supabase.from("securite_justificatifs").select(COLS_JUSTIF)
+      .eq("portee", "chantier").eq("chantier_id", String(chantierId)).is("archive_le", null);
+    if (error) return { liste: null, erreur: error.message };
+    return { liste: data || [], erreur: null };
+  } catch (e) {
+    return { liste: null, erreur: msg(e) };
+  }
+}
+
+/**
+ * Ajoute un justificatif de chantier : fichier dans chantier-documents sous
+ * securite/chantiers/{chantier_id}/p{point}/, puis ligne securite_justificatifs.
+ * Si la ligne est refusée, le fichier tout juste envoyé est retiré (il n'est
+ * rattaché à rien). → { ligne, erreur }
+ */
+export async function ajouterJustificatif({ ligne, fichier, auteur }) {
+  try {
+    const envoi = await uploadDocumentChantier(fichier, dossierJustificatifs(ligne.chantier_id, ligne.point));
+    if (!envoi) return { ligne: null, erreur: derniereErreurDocument() || "envoi du fichier impossible" };
+    const { data, error } = await supabase.from("securite_justificatifs")
+      .insert({ ...ligne, fichier_path: envoi.path, fichier_nom: envoi.nom || null, ajoute_par: auteur || null })
+      .select(COLS_JUSTIF).single();
+    if (error) {
+      await supprimerDocumentChantier(envoi.path);
+      return { ligne: null, erreur: error.message };
+    }
+    return { ligne: data, erreur: null };
+  } catch (e) {
+    return { ligne: null, erreur: msg(e) };
+  }
+}
+
+/** Retire un justificatif : archivage (archive_le), jamais suppression. → { erreur } */
+export async function archiverJustificatif(id) {
+  try {
+    const { data, error } = await supabase.from("securite_justificatifs")
+      .update({ archive_le: new Date().toISOString() })
+      .eq("id", id).is("archive_le", null).select("id");
+    if (error) return { erreur: error.message };
+    if (!data || data.length !== 1) return { erreur: "justificatif déjà retiré ou introuvable" };
+    return { erreur: null };
+  } catch (e) {
+    return { erreur: msg(e) };
+  }
+}
+
+/** URL signée (10 min) d'un justificatif. → { url, erreur } */
+export async function urlJustificatif(path) {
+  const url = await urlDocumentChantier(path);
+  return { url, erreur: url ? null : (derniereErreurDocument() || "lecture impossible") };
+}
+
+/** URL signée (10 min) d'une image de signature. → { url, erreur } */
+export async function urlImageSignature(path) {
+  const url = await urlPreuveSecurite(path);
+  return { url, erreur: url ? null : (derniereErreurDocument() || "lecture impossible") };
+}
+
+/** Signatures d'une fiche (toutes versions) → { liste, erreur }. */
+export async function chargerSignatures(ficheId) {
+  if (!ficheId) return { liste: null, erreur: "fiche inconnue" };
+  try {
+    const { data, error } = await supabase.from("securite_signatures").select(COLS_SIGNATURE)
+      .eq("fiche_id", ficheId).order("signe_le", { ascending: true });
+    if (error) return { liste: null, erreur: error.message };
+    return { liste: data || [], erreur: null };
+  } catch (e) {
+    return { liste: null, erreur: msg(e) };
+  }
+}
+
+/** Versions figées d'une fiche (sans le contenu) → { liste, erreur }. */
+export async function chargerVersions(ficheId) {
+  if (!ficheId) return { liste: null, erreur: "fiche inconnue" };
+  try {
+    const { data, error } = await supabase.from("securite_fiches_versions").select(COLS_VERSION)
+      .eq("fiche_id", ficheId).order("version", { ascending: true });
+    if (error) return { liste: null, erreur: error.message };
+    return { liste: data || [], erreur: null };
+  } catch (e) {
+    return { liste: null, erreur: msg(e) };
+  }
+}
+
+/** Motif de la version en cours, relu dans le journal du chantier → { motif, trouve, erreur }. */
+export async function chargerMotifVersion(chantierId, version) {
+  if (version === 1) return { motif: null, trouve: true, erreur: null };
+  try {
+    const { data, error } = await supabase.from("chantiers_statut_journal")
+      .select("evenement, nouveau_statut, motif, detail, le")
+      .eq("chantier_id", String(chantierId)).eq("evenement", EVENEMENT_JOURNAL);
+    if (error) return { motif: null, trouve: false, erreur: error.message };
+    return { ...motifDepuisJournal(data || [], version), erreur: null };
+  } catch (e) {
+    return { motif: null, trouve: false, erreur: msg(e) };
+  }
+}
+
+/** sha256 hexadécimal d'un texte (Web Crypto, UTF-8). */
+export async function sha256Hex(texte) {
+  const octets = new TextEncoder().encode(texte);
+  const h = await crypto.subtle.digest("SHA-256", octets);
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Empreinte d'un contenu de version (sérialisation canonique puis sha256). */
+export async function empreinteContenu(contenu) {
+  return sha256Hex(serialisationCanonique(contenu));
+}
+
+/**
+ * Relit en base tout ce qui entre dans la version figée et calcule son
+ * empreinte. Utilisé AVANT chaque signature et à la validation, pour ne
+ * jamais signer ni figer autre chose que ce qui est en base.
+ * → { fiche, batiment, justificatifs, motif, contenu, empreinte, contexte, erreur }
+ */
+export async function lireContenuAFiger({ chantier, op, clientLibelle, clientErreur = null }) {
+  const [f, b, j] = await Promise.all([chargerFiche(chantier.id), chargerBatiment(op.id), chargerJustificatifs(chantier.id)]);
+  if (f.erreur || !f.ligne) return { erreur: `fiche illisible (${f.erreur || "absente"})` };
+  const mo = await chargerMotifVersion(chantier.id, f.ligne.version);
+  if (mo.erreur) return { erreur: `historique du chantier illisible (${mo.erreur})` };
+  const contexte = { adresse: op.adresse || null, batiment: b.ligne, batimentErreur: b.erreur, clientErreur, motifTrouve: mo.trouve };
+  if (j.erreur || b.erreur) {
+    return { fiche: f.ligne, justificatifs: j.liste, contexte, erreur: j.erreur ? `justificatifs illisibles (${j.erreur})` : `bâtiment illisible (${b.erreur})` };
+  }
+  const contenu = contenuVersion({ fiche: f.ligne, chantier, operation: op, clientLibelle, batiment: b.ligne, justificatifs: j.liste, motif: mo.motif });
+  const empreinte = await empreinteContenu(contenu);
+  return { fiche: f.ligne, batiment: b.ligne, justificatifs: j.liste, motif: mo.motif, contenu, empreinte, contexte, erreur: null };
+}
+
+/**
+ * Signature « établie par » ou « chef d'équipe » de la version en cours.
+ * Refusée si le contenu en base n'est plus celui affiché (empreinte
+ * différente) ou si la fiche n'est pas complète. Image PNG déposée dans
+ * securite-preuves sous signatures/{fiche_id}/ (nom nouveau à chaque fois).
+ * `pourMoi` : la personne connectée signe (compte rattaché) ; sinon le compte
+ * est laissé vide (la base refuse de signer au nom d'un autre compte).
+ * → { signature, erreur }
+ */
+export async function signerFiche({ chantier, op, clientLibelle, clientErreur, type, nom, entreprise, pourMoi, png, empreinteAttendue, aujourdhui }) {
+  try {
+    if (!["etablie_par", "chef_equipe"].includes(type)) return { signature: null, erreur: "type de signature inconnu" };
+    if (!String(nom || "").trim()) return { signature: null, erreur: "nom du signataire obligatoire" };
+    if (!png) return { signature: null, erreur: "signature vide" };
+    const a = await lireContenuAFiger({ chantier, op, clientLibelle, clientErreur });
+    if (a.erreur) return { signature: null, erreur: a.erreur };
+    if (a.empreinte !== empreinteAttendue) return { signature: null, erreur: "la fiche (ou le bâtiment, le client, un justificatif) a changé depuis son affichage : fermez puis rouvrez la fiche avant de signer" };
+    const etat = etatValidation({ fiche: a.fiche, contexte: a.contexte, justificatifs: a.justificatifs, signatures: [], empreinte: a.empreinte, aujourdhui });
+    if (!etat.contenuComplet) return { signature: null, erreur: "la fiche n'est pas complète : la signature se fait en dernier" };
+    const alea = (() => { try { return crypto.randomUUID().slice(0, 8); } catch { return Math.random().toString(36).slice(2, 10); } })();
+    const chemin = cheminSignature({ ficheId: a.fiche.id, version: a.fiche.version, type, horodatage: Date.now(), alea });
+    const depot = await deposerPreuveSecurite(png, chemin, "image/png");
+    if (!depot) return { signature: null, erreur: derniereErreurDocument() || "image de signature non enregistrée" };
+    const ligne = {
+      fiche_id: a.fiche.id, version: a.fiche.version, type,
+      signataire_nom: String(nom).trim(), signataire_entreprise: String(entreprise || "").trim() || null,
+      image_path: depot.path, empreinte_version: a.empreinte,
+      ...(pourMoi ? {} : { auth_user_id: null }), // pourMoi : défaut de la base = compte connecté
+    };
+    const { data, error } = await supabase.from("securite_signatures").insert(ligne).select(COLS_SIGNATURE).single();
+    if (error) return { signature: null, erreur: `${error.message} (l'image déposée reste conservée, sans effet)` };
+    return { signature: data, erreur: null };
+  } catch (e) {
+    return { signature: null, erreur: msg(e) };
+  }
+}
+
+/**
+ * Validation de la fiche. Ordre des écritures :
+ *   1. relecture complète, règles strictes, empreinte recalculée, les 2
+ *      signatures doivent porter CETTE empreinte sur la version en cours ;
+ *   2. ligne securite_fiches_versions (contenu complet + empreinte) ;
+ *      si elle existe déjà (essai précédent interrompu) : même empreinte → on
+ *      continue ; empreinte différente → arrêt, `versionDejaFigee` ;
+ *   3. fiche → « validée » (seulement si toujours en brouillon, même version,
+ *      non modifiée depuis la relecture) ;
+ *   4. entrée au journal du chantier (événement fiche_securite).
+ * → { ligne, erreur, manquants, versionDejaFigee, avertissement }
+ */
+export async function validerFicheSecurite({ chantier, op, clientLibelle, clientErreur, auteur, aujourdhui }) {
+  try {
+    const a = await lireContenuAFiger({ chantier, op, clientLibelle, clientErreur });
+    if (a.erreur) return { erreur: a.erreur };
+    const s = await chargerSignatures(a.fiche.id);
+    if (s.erreur) return { erreur: `signatures illisibles (${s.erreur})` };
+    const etat = etatValidation({ fiche: a.fiche, contexte: a.contexte, justificatifs: a.justificatifs, signatures: s.liste, empreinte: a.empreinte, aujourdhui });
+    if (!etat.peutValider) return { erreur: "la fiche n'est pas validable", manquants: etat };
+
+    const { error: eV } = await supabase.from("securite_fiches_versions").insert({
+      fiche_id: a.fiche.id, version: a.fiche.version, contenu: a.contenu, motif_changement: a.motif,
+      empreinte: a.empreinte, cree_par: auteur || null,
+    });
+    if (eV) {
+      if (eV.code !== "23505") return { erreur: `version non enregistrée (${eV.message})` };
+      const { data: ex, error: eX } = await supabase.from("securite_fiches_versions").select("empreinte")
+        .eq("fiche_id", a.fiche.id).eq("version", a.fiche.version).maybeSingle();
+      if (eX || !ex) return { erreur: `version existante illisible (${eX?.message || "introuvable"})` };
+      if (ex.empreinte !== a.empreinte) {
+        return { erreur: `la v${a.fiche.version} a déjà été figée avec un autre contenu (validation interrompue puis fiche modifiée)`, versionDejaFigee: true };
+      }
+    }
+
+    const { data, error } = await supabase.from("securite_fiches")
+      .update({ statut: "validee", validee_le: new Date().toISOString(), validee_par: auteur || null, maj_par: auteur || null })
+      .eq("id", a.fiche.id).eq("statut", "brouillon").eq("version", a.fiche.version).eq("updated_at", a.fiche.updated_at)
+      .select(COLS_FICHE);
+    if (error) return { erreur: `version figée, mais fiche non passée en « validée » (${error.message}) : relancez la validation` };
+    if (!data || data.length !== 1) return { erreur: "version figée, mais la fiche a été modifiée au même moment : rechargez puis relancez la validation" };
+
+    const j = await journaliserStatut(entreeJournalValidation({ chantierId: chantier.id, version: a.fiche.version, auteur, empreinte: a.empreinte }));
+    return { ligne: data[0], erreur: null, avertissement: j.ok ? null : `Fiche validée, mais l'historique du chantier n'a pas été complété (${j.erreur}).` };
+  } catch (e) {
+    return { erreur: msg(e) };
+  }
+}
+
+/**
+ * « Mettre à jour » : nouvelle version en brouillon, motif obligatoire.
+ * Le journal est écrit AVANT la fiche : le motif y est relu à la validation
+ * de la nouvelle version (et figé dans sa ligne de version).
+ * → { ligne, erreur }
+ */
+export async function mettreAJourFiche({ fiche, motif, auteur, versionDejaFigee = false }) {
+  try {
+    const prep = preparerMiseAJour(fiche, motif, { versionDejaFigee });
+    if (!prep.ok) return { ligne: null, erreur: prep.erreur };
+    const j = await journaliserStatut(entreeJournalMiseAJour({ chantierId: fiche.chantier_id, versionAvant: prep.versionAvant, statutAvant: fiche.statut, auteur, motif }));
+    if (!j.ok) return { ligne: null, erreur: `historique du chantier non écrit (${j.erreur}) : rien n'a été modifié` };
+    const { data, error } = await supabase.from("securite_fiches")
+      .update({ ...prep.patch, maj_par: auteur || null })
+      .eq("id", fiche.id).eq("statut", fiche.statut).eq("version", fiche.version)
+      .select(COLS_FICHE);
+    if (error) return { ligne: null, erreur: error.message };
+    if (!data || data.length !== 1) return { ligne: null, erreur: "la fiche a changé entre-temps : rechargez-la" };
+    return { ligne: data[0], erreur: null };
+  } catch (e) {
+    return { ligne: null, erreur: msg(e) };
+  }
+}
+
+/**
+ * Données de la pastille rouge du panneau : réponses des fiches et
+ * justificatifs actifs des chantiers, passés à la MÊME règle que la fiche
+ * (justificatifsPourPastille). → { parChantier: { [id]: { manquants, expires } | null }, erreur }
+ */
+export async function chargerJustificatifsPastilles(chantierIds, aujourdhui) {
+  const ids = [...new Set((chantierIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return { parChantier: {}, erreur: null };
+  try {
+    const [f, j] = await Promise.all([
+      supabase.from("securite_fiches").select("chantier_id, reponses").in("chantier_id", ids),
+      supabase.from("securite_justificatifs").select("chantier_id, point, type_code, expire_le, archive_le, date_document, created_at")
+        .eq("portee", "chantier").in("chantier_id", ids).is("archive_le", null),
+    ]);
+    if (f.error || j.error) return { parChantier: {}, erreur: (f.error || j.error).message };
+    const parChantier = {};
+    (f.data || []).forEach((l) => {
+      const justifs = (j.data || []).filter((x) => x.chantier_id === l.chantier_id);
+      parChantier[l.chantier_id] = justificatifsPourPastille({ reponses: l.reponses, justificatifs: justifs, aujourdhui });
+    });
+    return { parChantier, erreur: null };
+  } catch (e) {
+    return { parChantier: {}, erreur: msg(e) };
   }
 }

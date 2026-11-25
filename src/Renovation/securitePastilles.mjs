@@ -15,9 +15,10 @@
 // cours ne donne jamais « à créer ». « À créer » veut dire : lecture réussie,
 // et aucune fiche pour ce chantier.
 //
-// Rouge « justificatifs manquants » / « expiré » : la liste des justificatifs
-// attendus arrive aux tâches 3-4. Tant que l'appelant ne fournit pas
-// `justificatifs`, aucune pastille rouge n'est inventée.
+// Rouge « justificatifs manquants » / « expiré » : depuis la tâche 4, le
+// panneau fournit `justificatifs` calculé par securiteValidation.mjs
+// (justificatifsPourPastille, même règle que la fiche). Tant que l'appelant ne
+// le fournit pas (ou s'il est illisible), aucune pastille rouge n'est inventée.
 // ─────────────────────────────────────────────────────────────────────────────
 import { estChantierTermine } from "./chantierActif.mjs";
 import { estChantierPerdu } from "./statutsChantier.mjs";
