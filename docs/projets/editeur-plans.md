@@ -136,46 +136,48 @@ C'est la règle par défaut de `CLAUDE.md` qui s'applique, avec ces ajouts :
 
 ## Tâches
 
+**PROJET ANNULÉ par Loris le 25/11/2026** (« Annule ce projet, je vais procéder d'une autre manière »). Tout ce qui avait été mis en ligne a été retiré : voir « Arrêt du projet » à la fin des comptes rendus.
+
 Statuts : à faire, en cours, en attente de Loris, en ligne, bloquée, abandonnée.
 Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.mjs` + façade `.js`, composants courts).
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | en ligne | Contrôles verts | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu | [#269](https://github.com/Suivi-chantier/Planning-Chantiers/pull/269) |
-| 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | en ligne | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** |[#271](https://github.com/Suivi-chantier/Planning-Chantiers/pull/271) |
-| 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | à faire | Droits accordés par Loris (question 1, « oui ») : mêmes droits que `plans` ; migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
-| 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | à faire | Droits accordés par Loris (question 1, « oui ») : admin seul ; contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
-| 5 | Création par dépôt des exports iMapper (DXF + PDF), avec le parcours d'import existant, réutilisé tel quel. | à faire | Contrôles verts | Un import du DXF de référence donne le même relevé que dans l'ancien éditeur | — |
-| 6a | Module pur « scène du plan » : à partir du relevé redressé et du modèle, la liste de ce qu'il faut dessiner (pièces colorées par type avec nom et surface, murs pleins à leur épaisseur avec leurs angles, ouvertures, cotes intérieures automatiques, points à valider en orange) et sa sortie en SVG. Script de vérification. Aucun écran. | en cours | Contrôles verts | Images des 2 relevés réels produites par le module (hors application), remises dans la conversation | [#272](https://github.com/Suivi-chantier/Planning-Chantiers/pull/272) |
-| 6b | Affichage dans la page : composant SVG qui dessine la scène ; déplacement et zoom à la souris et au doigt (pincement). | à faire | Contrôles verts (après la tâche 4) | Captures des 2 relevés réels dans l'application | — |
-| 7 | Redressement branché à la création du plan ; points à valider affichés en orange, à confirmer ou refuser un par un. | à faire | Contrôles verts | Sur les 2 relevés réels : liste des points à valider, capture avant / après | — |
-| 8 | Panneau de pièce (nom, type, hauteur sous plafond, métrés, photos de ses murs) ; sauvegarde automatique. | à faire | Contrôles verts | Métrés du panneau = ceux de l'ancien éditeur, pièce par pièce | — |
-| 9 | **Fin d'étape 1** : tableau de comparaison des métrés ancien / nouvel éditeur sur tous les relevés réels en base, captures. | à faire | **Arrêt si un seul métré affiché diffère à la création du plan**, avant tout point accepté (question 5, « oui ») | Tableau recopié dans le compte rendu, écart nul | — |
-| 10 | **Étape 2** — modèle pur du projet : liste de modifications posée sur l'existant figé (démolir un mur ou une portion, créer cloison 45 / 70 ou doublage 120 / 160) ; état d'un élément (existant, à démolir, à créer) et corps d'état. Script de vérification. | à faire | Contrôles verts | Cas du script verts ; l'existant reste identique après toute modification | — |
-| 11 | Module pur de découpage des pièces : une cloison qui coupe une pièce en crée deux ; échec signalé. Cas difficiles dans le script : cloison en biais, pièce en L, cloison qui ne touche qu'un mur. | à faire | Contrôles verts | Cas difficiles verts ; somme des surfaces conservée | — |
-| 12 | Module pur « métré travaux » : m² à démolir, ml et m² de cloison par type, m² de doublage, sol / plafond / murs nets par pièce après travaux. | à faire | Contrôles verts | Sans aucune modification, le métré après travaux = le métré existant, sur les 2 relevés réels | — |
-| 13 | Socle d'édition : barre des cinq outils, sélection, panneau de l'élément, annuler / rétablir, sauvegarde automatique des modifications. | à faire | Contrôles verts | Annuler / rétablir vérifié par script ; zones tactiles ≥ 44 px | — |
-| 14 | Outil Mur — démolir un mur entier ou une portion entre deux points (jaune). | à faire | Contrôles verts | Capture sur relevé réel | — |
-| 15 | Outil Mur — créer une cloison ou un doublage : type, pavé numérique à l'écran, aimantation, mode orthogonal (rouge) ; les pièces se recalculent, correction à la main si le découpage échoue. | à faire | Contrôles verts | Capture sur relevé réel : une pièce coupée en deux | — |
-| 16 | Outil Ouverture : ajouter, déplacer, élargir, boucher, changer le sens (fonctions existantes réutilisées). | à faire | Contrôles verts | Capture sur relevé réel | — |
-| 17 | Outil Note et trait libre : grouper, dégrouper, enregistrer un groupe comme symbole (table de bibliothèque, migration additive) ; dégrouper un objet métier avec avertissement « ne comptera plus dans les métrés ». | à faire | Contrôles verts ; migration additive vérifiée | Symbole enregistré puis reposé sur un autre plan | — |
-| 18 | Panneau « Métré travaux » mis à jour en direct. | à faire | Contrôles verts | Chiffres du panneau = ceux du module, sur relevé réel | — |
-| 19 | **Fin d'étape 2** : sur un vrai relevé, démolir une cloison et en créer une autre ; plan, pièces et métré travaux à jour. Captures. | à faire | — | Captures et métré travaux dans le compte rendu | — |
-| 20 | **Étape 3** — bibliothèque métier (module pur) : symboles électricité, plomberie, chauffage et ventilation ; sanitaires repris de l'ancienne bibliothèque. | à faire | Contrôles verts | Planche de tous les symboles jointe au compte rendu | — |
-| 21 | Outil Équipement : poser dans une pièce ou sur un mur, déplacer, régler dans le panneau. | à faire | Contrôles verts | Capture sur relevé réel | — |
-| 22 | Comptages automatiques par pièce et par type d'équipement, ajoutés au métré travaux. | à faire | Contrôles verts | Comptage du panneau = comptage à la main sur un relevé réel | — |
-| 23 | Les quatre versions (vues pures) + sélecteur en haut de l'écran ; hors corps d'état : grisé et verrouillé ; légende ; notes propres à une version. | à faire | Contrôles verts | Script : une version ne contient que ses éléments ; aucune copie de données | — |
-| 24 | **Fin d'étape 3** : les quatre versions sur un vrai relevé ; une cloison déplacée en plâtrerie apparaît déplacée dans les trois autres. Captures. | à faire | — | Quatre captures + capture après déplacement | — |
-| 25 | **Étape 4** — moteur de planche vectorielle (pur) : échelle 1/50 sinon 1/100, A4 ou A3 paysage, réglet, cartouche, légende des seuls symboles présents. | à faire | Contrôles verts | Script : une cote de 1 m mesure 20 mm au 1/50 et 10 mm au 1/100 | — |
-| 26 | Gabarit équipes : une planche par version, cotes complètes, consignes par pièce, cartouche, QR code vers le plan. | à faire | Contrôles verts | PDF sur relevé réel | — |
-| 27 | Gabarit client : page de garde et couleurs Profero, plan du projet, tableau des surfaces avant / après. | à faire | Contrôles verts | PDF sur relevé réel | — |
-| 28 | Dossier en un clic (versions cochées → un seul PDF) et indice de révision (A, puis lettre suivante après modification, ligne « ce qui a changé »). | à faire | Contrôles verts ; migration additive vérifiée si une table d'émissions est nécessaire | Deux exports successifs : indice A puis B avec la ligne de changement | — |
-| 29 | **Fin d'étape 4** : dossier équipes (quatre versions) et PDF client sur un vrai relevé ; contrôle d'une cote à l'échelle. | à faire | — | PDF joints au compte rendu | — |
-| 30 | **Étape 5** — analyse IA des photos étendue aux équipements existants visibles (dans le module de la tâche IA, sans changer l'ancien éditeur) ; plafond par relevé conservé. | à faire | Contrôles verts | Coût mesuré sur un relevé réel, sous le plafond | — |
-| 31 | Module pur de règles : équipement électrique minimal par type de pièce (NF C 15-100), dans un fichier de règles lisible à faire valider par l'électricien ; attentes de plomberie selon les appareils posés. | à faire | Contrôles verts | Fichier de règles joint au compte rendu | — |
-| 32 | Propositions en orange : accepter ou refuser une par une ou pièce par pièce ; rien n'entre dans le plan sans action. | à faire | Contrôles verts | Script : une proposition non acceptée n'apparaît ni dans les métrés ni dans les PDF | — |
-| 33 | **Fin d'étape 5** : sur trois relevés réels, nombre de propositions, d'acceptées, coût IA par relevé. | à faire | **Il faut un 3ᵉ relevé réel** (2 en base aujourd'hui) | Tableau dans le compte rendu | — |
-| 34 | Synthèse de fin de projet. | à faire | — | Synthèse dans ce fichier et dans la conversation | — |
+| 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | abandonnée (mise en ligne puis retirée le 25/11/2026) | Contrôles verts | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu | [#269](https://github.com/Suivi-chantier/Planning-Chantiers/pull/269) |
+| 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | abandonnée (mise en ligne puis retirée le 25/11/2026) | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** |[#271](https://github.com/Suivi-chantier/Planning-Chantiers/pull/271) |
+| 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | abandonnée | Droits accordés par Loris (question 1, « oui ») : mêmes droits que `plans` ; migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | [#274](https://github.com/Suivi-chantier/Planning-Chantiers/pull/274), fermée sans fusion |
+| 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | abandonnée | Droits accordés par Loris (question 1, « oui ») : admin seul ; contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
+| 5 | Création par dépôt des exports iMapper (DXF + PDF), avec le parcours d'import existant, réutilisé tel quel. | abandonnée | Contrôles verts | Un import du DXF de référence donne le même relevé que dans l'ancien éditeur | — |
+| 6a | Module pur « scène du plan » : à partir du relevé redressé et du modèle, la liste de ce qu'il faut dessiner (pièces colorées par type avec nom et surface, murs pleins à leur épaisseur avec leurs angles, ouvertures, cotes intérieures automatiques, points à valider en orange) et sa sortie en SVG. Script de vérification. Aucun écran. | abandonnée (mise en ligne puis retirée le 25/11/2026) | Contrôles verts | Images des 2 relevés réels produites par le module (hors application), remises dans la conversation | [#272](https://github.com/Suivi-chantier/Planning-Chantiers/pull/272) |
+| 6b | Affichage dans la page : composant SVG qui dessine la scène ; déplacement et zoom à la souris et au doigt (pincement). | abandonnée | Contrôles verts (après la tâche 4) | Captures des 2 relevés réels dans l'application | — |
+| 7 | Redressement branché à la création du plan ; points à valider affichés en orange, à confirmer ou refuser un par un. | abandonnée | Contrôles verts | Sur les 2 relevés réels : liste des points à valider, capture avant / après | — |
+| 8 | Panneau de pièce (nom, type, hauteur sous plafond, métrés, photos de ses murs) ; sauvegarde automatique. | abandonnée | Contrôles verts | Métrés du panneau = ceux de l'ancien éditeur, pièce par pièce | — |
+| 9 | **Fin d'étape 1** : tableau de comparaison des métrés ancien / nouvel éditeur sur tous les relevés réels en base, captures. | abandonnée | **Arrêt si un seul métré affiché diffère à la création du plan**, avant tout point accepté (question 5, « oui ») | Tableau recopié dans le compte rendu, écart nul | — |
+| 10 | **Étape 2** — modèle pur du projet : liste de modifications posée sur l'existant figé (démolir un mur ou une portion, créer cloison 45 / 70 ou doublage 120 / 160) ; état d'un élément (existant, à démolir, à créer) et corps d'état. Script de vérification. | abandonnée | Contrôles verts | Cas du script verts ; l'existant reste identique après toute modification | — |
+| 11 | Module pur de découpage des pièces : une cloison qui coupe une pièce en crée deux ; échec signalé. Cas difficiles dans le script : cloison en biais, pièce en L, cloison qui ne touche qu'un mur. | abandonnée | Contrôles verts | Cas difficiles verts ; somme des surfaces conservée | — |
+| 12 | Module pur « métré travaux » : m² à démolir, ml et m² de cloison par type, m² de doublage, sol / plafond / murs nets par pièce après travaux. | abandonnée | Contrôles verts | Sans aucune modification, le métré après travaux = le métré existant, sur les 2 relevés réels | — |
+| 13 | Socle d'édition : barre des cinq outils, sélection, panneau de l'élément, annuler / rétablir, sauvegarde automatique des modifications. | abandonnée | Contrôles verts | Annuler / rétablir vérifié par script ; zones tactiles ≥ 44 px | — |
+| 14 | Outil Mur — démolir un mur entier ou une portion entre deux points (jaune). | abandonnée | Contrôles verts | Capture sur relevé réel | — |
+| 15 | Outil Mur — créer une cloison ou un doublage : type, pavé numérique à l'écran, aimantation, mode orthogonal (rouge) ; les pièces se recalculent, correction à la main si le découpage échoue. | abandonnée | Contrôles verts | Capture sur relevé réel : une pièce coupée en deux | — |
+| 16 | Outil Ouverture : ajouter, déplacer, élargir, boucher, changer le sens (fonctions existantes réutilisées). | abandonnée | Contrôles verts | Capture sur relevé réel | — |
+| 17 | Outil Note et trait libre : grouper, dégrouper, enregistrer un groupe comme symbole (table de bibliothèque, migration additive) ; dégrouper un objet métier avec avertissement « ne comptera plus dans les métrés ». | abandonnée | Contrôles verts ; migration additive vérifiée | Symbole enregistré puis reposé sur un autre plan | — |
+| 18 | Panneau « Métré travaux » mis à jour en direct. | abandonnée | Contrôles verts | Chiffres du panneau = ceux du module, sur relevé réel | — |
+| 19 | **Fin d'étape 2** : sur un vrai relevé, démolir une cloison et en créer une autre ; plan, pièces et métré travaux à jour. Captures. | abandonnée | — | Captures et métré travaux dans le compte rendu | — |
+| 20 | **Étape 3** — bibliothèque métier (module pur) : symboles électricité, plomberie, chauffage et ventilation ; sanitaires repris de l'ancienne bibliothèque. | abandonnée | Contrôles verts | Planche de tous les symboles jointe au compte rendu | — |
+| 21 | Outil Équipement : poser dans une pièce ou sur un mur, déplacer, régler dans le panneau. | abandonnée | Contrôles verts | Capture sur relevé réel | — |
+| 22 | Comptages automatiques par pièce et par type d'équipement, ajoutés au métré travaux. | abandonnée | Contrôles verts | Comptage du panneau = comptage à la main sur un relevé réel | — |
+| 23 | Les quatre versions (vues pures) + sélecteur en haut de l'écran ; hors corps d'état : grisé et verrouillé ; légende ; notes propres à une version. | abandonnée | Contrôles verts | Script : une version ne contient que ses éléments ; aucune copie de données | — |
+| 24 | **Fin d'étape 3** : les quatre versions sur un vrai relevé ; une cloison déplacée en plâtrerie apparaît déplacée dans les trois autres. Captures. | abandonnée | — | Quatre captures + capture après déplacement | — |
+| 25 | **Étape 4** — moteur de planche vectorielle (pur) : échelle 1/50 sinon 1/100, A4 ou A3 paysage, réglet, cartouche, légende des seuls symboles présents. | abandonnée | Contrôles verts | Script : une cote de 1 m mesure 20 mm au 1/50 et 10 mm au 1/100 | — |
+| 26 | Gabarit équipes : une planche par version, cotes complètes, consignes par pièce, cartouche, QR code vers le plan. | abandonnée | Contrôles verts | PDF sur relevé réel | — |
+| 27 | Gabarit client : page de garde et couleurs Profero, plan du projet, tableau des surfaces avant / après. | abandonnée | Contrôles verts | PDF sur relevé réel | — |
+| 28 | Dossier en un clic (versions cochées → un seul PDF) et indice de révision (A, puis lettre suivante après modification, ligne « ce qui a changé »). | abandonnée | Contrôles verts ; migration additive vérifiée si une table d'émissions est nécessaire | Deux exports successifs : indice A puis B avec la ligne de changement | — |
+| 29 | **Fin d'étape 4** : dossier équipes (quatre versions) et PDF client sur un vrai relevé ; contrôle d'une cote à l'échelle. | abandonnée | — | PDF joints au compte rendu | — |
+| 30 | **Étape 5** — analyse IA des photos étendue aux équipements existants visibles (dans le module de la tâche IA, sans changer l'ancien éditeur) ; plafond par relevé conservé. | abandonnée | Contrôles verts | Coût mesuré sur un relevé réel, sous le plafond | — |
+| 31 | Module pur de règles : équipement électrique minimal par type de pièce (NF C 15-100), dans un fichier de règles lisible à faire valider par l'électricien ; attentes de plomberie selon les appareils posés. | abandonnée | Contrôles verts | Fichier de règles joint au compte rendu | — |
+| 32 | Propositions en orange : accepter ou refuser une par une ou pièce par pièce ; rien n'entre dans le plan sans action. | abandonnée | Contrôles verts | Script : une proposition non acceptée n'apparaît ni dans les métrés ni dans les PDF | — |
+| 33 | **Fin d'étape 5** : sur trois relevés réels, nombre de propositions, d'acceptées, coût IA par relevé. | abandonnée | **Il faut un 3ᵉ relevé réel** (2 en base aujourd'hui) | Tableau dans le compte rendu | — |
+| 34 | Synthèse de fin de projet. | abandonnée | — | Synthèse dans ce fichier et dans la conversation | — |
 
 ## Journal des décisions
 
@@ -628,6 +630,17 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 - **25/11/2026 — Ordre des tâches après ces réponses.** Après 6a : tâche 3
   (table), tâche 4 (page), puis 5, 6b, 7, 8, 9 comme prévu.
 
+- **25/11/2026 — Accords de Loris devenus sans objet.** Les réponses aux
+  questions 1, 2 et 5 (droits d'accès, déplacement des types de cloisons,
+  métrés) n'ont plus d'objet depuis l'annulation : rien de ce qu'elles
+  autorisaient n'a été mis en ligne (ni page, ni `src/access.js`, ni
+  `Plans.jsx` modifiés).
+- **25/11/2026 — ANNULATION par Loris : « Annule ce projet, je vais procéder
+  d'une autre manière ».** Le message est arrivé juste après l'application de
+  la migration de la tâche 3 (table `plans_v2`, vide). Tout a été arrêté ;
+  Loris a ensuite choisi le nettoyage complet (« option 1, nettoyage
+  complet »). Détail dans « Arrêt du projet », à la fin des comptes rendus.
+
 ## Comptes rendus
 
 ### Tâche 1 — modèle de l'existant et murs partagés (24/11/2026)
@@ -885,5 +898,43 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   affichées, 7 repères, 0,00 % de murs dans les pièces — exemple issu des
   tests, données fictives.
 - **Journal des MAJ** : pas d'entrée (rien de visible pour les utilisateurs).
-- **Mise en ligne** : demande de fusion #272, état réel confirmé par la
-  session pilote.
+- **Mise en ligne** : mise en ligne le 25/11/2026 (demande de fusion #272,
+  16 contrôles verts), puis retirée le même jour à l'annulation du projet.
+
+### Arrêt du projet (25/11/2026)
+
+Projet annulé par Loris avant la fin de l'étape 1. Aucun écran n'a jamais été
+livré : ni page, ni droit d'accès, ni entrée du journal des mises à jour.
+L'ancien éditeur de plans et la table `plans` n'ont jamais été touchés
+(33 plans, même empreinte en base avant le projet, après la création de la
+table et après son retrait).
+
+Nettoyage complet demandé par Loris, fait le 25/11/2026 :
+
+- **Demande de fusion #274 (tâche 3)** : fermée sans fusion.
+- **Base** : la table `plans_v2`, créée le matin même et restée vide
+  (0 ligne), a été retirée, après essai dans une transaction annulée. La
+  garde de la configuration interdit de supprimer une table hors migration :
+  le retrait est donc lui-même une migration enregistrée. La base garde deux
+  lignes d'historique (`20261125093119_plans_v2`, création, et
+  `20261125093401_plans_v2_retrait`, retrait) et les deux fichiers
+  correspondants sont dans `supabase/migrations/`, pour que le dossier reste
+  le reflet exact de la base. Aucune sauvegarde : il n'y avait aucune donnée.
+- **Application** : les calculs des tâches 1, 2 et 6a (murs partagés,
+  redressement, dessin du plan ; dossier `src/Renovation/planV2/`), leurs
+  trois scripts `verif-plan-v2-*` et leurs trois workflows ont été retirés.
+  Aucun écran ne les utilisait.
+- **Ce fichier** reste comme trace de ce qui a été appris sur les relevés
+  réels : deux relevés iMapper seulement en base ; des relevés en îlots de
+  pièces éloignés ; aucune vraie porte ni fenêtre placée ; un redressement
+  qui laisse 16 et 23 points à valider ; des métrés identiques à l'affichage
+  à la création du plan, mais de justesse.
+- **Branches** : Loris a demandé de supprimer aussi les branches du projet
+  (`projet/editeur-plans-t1`, `-t2`, `-t3`, `-t6a`, `-annulation`). La
+  suppression d'une branche sur GitHub a été refusée à la session par sa
+  passerelle d'accès au dépôt (refus d'autorisation, non contourné) : **ces
+  branches existent toujours sur GitHub** au moment où ces lignes sont
+  écrites. Elles ne servent plus à rien et ne gênent rien ; leur suppression
+  reste à faire par quelqu'un qui en a le droit.
+- **Reste en place** : les quatre images des relevés réels remises à Loris
+  dans la conversation.
