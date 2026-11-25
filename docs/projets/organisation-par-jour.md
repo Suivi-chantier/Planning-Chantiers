@@ -204,9 +204,9 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | en ligne | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | [#265](https://github.com/Suivi-chantier/Planning-Chantiers/pull/265) |
 | 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | en ligne | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | [#266](https://github.com/Suivi-chantier/Planning-Chantiers/pull/266) |
 | 12 | Bloc `materiaux_a_commander` | en ligne | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | [#267](https://github.com/Suivi-chantier/Planning-Chantiers/pull/267) |
-| 13 | Captures des 5 jours (date simulée) sur le compte de Loris + synthèse de fin de projet | à faire | — | Captures jointes au compte rendu | — |
+| 13 | Captures des 5 jours (date simulée) sur le compte de Loris + synthèse de fin de projet | en attente de Loris | — | Captures jointes au compte rendu | — |
 | 14 | Aligner le mail du vendredi et la notification « X € HT à payer » (`encoursFournisseursV1`, `api/cron-encours-fournisseurs.js`) sur le calcul de la page Encours fournisseurs (`encoursFournisseursPageV1.mjs`) | en ligne | Contrôles verts + tableau avant / après par fournisseur et par mois sur la base réelle (écart attendu : celui de la page) | Le montant du mail = la somme des mois correspondants de la page | [#268](https://github.com/Suivi-chantier/Planning-Chantiers/pull/268) |
-| 15 | Mail récap du vendredi, partie « Commandes prévisionnelles » : remplacer l'ancien calcul `materiauxACommanderV1` (sans données) par les articles de la page Commandes à passer dont la date de besoin tombe la semaine suivante (même règle que le bloc de la tâche 12) | en cours | Contrôles verts + comparaison sur la base réelle : liste du mail = onglet « Semaine prochaine » de la page | Le mail d'un vendredi simulé liste les mêmes articles que le bloc et la page | — |
+| 15 | Mail récap du vendredi, partie « Commandes prévisionnelles » : remplacer l'ancien calcul `materiauxACommanderV1` (sans données) par les articles de la page Commandes à passer dont la date de besoin tombe la semaine suivante (même règle que le bloc de la tâche 12) | en ligne | Contrôles verts + comparaison sur la base réelle : liste du mail = onglet « Semaine prochaine » de la page | Le mail d'un vendredi simulé liste les mêmes articles que le bloc et la page | [#270](https://github.com/Suivi-chantier/Planning-Chantiers/pull/270) |
 
 ## Journal des décisions
 
@@ -440,6 +440,24 @@ Règle par défaut de `CLAUDE.md`. En plus :
   échoue, plus aucun mail ni notification n'est envoyé (avant, le mail
   partait avec des données incomplètes). `encoursFournisseursV1.mjs` n'est
   plus utilisé par aucun envoi (non supprimé).
+
+- **24/11/2026 — Tâche 15, lectures partagées.** Requêtes de la page
+  Commandes à passer sorties dans `commandesAPasserLecture.mjs` (client
+  Supabase en paramètre), utilisé par la page, les deux blocs et le mail ;
+  lectures dépendantes déplacées à l'identique en `.mjs`
+  (`lectureParTranches`, `chargerMateriauxLecture`,
+  `achatsLotsTerminesLecture`, `lotsDefaut`). Seule différence : si la table
+  `chantiers` ne répond pas, le serveur signale l'erreur au lieu de se replier
+  sur la copie de `planning_config`. La décision du projet notifications-push
+  (« le récap garde son calcul par phase ») est remplacée par celle de Loris
+  du 24/11. `materiauxACommanderV1.mjs` n'a plus aucun utilisateur (non
+  supprimé).
+- **25/11/2026 — ARRÊT, tâche 13.** Aucun utilisateur n'a encore
+  d'organisation en base (vérifié : 2 ordres enregistrés, tous deux au format
+  liste) et Claude ne l'écrit jamais lui-même. Les captures des 5 jours « sur
+  le tableau de bord de Loris avec les vraies données » supposent qu'il ait
+  appliqué et enregistré le modèle. Par ailleurs, 1 seul chantier est au
+  statut « Planifié » à ce jour (bloc du mardi).
 
 ## Comptes rendus
 
@@ -812,4 +830,35 @@ Règle par défaut de `CLAUDE.md`. En plus :
 - **Contrôles** : 18 verts du premier coup, fusion, déploiement de production
   terminé avec succès.
 - **Journal des MAJ** : entrée ajoutée le 24/11/2026.
+
+### Tâche 15 — en ligne (25/11/2026)
+
+- **Ce qui a changé** : la partie « Matériaux à commander · semaine
+  prochaine » du mail récap du vendredi liste les articles de l'onglet
+  « Semaine prochaine » de la page Commandes à passer (tous jusqu'à 100, puis
+  renvoi vers la page) ; « lecture impossible » en cas d'erreur, jamais
+  « aucun ». Plus de montants en € dans cette partie (le total en € de
+  l'onglet est calculé dans l'écran, pas dans un module partagé).
+- **Base réelle** (lecture seule, vendredi simulé 27/11/2026, semaine 49 ;
+  envoi simulé, aucun mail envoyé) :
+
+  | Chantier | Page | Nouveau mail | Ancien mail | Écart page / mail |
+  |---|---|---|---|---|
+  | MONTILLERS APPT 4 (T2) | 27 | 27 | 0 | 0 |
+  | MONTILLERS APPT 3 (STUDIO) | 23 | 23 | 0 | 0 |
+  | MONTILLERS APPT 1 (T3) | 9 | 9 | 0 | 0 |
+  | MONTILLERS APPT 2 (T2) | 8 | 8 | 0 | 0 |
+  | **Total** | **67** | **67** | **0** | **0** |
+- **Contrôles** : 21 verts du premier coup, fusion, déploiement de production
+  terminé avec succès.
+- **Journal des MAJ** : entrée du 25/11/2026 (correctif).
+
+### Tâche 13 — en attente de Loris (25/11/2026)
+
+- **Fait** : tâches 1 à 12, 14 et 15 en ligne.
+- **Bloque** : aucune organisation enregistrée en base ; les captures doivent
+  montrer le tableau de bord de Loris avec ses blocs.
+- **Question** : « Peux-tu ouvrir Mon profil → Mon organisation, cliquer
+  « Appliquer le modèle Conducteur de travaux », relire puis Enregistrer, et
+  me dire quand c'est fait ? »
 
