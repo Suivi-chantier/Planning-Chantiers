@@ -344,7 +344,12 @@ test("15. module pur, façade, écran et couche données branchés (lecture stat
   assert.match(ecran, /Pour information : les données du chantier ne correspondent plus/, "fiche validée : information seulement");
 
   const donnees = sansCommentaires(lire("src/Renovation/securiteDonnees.js"));
-  const section = donnees.slice(donnees.indexOf("async function toutesLesLignes"));
+  // Section du pré-remplissage seulement : de toutesLesLignes jusqu'au bloc suivant
+  // (tâche 8, qui écrit des signatures et n'appartient pas au pré-remplissage).
+  const debutSection = donnees.indexOf("async function toutesLesLignes");
+  const finSection = donnees.indexOf("export async function", donnees.indexOf("export async function chargerDonneesPreRemplissage") + 1);
+  assert.ok(debutSection >= 0, "toutesLesLignes présente");
+  const section = donnees.slice(debutSection, finSection > debutSection ? finSection : undefined);
   assert.ok(section.length > 100);
   assert.ok(!/\.(insert|update|upsert|delete)\(/.test(section), "pré-remplissage : lecture seule");
   assert.match(section, /loadPhasagesPourLiaison\(\[id\]\)/, "phasage lu par le service existant");
