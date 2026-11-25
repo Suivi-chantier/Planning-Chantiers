@@ -1,0 +1,26 @@
+name: Verify Plan V2 — redressement du relevé (nouvel éditeur de plans, tâche 2)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/planV2/**'
+      - 'src/Renovation/releveImapper.mjs'
+      - 'scripts/verif-plan-v2-redressement.mjs'
+      - 'scripts/fixtures/releve-imapper-reference*'
+      - '.github/workflows/verify-plan-v2-redressement.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Redressement (angles, alignements, épaisseurs) dans la tolérance, points à valider au-delà, cumul borné, ouvertures conservées, relevé non modifié, deuxième passe sans effet
+        run: node scripts/verif-plan-v2-redressement.mjs
