@@ -98,7 +98,7 @@ attendent l'accord de François.
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en ligne (fusion le 25/11/2026, 24 contrôles verts) ; **en attente de François** : reprise des 20 chantiers en cours, alertes dans `notifications`, droit du chargé d'affaires sur l'étape | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | [#287](https://github.com/Suivi-chantier/Planning-Chantiers/pull/287) |
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en ligne (fusion le 25/11/2026 après une correction du contrôle `verif-securite-preremplissage`, qui lisait par erreur les fonctions de signature ajoutées) ; questions à François : signature bloquée sur fiche « à mettre à jour », points 1-2 hors comparaison | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
 | 9a | Page « Justificatifs entreprise » (accès admin + conducteur), rattachement automatique dans la fiche (validation, pastille, alertes, contenu figé v2, PDF) + entrée `journalMaj.js` | en ligne (fusion le 25/11/2026 ; accès revérifié en base : page dans la liste conducteur seulement, admin par auto-grant) | Accès accordé par François le 25/11 | Aptitudes médicales invisibles pour un non-admin (essai en transaction annulée) ; habilitation permanente valide = point 6 satisfait | [#291](https://github.com/Suivi-chantier/Planning-Chantiers/pull/291) |
-| 9b | Bouton « Dossier de contrôle » (ZIP : PDF de la dernière version validée + justificatifs du chantier et de l'entreprise rattachés, sans les confidentiels pour un non-admin) ; alerte « expire sous 30 jours » de l'espace entreprise dans S1 / S2 | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; aucune migration, aucune fonction serveur à redéployer) | Auto (aucune bibliothèque ajoutée) | ZIP relu par un contrôle indépendant ; filtrage confidentiel testé ; alerte 30 jours envoyée une seule fois (tests). Pas de fiche validée réelle en base pour un essai réel | [#292](https://github.com/Suivi-chantier/Planning-Chantiers/pull/292) |
+| 9b | Bouton « Dossier de contrôle » (ZIP : PDF de la dernière version validée + justificatifs du chantier et de l'entreprise rattachés, sans les confidentiels pour un non-admin) ; alerte « expire sous 30 jours » de l'espace entreprise dans S1 / S2 | en ligne (fusion le 25/11/2026, contrôles verts) | Auto (aucune bibliothèque ajoutée) | ZIP relu par un contrôle indépendant ; filtrage confidentiel testé ; alerte 30 jours envoyée une seule fois (tests). Pas de fiche validée réelle en base pour un essai réel | [#292](https://github.com/Suivi-chantier/Planning-Chantiers/pull/292) |
 | 6b | Point 9 : un jour n'est pas « isolé » si un collègue Profero est planifié le même jour sur un autre chantier de la même opération (réponse de François du 25/11) | en ligne (fusion le 25/11/2026, 21 contrôles verts) | Auto | FOUGERAY APPT 101 : les 16 jours « seul » ne sont plus proposés isolés | [#289](https://github.com/Suivi-chantier/Planning-Chantiers/pull/289) |
 | 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | en ligne (fusion le 25/11/2026, #290 ; migration appliquée ; `send-push` v8, `notifications-boite` v4, `notifications-pilotage` v2 redéployées le 25/11 ; premier passage le 26/11 à 7h35) | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | [#290](https://github.com/Suivi-chantier/Planning-Chantiers/pull/290) |
 
@@ -1639,3 +1639,57 @@ aucun confidentiel. **Non vérifié** : un vrai dossier, car aucune fiche
 n'est encore validée en base ; le téléchargement dans un navigateur ; la
 première alerte 30 jours réelle (aucun document dans l'espace entreprise
 pour l'instant).
+
+### 25/11/2026 — Synthèse finale du projet
+
+**Projet terminé** : les tâches 1 à 9b sont en ligne (demandes de fusion
+#281 à #292), toutes fusionnées après des contrôles GitHub verts.
+
+**Ce qui a changé**
+
+- *Conducteurs et bureau* : sur la page d'une opération, bouton « Fiche
+  sécurité » avec un bloc « Bâtiment » et une pastille par chantier. La fiche
+  reprend les 12 points du modèle v2, propose les statuts à partir du phasage,
+  du planning et du bâtiment, reçoit les justificatifs, se signe au doigt
+  (« établie par », « chef d'équipe »), se valide en version figée avec
+  empreinte et PDF stocké sans possibilité d'effacement, et se met à jour avec
+  un motif. Bouton « Dossier de contrôle » (ZIP). Nouvelle page
+  « Justificatifs entreprise » (admin + conducteur), dont les documents
+  valides couvrent automatiquement les fiches.
+- *Direction / admins* : un chantier ne passe plus « en cours » sans fiche
+  validée, sauf forçage admin motivé et tracé ; fiche verrouillée à la
+  clôture ; alertes quotidiennes à 7h35 (S1 fiche sécurité, S2 aptitudes
+  médicales, admins seuls) ; aptitudes médicales visibles des seuls admins,
+  dans l'appli comme dans le stockage.
+- *Ouvriers* : dans l'Accueil de leur espace, lecture des risques et
+  consignes du chantier du jour et signature d'accueil à leur nom.
+
+**Chiffres avant / après (vraie base)**
+
+| | Avant (25/11 matin) | Après (25/11 soir) |
+|---|---|---|
+| Chantiers sans statut | 24 | 0 |
+| Fiches sécurité | 0 | 20 (brouillons de reprise, chantiers en cours) |
+| Tables `securite_` | 0 | 5 + 2 vues |
+| Tâches planifiées | 9 | 10 |
+| Rôles voyant « Justificatifs entreprise » | — | admin (auto-grant), conducteur |
+
+Aucun chiffre financier touché.
+
+**Points en suspens**
+
+- Libellés des cases à cocher : proposition à aligner sur le PDF v2 de la
+  procédure (non fourni) avant que les fiches soient remplies.
+- Premier envoi réel des alertes : jeudi 26/11 à 7h35 ; vérification
+  programmée à 7h50.
+- Aucun test dans un navigateur depuis l'environnement de Claude : premier
+  parcours réel à faire par François (créer, remplir, signer, valider une
+  fiche, télécharger le PDF et le dossier de contrôle).
+- Choix à confirmer : seul un ouvrier Profero compte comme collègue pour le
+  travail isolé.
+
+**Entrées ajoutées dans `src/Renovation/journalMaj.js`** : première livraison
+(fiche, signatures, validation, PDF), pré-remplissage, cycle de vie
+(démarrage bloqué, verrouillage), accueil des ouvriers, travail isolé,
+alertes dans la cloche, page « Justificatifs entreprise », dossier de
+contrôle et alerte 30 jours.
