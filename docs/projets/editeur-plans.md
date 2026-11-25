@@ -143,10 +143,10 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | en ligne | Contrôles verts | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu | [#269](https://github.com/Suivi-chantier/Planning-Chantiers/pull/269) |
 | 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | en ligne | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** |[#271](https://github.com/Suivi-chantier/Planning-Chantiers/pull/271) |
-| 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | à faire | Droits accordés par Loris (question 1, « oui ») : mêmes droits que `plans` ; migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
+| 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | en cours | Droits accordés par Loris (question 1, « oui ») : mêmes droits que `plans` ; migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
 | 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | à faire | Droits accordés par Loris (question 1, « oui ») : admin seul ; contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
 | 5 | Création par dépôt des exports iMapper (DXF + PDF), avec le parcours d'import existant, réutilisé tel quel. | à faire | Contrôles verts | Un import du DXF de référence donne le même relevé que dans l'ancien éditeur | — |
-| 6a | Module pur « scène du plan » : à partir du relevé redressé et du modèle, la liste de ce qu'il faut dessiner (pièces colorées par type avec nom et surface, murs pleins à leur épaisseur avec leurs angles, ouvertures, cotes intérieures automatiques, points à valider en orange) et sa sortie en SVG. Script de vérification. Aucun écran. | en cours | Contrôles verts | Images des 2 relevés réels produites par le module (hors application), remises dans la conversation | [#272](https://github.com/Suivi-chantier/Planning-Chantiers/pull/272) |
+| 6a | Module pur « scène du plan » : à partir du relevé redressé et du modèle, la liste de ce qu'il faut dessiner (pièces colorées par type avec nom et surface, murs pleins à leur épaisseur avec leurs angles, ouvertures, cotes intérieures automatiques, points à valider en orange) et sa sortie en SVG. Script de vérification. Aucun écran. | en ligne | Contrôles verts | Images des 2 relevés réels produites par le module (hors application), remises dans la conversation | [#272](https://github.com/Suivi-chantier/Planning-Chantiers/pull/272) |
 | 6b | Affichage dans la page : composant SVG qui dessine la scène ; déplacement et zoom à la souris et au doigt (pincement). | à faire | Contrôles verts (après la tâche 4) | Captures des 2 relevés réels dans l'application | — |
 | 7 | Redressement branché à la création du plan ; points à valider affichés en orange, à confirmer ou refuser un par un. | à faire | Contrôles verts | Sur les 2 relevés réels : liste des points à valider, capture avant / après | — |
 | 8 | Panneau de pièce (nom, type, hauteur sous plafond, métrés, photos de ses murs) ; sauvegarde automatique. | à faire | Contrôles verts | Métrés du panneau = ceux de l'ancien éditeur, pièce par pièce | — |
@@ -628,6 +628,24 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 - **25/11/2026 — Ordre des tâches après ces réponses.** Après 6a : tâche 3
   (table), tâche 4 (page), puis 5, 6b, 7, 8, 9 comme prévu.
 
+- **25/11/2026 — Constat sur les relevés réels, vu sur les images de la tâche
+  6a.** Les deux relevés ne sont pas un logement d'un seul tenant : ce sont
+  des îlots de pièces posés à dix ou vingt mètres les uns des autres
+  (3 îlots sur « Louison RDC », 4 sur Montillers). Conséquences à prendre en
+  compte : à l'écran (tâche 6b), pouvoir cadrer sur un îlot ; dans les PDF
+  (tâches 25 à 27), une planche au 1/50 ne peut pas contenir tout le relevé :
+  il faudra une planche par îlot. Aucun des deux relevés ne contient de
+  vraie porte ni fenêtre placée : le dessin des menuiseries n'est vérifié que
+  sur le relevé de référence (données fictives) tant qu'un relevé réel avec
+  ouvertures confirmées n'existe pas en base.
+- **25/11/2026 — Tâche 3 : qui applique la migration.** Le sous-agent écrit
+  la migration ; la session pilote la relit en entier, vérifie sur la base,
+  l'applique, puis aligne le nom du fichier sur la version enregistrée en
+  base (règle de `supabase/migrations/README.md`). Droits de `plans` relevés
+  en base ce jour, à reproduire sur `plans_v2` (accord de Loris, question
+  1) : accès réservé aux comptes connectés, policy `bureau_all` (tout le
+  monde sauf les ouvriers) et policy `profero_collaborateurs_seulement`.
+
 ## Comptes rendus
 
 ### Tâche 1 — modèle de l'existant et murs partagés (24/11/2026)
@@ -885,5 +903,14 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   affichées, 7 repères, 0,00 % de murs dans les pièces — exemple issu des
   tests, données fictives.
 - **Journal des MAJ** : pas d'entrée (rien de visible pour les utilisateurs).
-- **Mise en ligne** : demande de fusion #272, état réel confirmé par la
-  session pilote.
+- **Mise en ligne** : en ligne depuis le 25/11/2026. Demande de fusion #272,
+  16 contrôles verts, fusionnée par la session pilote, déploiement de
+  production terminé avec succès. Un contrôle (« Refonte Opérations, lot 6 »)
+  était d'abord tombé en panne chez GitHub à la préparation de sa machine,
+  avant de lancer la moindre vérification ; relancé une fois, il est passé
+  au vert. L'ouverture de l'application n'a pas pu être testée depuis
+  l'environnement de Claude (site de production non joignable d'ici) ; la
+  tâche n'ajoute aucun écran et aucun fichier chargé par l'application.
+- **Images remises à Loris dans la conversation le 25/11/2026** : plan entier
+  et détail de chacun des deux relevés réels (elles ne sont pas dans le
+  dépôt).
