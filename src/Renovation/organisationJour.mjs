@@ -555,7 +555,9 @@ export const LIENS_BLOCS = deepFreeze({
   chantiers_a_venir: ["operations"],
   administratif_fournisseurs: ["rapprochement", "encours-fournisseurs"],
   tournee_chantiers: ["alertes", "retours-terrain"],
-  planning_semaine_suivante: ["planning"],
+  // Planning semaine (catalogue) + Bilan de semaine, où se trouvent les listes
+  // complètes par chantier et par personne que le bloc abrège (« et N autres »).
+  planning_semaine_suivante: ["planning", "bilan-semaine"],
   materiaux_a_commander: ["planning-commandes"],
 });
 

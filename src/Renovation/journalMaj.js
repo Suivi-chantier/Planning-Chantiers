@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
     type: "correctif",
+    titre: "Bloc « Planning de la semaine suivante » : le lien vers la liste complète est proposé",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }],
+    quoi: "Le bloc du vendredi renvoyait à « la page Bilan de semaine » pour les chantiers et personnes non affichés, mais ne proposait qu'un bouton vers Planning semaine. Il propose désormais aussi un bouton « Bilan de semaine », et précise où se trouve chaque liste complète : la carte « La semaine qui vient » pour les chantiers, l'onglet « Détail des comptes rendus » pour les personnes.",
+    comment: "Rien à faire. Le bouton « Bilan de semaine » n'apparaît que si la page est autorisée pour votre rôle. Les heures affichées ne changent pas.",
+  },
+  {
+    date: "2026-11-25",
+    type: "correctif",
     titre: "Planning semaine sur téléphone : la page tient de nouveau dans l'écran",
     pages: [{ id: "planning", label: "Planning semaine" }],
     quoi: "Sur téléphone, la page Planning semaine débordait à droite : la ligne « Semaine 48 · 2026 · Semaine de 4 jours · 69 % des lignes liées » ne pouvait pas passer à la ligne et élargissait toute la page, si bien que les boutons Simulation et Référence, les chiffres de la semaine et le bord droit des cartes de chantier sortaient de l'écran. Cette ligne passe désormais à la ligne quand la place manque, et toute la page tient dans la largeur du téléphone.",
