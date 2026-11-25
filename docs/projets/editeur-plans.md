@@ -339,6 +339,12 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   quand tous les contrôles sont verts ? » Réponse attendue : « oui ».
   À défaut, Loris peut fusionner lui-même la demande #269.
 
+- **25/11/2026 — Réponse de Loris à la question 4 : « oui, fusionne quand les
+  contrôles sont verts ».** La session pilote fusionne donc elle-même chaque
+  demande de fusion du projet dès que tous ses contrôles sont verts, jamais au
+  rouge. Les questions 1, 2 et 3 restent ouvertes : cette réponse ne les
+  couvre pas.
+
 ## Comptes rendus
 
 ### Tâche 1 — modèle de l'existant et murs partagés (24/11/2026)
