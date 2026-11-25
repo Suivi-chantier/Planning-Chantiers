@@ -97,8 +97,8 @@ attendent l'accord de François.
 | 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | en ligne (fusion le 25/11/2026, contrôles verts ; question posée à François : un collègue dans un autre logement du même immeuble suffit-il à écarter le travail isolé ?) | Auto | Propositions justes sur des chantiers réels (phasage, planning) | [#286](https://github.com/Suivi-chantier/Planning-Chantiers/pull/286) |
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en ligne (fusion le 25/11/2026, 24 contrôles verts) ; **en attente de François** : reprise des 20 chantiers en cours, alertes dans `notifications`, droit du chargé d'affaires sur l'étape | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | [#287](https://github.com/Suivi-chantier/Planning-Chantiers/pull/287) |
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en ligne (fusion le 25/11/2026 après une correction du contrôle `verif-securite-preremplissage`, qui lisait par erreur les fonctions de signature ajoutées) ; questions à François : signature bloquée sur fiche « à mettre à jour », points 1-2 hors comparaison | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
-| 9a | Page « Justificatifs entreprise » (accès admin + conducteur), rattachement automatique dans la fiche (validation, pastille, alertes, contenu figé v2, PDF) + entrée `journalMaj.js` | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; configuration d'accès en base écrite le 25/11) | Accès accordé par François le 25/11 | Aptitudes médicales invisibles pour un non-admin (essai en transaction annulée) ; habilitation permanente valide = point 6 satisfait | [#291](https://github.com/Suivi-chantier/Planning-Chantiers/pull/291) |
-| 9b | Bouton « Dossier de contrôle » (ZIP : PDF de la dernière version validée + justificatifs du chantier et de l'entreprise rattachés, sans les confidentiels pour un non-admin) ; alerte « expire sous 30 jours » de l'espace entreprise dans S1 / S2 | à faire (démarre quand 9a est en ligne) | Auto (ajout d'une bibliothèque ZIP à justifier) | ZIP d'une fiche validée réelle sans document confidentiel pour un non-admin ; alerte 30 jours envoyée une seule fois | — |
+| 9a | Page « Justificatifs entreprise » (accès admin + conducteur), rattachement automatique dans la fiche (validation, pastille, alertes, contenu figé v2, PDF) + entrée `journalMaj.js` | en ligne (fusion le 25/11/2026 ; accès revérifié en base : page dans la liste conducteur seulement, admin par auto-grant) | Accès accordé par François le 25/11 | Aptitudes médicales invisibles pour un non-admin (essai en transaction annulée) ; habilitation permanente valide = point 6 satisfait | [#291](https://github.com/Suivi-chantier/Planning-Chantiers/pull/291) |
+| 9b | Bouton « Dossier de contrôle » (ZIP : PDF de la dernière version validée + justificatifs du chantier et de l'entreprise rattachés, sans les confidentiels pour un non-admin) ; alerte « expire sous 30 jours » de l'espace entreprise dans S1 / S2 | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; aucune migration, aucune fonction serveur à redéployer) | Auto (aucune bibliothèque ajoutée) | ZIP relu par un contrôle indépendant ; filtrage confidentiel testé ; alerte 30 jours envoyée une seule fois (tests). Pas de fiche validée réelle en base pour un essai réel | [#292](https://github.com/Suivi-chantier/Planning-Chantiers/pull/292) |
 | 6b | Point 9 : un jour n'est pas « isolé » si un collègue Profero est planifié le même jour sur un autre chantier de la même opération (réponse de François du 25/11) | en ligne (fusion le 25/11/2026, 21 contrôles verts) | Auto | FOUGERAY APPT 101 : les 16 jours « seul » ne sont plus proposés isolés | [#289](https://github.com/Suivi-chantier/Planning-Chantiers/pull/289) |
 | 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | en ligne (fusion le 25/11/2026, #290 ; migration appliquée ; `send-push` v8, `notifications-boite` v4, `notifications-pilotage` v2 redéployées le 25/11 ; premier passage le 26/11 à 7h35) | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | [#290](https://github.com/Suivi-chantier/Planning-Chantiers/pull/290) |
 
@@ -975,6 +975,67 @@ mécanisme (S1 / S2, sans migration).
   `verif-refonte-lot6`, `verif-organisation-jour`, `verif-notifications-push`.
   Aucune migration.
 
+**25/11/2026 — Tâche 9b : « Dossier de contrôle » et alertes 30 jours.**
+
+- **Aucune bibliothèque ZIP ajoutée.** Le dossier est un ZIP « stocké »
+  (sans compression : PDF et photos sont déjà compressés), écrit par un
+  module pur de quelques dizaines de lignes (`zipStocke`, CRC-32, format ZIP
+  standard, noms en UTF-8). Raison : jszip (~100 Ko) ou fflate auraient
+  apporté de la compression inutile ici et une dépendance de plus ; le
+  module est testé et relu par un contrôle indépendant (et vérifié en local
+  avec `unzip -t` et le module `zipfile` de Python). Limite : 4 Go, 65 535
+  fichiers.
+- **Contenu** (`securiteDossierControle.mjs`, module pur + façade) : la
+  DERNIÈRE version validée (numéro le plus haut parmi les versions figées,
+  donc la v1 si une v2 est en brouillon) ; son PDF (`securite-preuves`) ; les
+  justificatifs du chantier et de l'espace entreprise **tels que figés dans
+  cette version** (ce qui a été signé) ; un document rattaché à plusieurs
+  points = un seul fichier. Rangement : `00_Fiche-securite-<chantier>-vN.pdf`,
+  `Chantier/P04_<type>_<fichier>`, `Espace-entreprise/P06_<type>_<personne>_<fichier>`,
+  `Confidentiel/…` (admin). Noms sans accents ni « / » ni « .. », doublons
+  numérotés. Nom du ZIP : `Dossier-controle-<chantier>-vN-<date>.zip`.
+- **Confidentiel** : un document est confidentiel s'il est de type aptitude
+  médicale ou marqué confidentiel. Non-admin : exclu du plan, sans mention
+  dans A_LIRE.txt ni compte ; ses aptitudes ne sont même pas lues (et la
+  base lui refuse ce bucket). Admin : les aptitudes médicales actives et non
+  expirées de l'espace entreprise sont jointes quand un point concerné les
+  attend (point 4), dans `Confidentiel/`. Choix fait (consigne muette sur
+  lesquelles) : même règle que le rattachement des autres documents.
+- **Bouton** : désactivé avec la raison tant qu'il n'y a pas de version
+  validée, que son PDF n'est pas généré, que son contenu ne correspond plus
+  à l'empreinte ou que les versions sont illisibles. Un fichier illisible
+  n'arrête pas le dossier : il est listé dans `A_LIRE.txt` (dans le ZIP) avec
+  la raison, et l'écran affiche « Dossier téléchargé INCOMPLET » avec la liste.
+  Lecture des fichiers : `lireFichierDossier` (storageChantier.js), limité aux
+  trois buckets concernés, avec le vrai message d'erreur.
+- **Alertes 30 jours** (même mécanisme, mêmes types, aucune migration) :
+  S1 « Justificatif de l'entreprise : expire sous 30 jours » puis, à
+  l'expiration, « Justificatif de l'entreprise expiré » (documents non
+  confidentiels ; clés d'état `justificatif_entreprise_30j:<id>` et
+  `justificatif_entreprise_expire:<id>`, lien vers la page) ; S2 aptitude
+  médicale « expire sous 30 jours » (`aptitude_30j:<id>`), sans nom, en plus
+  de l'aptitude expirée existante. Règle des 30 jours = celle de la vue
+  (`etatExpiration`). Chaque alerte part une fois ; « sous 30 jours » est
+  oubliée à l'expiration et « expiré » prend le relais ; un document retiré
+  (archivé) n'alerte plus. Le job lit en plus la colonne `personne` (texte
+  S1). **Aucune fonction serveur à redéployer** : le catalogue des types
+  (`notificationsPushV1.mjs`) n'a pas changé, le contenu passe la validation
+  de `send-push` (vérifié en local) ; le job `api/_cron` part avec le
+  déploiement de l'application.
+- **Base (lecture seule)** : 0 version figée, 0 justificatif d'entreprise,
+  0 ligne d'état S1/S2 au 25/11 : aucun essai sur une vraie fiche validée
+  possible. **Essai en transaction annulée** (fichiers d'essai dans les trois
+  buckets) : l'admin lit 4/4 fichiers (PDF de version, justificatif de
+  chantier, justificatif d'entreprise, aptitude) ; la comptable lit 3/3 non
+  confidentiels et 0 confidentiel. Après annulation : 0 fichier d'essai.
+  Aucune écriture par l'application dans cette tâche (le ZIP est construit
+  dans le navigateur, rien n'est stocké).
+- Scripts : nouveau `verif-securite-dossier-controle.mjs` (8 vérifications) +
+  workflow ; `verif-securite-entreprise.mjs` (+2 : alertes 30 jours) ;
+  `verif-securite-alertes.mjs` ajusté (liste des alertes S1). Tous les
+  `verif-securite-*`, `verif-notifications-push`, `verif-organisation-jour`,
+  lot5, lot6 : réussis en local.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -1551,3 +1612,30 @@ contrôles GitHub.
 **Reste (tâche 9b).** Le bouton « Dossier de contrôle » (fichier ZIP) et
 l'alerte « expire sous 30 jours » des documents de l'espace entreprise :
 aujourd'hui, seules les expirations déjà passées déclenchent une alerte.
+
+### 25/11/2026 — Tâche 9b : « Dossier de contrôle » et alerte 30 jours
+
+**Ce qui change.** Dans la fiche sécurité d'un chantier, un bouton
+« Dossier de contrôle » prépare d'un clic un fichier ZIP à présenter lors
+d'un contrôle : le PDF de la dernière version validée et tous ses
+justificatifs (ceux du chantier et ceux de l'espace entreprise repris dans la
+fiche), rangés par dossier et nommés par point. Les aptitudes médicales n'y
+sont que pour un administrateur. Tant qu'aucune version n'est validée ou que
+son PDF n'existe pas, le bouton est grisé et dit pourquoi. Si un document ne
+peut pas être lu, le ZIP est quand même produit, avec un fichier
+« A_LIRE.txt » qui dit lequel manque, et l'écran le signale en rouge.
+
+La notification du matin prévient maintenant 30 jours avant l'expiration
+d'un document de l'espace entreprise, puis le jour où il expire (une seule
+fois chacune) ; pour les aptitudes médicales, l'alerte va aux seuls
+administrateurs, sans nom.
+
+**Vérifié.** Contrôles automatiques (exemples issus des tests, données
+fictives) : un non-administrateur ne reçoit aucun document confidentiel, le
+fichier ZIP se relit correctement, chaque alerte ne part qu'une fois. Sur la
+vraie base, dans un essai annulé : l'administrateur peut lire les quatre
+sortes de fichiers du dossier, la comptable les trois non confidentiels et
+aucun confidentiel. **Non vérifié** : un vrai dossier, car aucune fiche
+n'est encore validée en base ; le téléchargement dans un navigateur ; la
+première alerte 30 jours réelle (aucun document dans l'espace entreprise
+pour l'instant).

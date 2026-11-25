@@ -32,7 +32,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FONT, RADIUS, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
-import { ArrowLeft, ShieldCheck, Plus, Trash2, Building2, Paperclip, Camera, PenLine, CheckCircle2, History, FileDown } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Plus, Trash2, Building2, Paperclip, Camera, PenLine, CheckCircle2, History, FileDown, Download } from "lucide-react";
 import {
   POINTS_CARTES, STATUTS_POINT, pointParNumero, libelleJustificatif, libelleStatutPoint,
 } from "./securite/points.js";
@@ -49,6 +49,7 @@ import {
   chargerSignatures, chargerVersions, chargerMotifVersion, empreinteContenu,
   signerFiche, validerFicheSecurite, mettreAJourFiche, dateDuJourLocale, chargerDonneesPreRemplissage,
   chargerVersionsAvecContenu, signerAccueil, marquerAMettreAJour, chargerJustificatifsEntrepriseFiche,
+  preparerDossierControle,
 } from "./securiteDonnees.js";
 import { affectationPersonne, nomsPlanning, texteRattache } from "./securiteEntreprise.js";
 import {
@@ -61,6 +62,7 @@ import {
   preparerJustificatif, estExpire, libelleSignature, justificatifsEntrepriseRattaches,
 } from "./securiteValidation.js";
 import { contenuVersion, empreinteCourte, MOTIF_MIN } from "./securiteVersion.js";
+import { derniereVersionPourDossier } from "./securiteDossierControle.js";
 import { ACCEPT_DOCS } from "./storageChantier.js";
 import SignatureFicheSecurite from "./SignatureFicheSecurite.jsx";
 import { genererPdfVersion, apercuPdfBrouillon, telechargerPdfVersion } from "./securitePdfRendu.js";
@@ -352,6 +354,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   const [messageDoc, setMessageDoc] = useState(null);
   // Tâche 5 : PDF des versions (génération en cours, erreurs par version, aperçu)
   const [pdfEtat, setPdfEtat] = useState({ enCours: null, erreurs: {}, message: null, apercu: false });
+  const [dossier, setDossier] = useState({ enCours: false, erreur: null, resultat: null }); // tâche 9b
   // Tâche 6 : sources du pré-remplissage (phasage, planning, ressources, commandes)
   const [sourcesPre, setSourcesPre] = useState({ charge: false, donnees: null, erreur: null });
   // Tâche 8 : versions avec leur contenu (accueil de l'équipe), signature d'un
@@ -723,6 +726,51 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
     charger();
   };
 
+  // ── Tâche 9b : « Dossier de contrôle » (ZIP) ──
+  // Bouton actif seulement s'il existe une version validée avec son PDF ;
+  // sinon désactivé avec la raison. Fichiers illisibles : listés dans
+  // A_LIRE.txt (dans le ZIP) ET affichés ici, jamais d'échec silencieux.
+  const etatDossier = !versionsContenu.charge ? { ok: false, raison: "chargement des versions…" }
+    : versionsContenu.erreur ? { ok: false, raison: `versions illisibles (${versionsContenu.erreur})` }
+    : derniereVersionPourDossier(versionsContenu.liste);
+  const telechargerDossier = async () => {
+    setDossier({ enCours: true, erreur: null, resultat: null });
+    const r = await preparerDossierControle({ ficheId, chantierNom: chantier.nom, estAdmin: profil?.role === "admin" });
+    if (r.erreur) { setDossier({ enCours: false, erreur: r.erreur, resultat: null }); return; }
+    const url = URL.createObjectURL(r.blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = r.nom; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    setDossier({ enCours: false, erreur: null, resultat: r });
+  };
+  const blocDossierControle = () => (
+    <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.border}`, fontSize: 12.5, color: T.textSub }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <button onClick={telechargerDossier} disabled={!etatDossier.ok || dossier.enCours}
+          title={etatDossier.ok ? "ZIP : PDF de la dernière version validée et ses justificatifs" : etatDossier.raison}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 13px", minHeight: 38, borderRadius: RADIUS.md,
+            border: `1px solid ${etatDossier.ok ? acc.border : T.border}`, background: etatDossier.ok ? acc.bg10 : "transparent",
+            color: etatDossier.ok ? acc.accent : T.textMuted, fontWeight: 700, fontSize: 13, cursor: etatDossier.ok && !dossier.enCours ? "pointer" : "default", fontFamily: "inherit" }}>
+          <Icon as={Download} size={15}/> {dossier.enCours ? "Préparation du dossier…" : "Dossier de contrôle"}
+        </button>
+        <span>
+          {etatDossier.ok
+            ? `PDF de la v${etatDossier.version.version} validée et ses justificatifs (chantier et espace entreprise)${profil?.role === "admin" ? ", aptitudes médicales comprises (administrateur)" : ""}, en un fichier ZIP.`
+            : `Indisponible : ${etatDossier.raison}.`}
+        </span>
+      </div>
+      {dossier.erreur && <div style={{ marginTop: 6, color: ROUGE, fontWeight: 600 }}>Dossier non préparé : {dossier.erreur}.</div>}
+      {dossier.resultat && (dossier.resultat.manquants.length === 0 ? (
+        <div style={{ marginTop: 6, color: VERT, fontWeight: 600 }}>Dossier téléchargé : {dossier.resultat.nbDocuments} document{dossier.resultat.nbDocuments > 1 ? "s" : ""} (v{dossier.resultat.version}).</div>
+      ) : (
+        <div style={{ marginTop: 6, color: ROUGE, fontWeight: 600 }}>
+          Dossier téléchargé INCOMPLET : {dossier.resultat.manquants.length} document{dossier.resultat.manquants.length > 1 ? "s" : ""} illisible{dossier.resultat.manquants.length > 1 ? "s" : ""}, listé{dossier.resultat.manquants.length > 1 ? "s" : ""} dans A_LIRE.txt :
+          <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{dossier.resultat.manquants.map((m, i) => <li key={i}>{m.libelle} — {m.raison}</li>)}</ul>
+        </div>
+      ))}
+    </div>
+  );
+
   // ── Tâche 8 : accueil de l'équipe (par version) et mise à jour proposée ──
   const idxVersions = indexVersions(versionsContenu.liste || []);
   const versionCourante = versionValideeCourante(lecture.ligne, idxVersions);
@@ -846,6 +894,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                   )}
                 </div>
               )}
+              {lecture.ligne && blocDossierControle()}
               {messageDoc && (
                 <div style={{ marginBottom: 12, fontSize: 12.5, color: ROUGE, fontWeight: 600 }}>{messageDoc}</div>
               )}

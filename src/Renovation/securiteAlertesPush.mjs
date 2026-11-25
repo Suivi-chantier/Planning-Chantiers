@@ -23,20 +23,42 @@
 // renvoyée tant qu'elle reste vraie ; quand elle disparaît (fiche créée,
 // validée, justificatif remplacé…), sa ligne est retirée.
 //
+// Tâche 9b : espace « Justificatifs entreprise ». Même mécanisme, sans
+// nouveau type ni migration :
+//   - S1 : justificatif permanent NON confidentiel qui expire sous 30 jours
+//     (cle_objet « justificatif_entreprise_30j:<id> »), ou expiré et non
+//     retiré (« justificatif_entreprise_expire:<id> ») ; même règle que la
+//     vue securite_justificatifs_expiration (etatExpiration) ;
+//   - S2 (administrateurs) : aptitude médicale qui expire sous 30 jours
+//     (« aptitude_30j:<id> »), en plus de l'aptitude expirée existante ;
+//     jamais de nom dans la notification.
+// Une alerte « sous 30 jours » disparaît à l'expiration (sa ligne d'état est
+// retirée) et l'alerte « expiré » prend le relais : chacune ne part qu'une fois.
+//
 // Invariant « une impossibilité reste visible » : un chantier planifié dont la
 // première date du phasage est inconnue n'est jamais traité comme « pas
 // d'alerte à 7 jours » : il est compté à part et cité dans la notification.
 // ─────────────────────────────────────────────────────────────────────────────
 import { alertesSecurite, TYPES_ALERTE_SECURITE } from "./securiteCycleVie.mjs";
 import { justificatifsRequisManquants, estExpire, estJustificatifActif } from "./securiteValidation.mjs";
+import { etatExpiration } from "./securiteEntreprise.mjs";
+import { libelleJustificatif } from "./securite/points.mjs";
 
 /** Types du catalogue des notifications (notificationsPushV1.mjs). */
 export const TYPE_PUSH_SECURITE = "S1";
 export const TYPE_PUSH_APTITUDES = "S2";
 export const TYPES_PUSH_SECURITE = Object.freeze([TYPE_PUSH_SECURITE, TYPE_PUSH_APTITUDES]);
 
-/** Les quatre alertes de alertesSecurite() qui partent en notification S1. */
-export const ALERTES_NOTIFIEES = Object.freeze(Object.keys(TYPES_ALERTE_SECURITE));
+/** Alertes de l'espace entreprise (tâche 9b), notification S1. */
+export const TYPES_ALERTE_ENTREPRISE = Object.freeze({
+  justificatif_entreprise_30j: "Justificatif de l'entreprise : expire sous 30 jours",
+  justificatif_entreprise_expire: "Justificatif de l'entreprise expiré",
+});
+
+/** Alertes qui partent en notification S1 : les quatre de alertesSecurite() + l'espace entreprise. */
+export const ALERTES_NOTIFIEES = Object.freeze([...Object.keys(TYPES_ALERTE_SECURITE), ...Object.keys(TYPES_ALERTE_ENTREPRISE)]);
+
+export const LIEN_ESPACE_ENTREPRISE = "/?page=justificatifs-entreprise";
 
 /** Libellés courts d'une ligne de la notification regroupée. */
 export const LIBELLES_COURTS = Object.freeze({
@@ -44,6 +66,8 @@ export const LIBELLES_COURTS = Object.freeze({
   fiche_non_validee_j7: "fiche non validée, démarrage dans 7 jours ou moins",
   justificatif_expire: "justificatif requis expiré (chantier en cours)",
   fiche_a_mettre_a_jour: "fiche à mettre à jour",
+  justificatif_entreprise_30j: "expire sous 30 jours (espace entreprise)",
+  justificatif_entreprise_expire: "expiré (espace entreprise)",
 });
 
 export const LIEN_LISTE_CHANTIERS = "/?page=chantiers";
@@ -133,6 +157,44 @@ export function entreesAlertesSecurite({ chantiers = [], fiches = [], phasages =
   return { chantiers: Array.isArray(chantiers) ? chantiers : [], fiches: fichesParChantier, premieresDates, expires, aujourdhui };
 }
 
+/**
+ * Alertes S1 de l'espace entreprise (tâche 9b) : justificatifs permanents
+ * actifs, NON confidentiels, qui expirent sous 30 jours ou sont expirés.
+ * Même règle que la vue (etatExpiration). Forme des alertes de
+ * alertesSecurite(), avec `cle_objet` et `objet_nom` (pas de chantier).
+ */
+export function alertesEspaceEntreprise({ justificatifs = [], aujourdhui } = {}) {
+  const jour = String(aujourdhui || "").slice(0, 10);
+  if (!estDateIso(jour)) return [];
+  const out = [];
+  for (const j of Array.isArray(justificatifs) ? justificatifs : []) {
+    if (j?.portee !== "entreprise" || !estJustificatifActif(j) || j.confidentiel === true || j.type_code === "aptitude_medicale" || !j.expire_le) continue;
+    const etat = etatExpiration(j.expire_le, jour);
+    const type = etat === "expire_bientot" ? "justificatif_entreprise_30j" : etat === "expire" ? "justificatif_entreprise_expire" : null;
+    if (!type) continue;
+    const nom = `${libelleJustificatif(j.type_code)}${j.personne ? ` — ${String(j.personne).trim()}` : ""}`;
+    const d = String(j.expire_le).slice(0, 10).split("-").reverse().join("/");
+    out.push({
+      type, chantier_id: null, cle_objet: `${type}:${j.id}`, objet_nom: nom,
+      titre: `${TYPES_ALERTE_ENTREPRISE[type]} — ${nom}`,
+      texte: type === "justificatif_entreprise_30j"
+        ? `${nom} : expire le ${d}. À renouveler (page « Justificatifs entreprise »).`
+        : `${nom} : expiré depuis le ${d}. Il n'est plus repris dans les fiches sécurité ; ajoutez le document renouvelé.`,
+      lien: LIEN_ESPACE_ENTREPRISE,
+      cle: `securite-${type}-${j.id}-${jour}`,
+    });
+  }
+  return out.sort((a, b) => a.cle_objet.localeCompare(b.cle_objet));
+}
+
+/** Aptitudes médicales actives qui expirent sous 30 jours (S2, administrateurs). */
+export function aptitudesBientotExpirees({ justificatifs = [], aujourdhui } = {}) {
+  const jour = String(aujourdhui || "").slice(0, 10);
+  if (!estDateIso(jour)) return [];
+  return (Array.isArray(justificatifs) ? justificatifs : [])
+    .filter((j) => j?.type_code === "aptitude_medicale" && estJustificatifActif(j) && j.expire_le && etatExpiration(j.expire_le, jour) === "expire_bientot");
+}
+
 /** Aptitudes médicales actives expirées (toutes portées). */
 export function aptitudesExpirees({ justificatifs = [], aujourdhui } = {}) {
   return (Array.isArray(justificatifs) ? justificatifs : [])
@@ -141,14 +203,14 @@ export function aptitudesExpirees({ justificatifs = [], aujourdhui } = {}) {
 
 // ─── 2. Plan d'envoi ────────────────────────────────────────────────────────
 
-export const cleObjetAlerte = (a) => `${a.type}:${a.chantier_id}`;
-export const cleObjetAptitude = (j) => `aptitude:${j.id}`;
+export const cleObjetAlerte = (a) => a.cle_objet || `${a.type}:${a.chantier_id}`;
+export const cleObjetAptitude = (j) => (j.bientot ? `aptitude_30j:${j.id}` : `aptitude:${j.id}`);
 
 /** Contenu de la notification S1 regroupée du jour (null = rien de nouveau). */
 export function contenuPushSecurite({ nouvelles, nomsChantiers = {}, datesInconnues = 0, dateParis }) {
   const n = Array.isArray(nouvelles) ? nouvelles.length : 0;
   if (!n) return null;
-  const nom = (a) => String(nomsChantiers[a.chantier_id] || a.chantier_id);
+  const nom = (a) => String(a.objet_nom || nomsChantiers[a.chantier_id] || a.chantier_id);
   const titre = couper(n === 1 ? a1Titre(nouvelles[0], nom) : `${n} alertes fiche sécurité`, TITRE_MAX);
   const finDates = datesInconnues > 0
     ? `${pluriel(datesInconnues, "chantier planifié", "chantiers planifiés")} sans date au phasage : alerte à 7 jours impossible à calculer.`
@@ -172,27 +234,38 @@ export function contenuPushSecurite({ nouvelles, nomsChantiers = {}, datesInconn
     if (finDates) lignes.push(finDates);
     texte = lignes.join("\n");
   }
-  const chantiersDistincts = new Set(nouvelles.map((a) => a.chantier_id));
+  // Un seul objet (chantier ou espace entreprise) : son lien ; plusieurs
+  // documents de l'espace entreprise seulement : la page ; sinon la liste.
+  const chantiersDistincts = new Set(nouvelles.map((a) => a.cle_objet ? "entreprise" : a.chantier_id));
+  const lienCommun = chantiersDistincts.size === 1 ? nouvelles[0].lien : LIEN_LISTE_CHANTIERS;
   return {
     type: TYPE_PUSH_SECURITE,
     titre,
     texte: couper(texte, TEXTE_MAX),
     // Un seul chantier : sa fiche (bandeau « Fiche sécurité ») ; sinon la liste.
-    lien: chantiersDistincts.size === 1 ? nouvelles[0].lien : LIEN_LISTE_CHANTIERS,
+    lien: lienCommun,
     cle_regroupement: `${TYPE_PUSH_SECURITE}-${dateParis}`,
   };
 }
-const a1Titre = (a, nom) => `${TYPES_ALERTE_SECURITE[a.type] || a.type} — ${nom(a)}`;
+const a1Titre = (a, nom) => `${TYPES_ALERTE_SECURITE[a.type] || TYPES_ALERTE_ENTREPRISE[a.type] || a.type} — ${nom(a)}`;
 
 /** Contenu de la notification S2 (administrateurs) : jamais de nom de personne. */
 export function contenuPushAptitudes({ nouvelles, dateParis }) {
   const n = Array.isArray(nouvelles) ? nouvelles.length : 0;
   if (!n) return null;
+  const nb = nouvelles.filter((j) => j?.bientot === true).length; // tâche 9b : sous 30 jours
+  const ne = n - nb;
+  const morceaux = [
+    ne ? (ne === 1 ? "1 aptitude médicale expirée" : `${ne} aptitudes médicales expirées`) : null,
+    nb ? (nb === 1 ? "1 aptitude médicale expire sous 30 jours" : `${nb} aptitudes médicales expirent sous 30 jours`) : null,
+  ].filter(Boolean);
   return {
     type: TYPE_PUSH_APTITUDES,
-    titre: n === 1 ? "1 aptitude médicale expirée" : `${n} aptitudes médicales expirées`,
-    texte: `${n === 1 ? "Une aptitude médicale a expiré" : `${n} aptitudes médicales ont expiré`} : visite à renouveler. Détail réservé aux administrateurs, dans les justificatifs de l'entreprise.`,
-    lien: "/",
+    titre: morceaux.join(", "),
+    texte: nb === 0
+      ? `${n === 1 ? "Une aptitude médicale a expiré" : `${n} aptitudes médicales ont expiré`} : visite à renouveler. Détail réservé aux administrateurs, dans les justificatifs de l'entreprise.`
+      : `${morceaux.join(", ")} : visite${n > 1 ? "s" : ""} à prévoir. Détail réservé aux administrateurs, page « Justificatifs entreprise ».`,
+    lien: nb === 0 ? "/" : LIEN_ESPACE_ENTREPRISE,
     cle_regroupement: `${TYPE_PUSH_APTITUDES}-${dateParis}`,
   };
 }
@@ -249,7 +322,12 @@ export function planPushSecurite({ alertes = [], aptitudes = [], etatsStockes = 
 export function calculerPlanSecurite({ chantiers, fiches, phasages, justificatifs, etatsStockes, dateParis }) {
   const entrees = entreesAlertesSecurite({ chantiers, fiches, phasages, justificatifs, aujourdhui: dateParis });
   const alertes = alertesSecurite(entrees);
-  const aptitudes = aptitudesExpirees({ justificatifs, aujourdhui: dateParis });
+  // Tâche 9b : espace entreprise (S1 non confidentiels, S2 aptitudes sous 30 jours).
+  const alertesEntreprise = alertesEspaceEntreprise({ justificatifs, aujourdhui: dateParis });
+  const aptitudes = [
+    ...aptitudesExpirees({ justificatifs, aujourdhui: dateParis }),
+    ...aptitudesBientotExpirees({ justificatifs, aujourdhui: dateParis }).map((j) => ({ ...j, bientot: true })),
+  ];
   const nomsChantiers = Object.fromEntries((chantiers || []).filter((c) => c?.id != null).map((c) => [String(c.id), c.nom || String(c.id)]));
-  return { alertes, ...planPushSecurite({ alertes, aptitudes, etatsStockes, nomsChantiers, dateParis }) };
+  return { alertes, alertesEntreprise, ...planPushSecurite({ alertes: [...alertes, ...alertesEntreprise], aptitudes, etatsStockes, nomsChantiers, dateParis }) };
 }

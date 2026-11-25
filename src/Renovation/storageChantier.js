@@ -262,3 +262,27 @@ export async function urlDocumentConfidentiel(path, expiresIn = 600) {
   }
   return data?.signedUrl || null;
 }
+
+// ─── Fiche sécurité, tâche 9b : lecture d'un fichier pour le « Dossier de contrôle » ──
+// Lit un fichier d'un des trois buckets privés concernés → Blob, ou null
+// (raison : derniereErreurDocument()). Les règles de la base décident : un
+// non-admin ne peut rien lire dans securite-confidentiel.
+const BUCKETS_DOSSIER = [BUCKET_CHANTIER_DOCS, BUCKET_PREUVES_SECURITE, BUCKET_CONFIDENTIEL_SECURITE];
+export async function lireFichierDossier(bucket, path) {
+  derniereErreur = "";
+  if (!BUCKETS_DOSSIER.includes(bucket)) { derniereErreur = "Espace de stockage inconnu."; return null; }
+  if (!path) { derniereErreur = "Fichier introuvable."; return null; }
+  const lire = () => supabase.storage.from(bucket).download(path);
+  let { data, error } = await lire();
+  if (error && erreurDeJeton(error)) {
+    const frais = await jetonSession(true);
+    if (!frais) { derniereErreur = MSG_SESSION; return null; }
+    ({ data, error } = await lire());
+  }
+  if (error || !data) {
+    // Message réel (un fichier absent remonte aussi en 400 : pas « session expirée »).
+    derniereErreur = `Lecture refusée : ${error?.message || "fichier vide"}`;
+    return null;
+  }
+  return data;
+}

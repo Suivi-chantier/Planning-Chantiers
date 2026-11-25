@@ -62,7 +62,7 @@ async function calculerPlan(supabase, dateParis) {
     lireTout(supabase, "phasages", "chantier_id, ouvrages"),
     // Même lecture que la pastille du panneau (justificatifs actifs) ; les
     // aptitudes médicales (confidentielles) ne servent qu'au compte S2.
-    lireTout(supabase, "securite_justificatifs", "id, portee, chantier_id, point, type_code, expire_le, archive_le, confidentiel, date_document, created_at",
+    lireTout(supabase, "securite_justificatifs", "id, portee, chantier_id, point, type_code, personne, expire_le, archive_le, confidentiel, date_document, created_at",
       (q) => q.is("archive_le", null)),
     lireTout(supabase, TABLE_ETAT, "type, cle_objet", (q) => q.in("type", M.TYPES_PUSH_SECURITE)),
   ]);
