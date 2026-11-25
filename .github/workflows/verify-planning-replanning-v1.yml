@@ -118,6 +118,8 @@ jobs:
         run: node scripts/verif-prix-lignes-achat.mjs
       - name: Edge Function analyse-commande - verrous et prompt
         run: node scripts/verif-analyse-commande.mjs
+      - name: Edge Function analyse-facture - verrous et prompt
+        run: node scripts/verif-analyse-facture.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression

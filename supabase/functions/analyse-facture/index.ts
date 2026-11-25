@@ -1,29 +1,150 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.105.4"
+import {
+  extraireJeton, validerCorps, verifierProfil, verifierTailleAnnoncee,
+} from "./validation.mjs"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// analyse-facture
+// Lecture d'une facture fournisseur (éventuellement multipages) par Anthropic,
+// pour l'écran « Rapprochement factures ».
+//
+// CETTE FONCTION N'AVAIT AUCUN CONTRÔLE INTERNE jusqu'au 25/11/2026. La
+// passerelle Supabase exigeait un jeton (verify_jwt = true), mais la clé
+// publique « anon », lisible dans le navigateur, en est un : n'importe qui la
+// possédant pouvait faire lire un document par le modèle aux frais de
+// l'entreprise. Elle suit désormais les mêmes verrous que analyse-commande.
+//
+// L'ORDRE EST LA SÉCURITÉ, et il n'est pas négociable :
+//   1. OPTIONS                      → CORS
+//   2. méthode ≠ POST               → 405
+//   3. en-tête Authorization absent
+//      ou mal formé                 → 401
+//   4. jeton validé auprès de Supabase (auth.getUser)
+//   5. profil relu dans `utilisateurs`
+//   6. profil inactif               → 403
+//   7. rôle hors admin/conducteur/comptable → 403
+//   8. SEULEMENT ICI : lecture et validation du corps
+//   9. SEULEMENT ICI : appel à Anthropic
+// Aucun document n'est donc lu, décodé ni transmis avant que l'appelant soit
+// authentifié ET autorisé.
+//
+// D'OÙ VIENT L'AUTORISATION : de la base, jamais du navigateur. Le client
+// Supabase est BORNÉ AU JETON de l'appelant (clé publique + son Authorization) ;
+// la RLS `utilisateurs_select` lui laisse lire sa propre ligne, et rien
+// d'autre. Aucun client privilégié n'est construit ici. Ni `user_metadata`, ni
+// un rôle transmis dans le corps ne sont consultés.
+//
+// CE QUI N'A PAS CHANGÉ, volontairement : le modèle, max_tokens, le prompt et
+// le format de la réponse rendue au navigateur en cas de succès.
+// ─────────────────────────────────────────────────────────────────────────────
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 }
 
+const json = (corps: unknown, status = 200) =>
+  new Response(JSON.stringify(corps), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  })
+
+// Refus : un code stable pour le client, un message lisible, et RIEN d'autre.
+// Jamais de jeton, de clé, d'extrait de document, d'identité ni de détail de
+// configuration — un message d'erreur ne doit rien apprendre à un attaquant.
+const refus = (r: { status: number; code: string; message: string }) =>
+  json({ error: { code: r.code, message: r.message } }, r.status)
+
 serve(async (req) => {
+  const t0 = Date.now()
+
+  // ── 1. CORS ────────────────────────────────────────────────────────────
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders })
   }
 
+  // ── 2. Méthode ─────────────────────────────────────────────────────────
+  if (req.method !== "POST") {
+    return refus({ status: 405, code: "METHODE_NON_AUTORISEE", message: "Méthode non autorisée." })
+  }
+
   try {
-    const body = await req.json()
-    const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")
+    // ── 3. En-tête Authorization ─────────────────────────────────────────
+    const jeton = extraireJeton(req.headers.get("Authorization"))
+    if (!jeton.ok) return refus(jeton)
+
+    // ── 4. Le jeton est-il VRAIMENT valide ? ─────────────────────────────
+    // Client borné au jeton de l'appelant : il ne peut rien faire de plus que
+    // lui. La clé publique ne confère aucun privilège.
+    const url = Deno.env.get("SUPABASE_URL") || ""
+    const clePublique = Deno.env.get("SUPABASE_ANON_KEY") || ""
+    if (!url || !clePublique) {
+      console.error("[analyse-facture] configuration serveur incomplète")
+      return refus({ status: 500, code: "CONFIG_SERVEUR", message: "Service momentanément indisponible." })
+    }
+    const client = createClient(url, clePublique, {
+      global: { headers: { Authorization: `Bearer ${jeton.jwt}` } },
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    const { data: { user }, error: erreurAuth } = await client.auth.getUser()
+    if (erreurAuth || !user?.email) {
+      console.warn(`[analyse-facture] refus 401 : jeton invalide (${Date.now() - t0} ms)`)
+      return refus({ status: 401, code: "JETON_INVALIDE", message: "Authentification requise." })
+    }
+
+    // ── 5, 6, 7. Profil métier : actif, et rôle autorisé ─────────────────
+    // La jointure se fait par e-mail : `utilisateurs` n'a pas de clé étrangère
+    // vers auth.users. C'est la convention des autres Edge Functions.
+    const { data: profil } = await client
+      .from("utilisateurs")
+      .select("role,actif")
+      .eq("email", user.email.toLowerCase())
+      .maybeSingle()
+
+    const autorisation = verifierProfil(profil)
+    if (!autorisation.ok) {
+      // Le code du refus suffit à diagnostiquer : ni e-mail, ni identifiant.
+      console.warn(`[analyse-facture] refus 403 : ${autorisation.code} (${Date.now() - t0} ms)`)
+      return refus(autorisation)
+    }
+
+    // ── 8. Le corps, enfin ───────────────────────────────────────────────
+    // Refus précoce sur la taille annoncée ; la taille réelle est recontrôlée
+    // après décodage, dans validerCorps.
+    const annonce = verifierTailleAnnoncee(req.headers.get("Content-Length"))
+    if (!annonce.ok) {
+      console.warn(`[analyse-facture] refus 413 : ${annonce.code} (rôle ${autorisation.role})`)
+      return refus(annonce)
+    }
+
+    let corps: unknown = null
+    try {
+      corps = await req.json()
+    } catch {
+      return refus({ status: 400, code: "JSON_INVALIDE", message: "Corps de requête illisible : JSON attendu." })
+    }
 
     // Accepte { images: [{ base64, mediaType }] } (facture multi-pages) ou
     // l'ancien { imageBase64, mediaType }.
-    const images = Array.isArray(body.images) && body.images.length
-      ? body.images
-      : (body.imageBase64 ? [{ base64: body.imageBase64, mediaType: body.mediaType }] : [])
+    const valide = validerCorps(corps)
+    if (!valide.ok) {
+      console.warn(`[analyse-facture] refus ${valide.status} : ${valide.code} (rôle ${autorisation.role})`)
+      return refus(valide)
+    }
 
-    const mkBlock = (img) => (img.mediaType === "application/pdf")
+    // ── 9. Anthropic, et pas avant ───────────────────────────────────────
+    const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")
+    if (!ANTHROPIC_KEY) {
+      // Le client n'apprend ni le nom du secret ni sa nature.
+      console.error("[analyse-facture] clé d'analyse absente de la configuration")
+      return refus({ status: 500, code: "CONFIG_SERVEUR", message: "Service momentanément indisponible." })
+    }
+
+    const mkBlock = (img: { base64: string; mediaType: string }) => (img.mediaType === "application/pdf")
       ? { type: "document", source: { type: "base64", media_type: img.mediaType, data: img.base64 } }
       : { type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } }
-    const contentBlocks = images.map(mkBlock)
+    const contentBlocks = valide.images.map(mkBlock)
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -82,13 +203,15 @@ Conserver tous les BL de toutes les pages, sans doublons.
     })
 
     const data = await response.json()
-    return new Response(JSON.stringify(data), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
-    })
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
-    })
+    // Journal : de quoi diagnostiquer, rien de plus. Ni document, ni réponse
+    // brute, ni identité, ni clé.
+    console.log(`[analyse-facture] ok rôle=${autorisation.role} pages=${valide.images.length} anthropic=${response.status} (${Date.now() - t0} ms)`)
+    // Format de réponse INCHANGÉ : le navigateur reçoit ce qu'Anthropic renvoie,
+    // exactement comme avant.
+    return json(data, 200)
+  } catch (_err) {
+    // Le message d'exception peut contenir n'importe quoi : il ne sort pas.
+    console.error(`[analyse-facture] erreur interne (${Date.now() - t0} ms)`)
+    return refus({ status: 500, code: "ERREUR_INTERNE", message: "L'analyse a échoué. Réessayez." })
   }
 })
