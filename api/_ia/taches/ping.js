@@ -13,8 +13,9 @@ module.exports = {
   // avec un compte d'un autre rôle. À élargir si besoin.
   roles: ["admin"],
 
-  modele: "claude-opus-5",
-  max_tokens: 2048,
+  modele: "claude-opus-5-5",
+  effort: "low",
+  max_tokens: 4096,
   cout_max_eur: 0.05,
   sensible: false,
 

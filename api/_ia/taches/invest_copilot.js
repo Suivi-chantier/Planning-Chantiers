@@ -38,8 +38,10 @@ module.exports = {
   // par `autoriser` ci-dessous, avec un message qui dit pourquoi.
   roles: null,
 
-  modele: "claude-sonnet-5",
-  max_tokens: 4096,
+  modele: "claude-sonnet-5-5",
+  effort: "medium",
+  // Le plafond couvre la réflexion du modèle ET la réponse (cf. registre.js).
+  max_tokens: 16000,
   cout_max_eur: 0.15,
   sensible: false,
 

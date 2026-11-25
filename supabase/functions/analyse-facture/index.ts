@@ -33,9 +33,13 @@ serve(async (req) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        // Pour réduire le coût sur gros volume : remplacer par "claude-sonnet-4-6"
-        model: "claude-opus-4-8",
-        max_tokens: 8000,
+        // Pour réduire le coût sur gros volume : remplacer par "claude-sonnet-5-5"
+        model: "claude-opus-5-5",
+        // Sur ce modèle la réflexion est toujours active et compte dans ce
+        // plafond : 8000 pouvait tronquer une facture à nombreux BL.
+        max_tokens: 16000,
+        // Niveau de réflexion : c'est lui qui règle durée et coût de l'appel.
+        output_config: { effort: "medium" },
         messages: [{
           role: "user",
           content: [

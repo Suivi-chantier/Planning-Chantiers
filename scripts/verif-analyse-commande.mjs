@@ -366,8 +366,9 @@ test("22. format de la réponse réussie inchangé", async () => {
   assert.match(INDEX_CODE, /const data = await response\.json\(\)/);
   assert.match(INDEX_CODE, /return json\(data, 200\)/);
   // Modèle, plafond et prompt intacts.
-  assert.match(INDEX_CODE, /model: "claude-opus-4-8"/);
-  assert.match(INDEX_CODE, /max_tokens: 16000/);
+  assert.match(INDEX_CODE, /model: "claude-opus-5-5"/);
+  assert.match(INDEX_CODE, /max_tokens: 24000/);
+  assert.match(INDEX_CODE, /output_config: \{ effort: "medium" \}/);
   assert.match(INDEX_CODE, /Tu es un assistant spécialisé dans l'analyse de documents d'achat BTP/);
   // Depuis le 20/10/2026, l'IA ne calcule plus les remises : l'application s'en charge.
   assert.match(INDEX_CODE, /REMISES \(remise fidélité, remise globale, avoir\) : NE FAIS AUCUN CALCUL DE REMISE/);

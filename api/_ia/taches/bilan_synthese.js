@@ -7,7 +7,7 @@ const LONGUEUR_MAX = 400;
 function texteCourt(v, max) { return typeof v === 'string' && v.length <= max; }
 module.exports = {
   id: 'bilan_synthese', libelle: 'Synthèse de la semaine d\'un chantier (Bilan)', roles: ['admin', 'conducteur'],
-  modele: 'claude-haiku-4-5', max_tokens: 400, cout_max_eur: 0.02, sensible: false,
+  modele: 'claude-haiku-5-5', effort: 'medium', max_tokens: 4000, cout_max_eur: 0.02, sensible: false,
   schema_entree(e) {
     if (!e || !texteCourt(e.chantier, 120) || !texteCourt(e.periode, 120)) return 'Chantier et période requis';
     if (!e.faits || typeof e.faits !== 'object') return 'Faits requis';
