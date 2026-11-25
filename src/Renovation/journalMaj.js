@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
+    type: "amelioration",
+    titre: "Fiche sécurité : un ouvrier seul sur un logement n'est plus compté « isolé » si un collègue travaille le même jour dans l'opération",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Au point 9 (travail isolé), l'appli ne propose plus « concerné » pour un jour où une seule personne est sur le logement si un autre ouvrier Profero est planifié le même jour sur un autre logement de la même opération. Les prestataires ne comptent pas comme collègue. S'il reste au moins un jour vraiment seul, le point reste proposé « concerné ».",
+    comment: "Dans la fiche sécurité, sous le point 9, la raison de la proposition le dit, par exemple « 16 jours avec une seule personne sur le logement, tous couverts par un collègue Profero sur un autre chantier de la même opération ». Le détail liste ces jours avec le nom du collègue.",
+  },
+  {
+    date: "2026-11-25",
     type: "nouveaute",
     titre: "Fiche sécurité : les ouvriers signent l'accueil du chantier sur leur téléphone, et l'appli propose de mettre la fiche à jour quand le chantier change",
     pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Chantiers" }],

@@ -346,8 +346,12 @@ export function proposerPreRemplissage({
   }
 
   // ── Point 9 : travail isolé ──
+  // Un jour avec une seule personne sur ce chantier n'est pas isolé si au
+  // moins un autre ouvrier Profero (ressource du planning, pas prestataire)
+  // est planifié le même jour sur un autre chantier de la même opération
+  // (décision de François du 25/11/2026).
   {
-    if (!pl.ok) fixer(9, "a_completer", `${pl.manque[0].toUpperCase()}${pl.manque.slice(1)} : jours isolés non recherchés.`, { jours: [], illisibles: [] });
+    if (!pl.ok) fixer(9, "a_completer", `${pl.manque[0].toUpperCase()}${pl.manque.slice(1)} : jours isolés non recherchés.`, { jours: [], couverts: [], illisibles: [] });
     else {
       const { jours, illisibles } = joursPlanifies(pl.valeur);
       const autres = new Map(); // date → noms sur les autres chantiers de l'opération
@@ -355,19 +359,31 @@ export function proposerPreRemplissage({
       if (op) {
         joursPlanifies(op.cellules).jours.forEach((j) => autres.set(j.date, j.noms));
       }
-      const isoles = jours.filter((j) => j.noms.length === 1).map((j) => ({
-        date: j.date, semaine: j.semaine, jour: j.jour, personne: j.noms[0],
-        autresSurOperation: op ? (autres.get(j.date) || []).filter((n) => n !== j.noms[0]) : null,
-      }));
+      // Ouvriers Profero : noms reconnus dans les ressources, hors prestataires.
+      const profero = new Set();
+      if (rs.ok) rs.valeur.forEach((r) => { if (r?.kind !== "prestataire") [r?.nom_planning, r?.nom].map(txt).filter(Boolean).forEach((n) => profero.add(normaliser(n))); });
+      const seuls = jours.filter((j) => j.noms.length === 1).map((j) => {
+        const autresSurOperation = op ? (autres.get(j.date) || []).filter((n) => n !== j.noms[0]) : null;
+        return {
+          date: j.date, semaine: j.semaine, jour: j.jour, personne: j.noms[0], autresSurOperation,
+          collegues: (autresSurOperation || []).filter((n) => profero.has(normaliser(n))),
+        };
+      });
+      const couverts = seuls.filter((j) => j.collegues.length);
+      const isoles = seuls.filter((j) => !j.collegues.length);
       const notes = [];
       if (illisibles.length) notes.push(`${pluriel(illisibles.length, "case du planning illisible", "cases du planning illisibles")} (${listeCourte(illisibles, 2)})`);
-      if (!jours.length) fixer(9, "a_completer", `Aucun jour planifié avec du personnel sur ce chantier${notes.length ? ` ; ${notes.join(" ; ")}` : ""}.`, { jours: [], illisibles });
+      if (seuls.length && !op && planningOperation) notes.push("planning des autres chantiers de l'opération illisible : collègues non recherchés");
+      if (seuls.length && op && !rs.ok) notes.push(`${rs.manque} : collègues Profero non reconnus`);
+      const suite = notes.length ? ` ; ${notes.join(" ; ")}` : "";
+      const surOp = "par un collègue Profero sur un autre chantier de la même opération";
+      if (!jours.length) fixer(9, "a_completer", `Aucun jour planifié avec du personnel sur ce chantier${suite}.`, { jours: [], couverts: [], illisibles });
       else if (isoles.length) {
-        const accompagnes = isoles.filter((j) => j.autresSurOperation && j.autresSurOperation.length).length;
-        if (op && accompagnes) notes.push(`dont ${accompagnes} où d'autres personnes travaillent sur un autre chantier de l'opération`);
-        if (!op && planningOperation) notes.push("planning des autres chantiers de l'opération illisible");
-        fixer(9, "concerne", `${pluriel(isoles.length, "jour planifié", "jours planifiés")} avec une seule personne sur ${jours.length} (${listeCourte(isoles.map((j) => `${dateFr(j.date)} ${j.personne}`), 3)})${notes.length ? ` ; ${notes.join(" ; ")}` : ""}.`, { jours: isoles, illisibles });
-      } else fixer(9, "non_concerne", `Toujours au moins 2 personnes sur les ${jours.length} jours planifiés${notes.length ? ` ; ${notes.join(" ; ")}` : ""}.`, { jours: [], illisibles });
+        const dontCouverts = couverts.length ? ` ; ${pluriel(couverts.length, "autre jour seul sur le logement couvert", "autres jours seuls sur le logement couverts")} ${surOp}` : "";
+        fixer(9, "concerne", `${pluriel(isoles.length, "jour planifié", "jours planifiés")} avec une seule personne sur ${jours.length} (${listeCourte(isoles.map((j) => `${dateFr(j.date)} ${j.personne}`), 3)})${dontCouverts}${suite}.`, { jours: isoles, couverts, illisibles });
+      } else if (couverts.length) {
+        fixer(9, "non_concerne", `${pluriel(couverts.length, "jour avec une seule personne sur le logement, couvert", "jours avec une seule personne sur le logement, tous couverts")} ${surOp} (${jours.length} jours planifiés)${suite}.`, { jours: [], couverts, illisibles });
+      } else fixer(9, "non_concerne", `Toujours au moins 2 personnes sur les ${jours.length} jours planifiés${suite}.`, { jours: [], couverts: [], illisibles });
     }
   }
 

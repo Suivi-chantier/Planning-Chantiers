@@ -96,8 +96,10 @@ attendent l'accord de François.
 | 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | en ligne (fusion le 25/11/2026, 20 contrôles verts ; génération réelle à confirmer dans l'appli) — **première livraison complète** | Auto | PDF conforme au modèle v2 avec signatures | [#285](https://github.com/Suivi-chantier/Planning-Chantiers/pull/285) |
 | 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | en ligne (fusion le 25/11/2026, contrôles verts ; question posée à François : un collègue dans un autre logement du même immeuble suffit-il à écarter le travail isolé ?) | Auto | Propositions justes sur des chantiers réels (phasage, planning) | [#286](https://github.com/Suivi-chantier/Planning-Chantiers/pull/286) |
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en ligne (fusion le 25/11/2026, 24 contrôles verts) ; **en attente de François** : reprise des 20 chantiers en cours, alertes dans `notifications`, droit du chargé d'affaires sur l'étape | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | [#287](https://github.com/Suivi-chantier/Planning-Chantiers/pull/287) |
-| 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; essai sur la vraie base en transaction annulée conforme) | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
-| 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire | **Arrêt** : nouvelle page, qui la voit | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
+| 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en ligne (fusion le 25/11/2026 après une correction du contrôle `verif-securite-preremplissage`, qui lisait par erreur les fonctions de signature ajoutées) ; questions à François : signature bloquée sur fiche « à mettre à jour », points 1-2 hors comparaison | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
+| 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire (François : admin + conducteur) | Accès accordé par François le 25/11 | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
+| 6b | Point 9 : un jour n'est pas « isolé » si un collègue Profero est planifié le même jour sur un autre chantier de la même opération (réponse de François du 25/11) | en cours (demande de fusion ouverte, contrôles GitHub en attente) | Auto | FOUGERAY APPT 101 : les 16 jours « seul » ne sont plus proposés isolés | [#289](https://github.com/Suivi-chantier/Planning-Chantiers/pull/289) |
+| 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | à faire | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | — |
 
 ## Journal des décisions
 
@@ -760,6 +762,54 @@ tâche 3 par l'enregistrement automatique).
   « en cours ».
 - Aucune migration, aucune règle de droits modifiée, aucune page ajoutée.
 
+**25/11/2026 — Arrêt avant la tâche 9 : questions en attente de François.**
+Tâches 1 à 8 en ligne. La tâche 9 crée une page bureau (arrêt obligatoire :
+`src/access.js`). Questions posées, chacune à réponse courte :
+
+1. Page « Justificatifs entreprise » : quels rôles la voient, en plus d'admin
+   (auto-grant) ? Proposition : admin et conducteur ; aptitudes médicales
+   visibles des seuls admins quoi qu'il arrive.
+2. Reprise : créer les fiches brouillon des 20 chantiers en cours
+   (`sql/20261125_securite_fiches_reprise_en_cours.sql`) ? Proposition : oui.
+3. Alertes dans `notifications` (nouveau type + tâche planifiée) ?
+   Proposition : oui.
+4. Chargé d'affaires et étape « Fiche sécurité validée » ? Proposition : non.
+5. Travail isolé : un collègue dans un autre logement du même immeuble
+   suffit-il ?
+6. Accueil : ouvriers bloqués pendant « à mettre à jour » (le bureau peut
+   faire signer) — d'accord ? Points 1-2 hors comparaison — d'accord ?
+7. PDF v2 de la procédure (cases à aligner) ; comptes conducteurs non reliés :
+   à examiner ?
+
+**25/11/2026 — Réponses de François** : « 1 admin+conducteur, 2 oui, 3 oui,
+4 non, 5 oui, 6 ok » (question 7 sans réponse, reste ouverte).
+
+- 1 → tâche 9 : page « Justificatifs entreprise » visible admin (auto-grant)
+  et conducteur ; aptitudes médicales réservées aux admins.
+- 2 → reprise appliquée le 25/11/2026 (script
+  `sql/20261125_securite_fiches_reprise_en_cours.sql`, purement additif).
+  Avant : 20 chantiers en cours, 0 fiche, 0 étape, 0 ligne de journal
+  `fiche_securite`. Écrit : 20 fiches brouillon (`cree_par = 'Reprise mise en
+  service'`), 20 lignes de journal, 20 étapes du cycle de vie. Après :
+  20 fiches brouillon sur les 20 chantiers en cours ; statuts des chantiers
+  inchangés. Retour arrière : fiches identifiables par `cree_par`.
+- 3 → nouvelle tâche 7b : alertes sécurité dans `notifications` (modification
+  de la table existante + tâche planifiée), accord donné.
+- 4 → aucun changement.
+- 5 → nouvelle tâche 6b : au point 9, un jour n'est pas « isolé » si un
+  collègue Profero travaille le même jour sur un autre chantier de la même
+  opération.
+- 6 → règles d'accueil confirmées telles qu'en ligne.
+
+**25/11/2026 — Tâche 6b, règle retenue** : un « collègue » est un nom du
+planning reconnu dans les ressources (`planning_resources`) et qui n'est pas
+un prestataire. Un prestataire ou un nom absent des ressources ne couvre
+pas un jour (prudence : on ne peut pas dire que c'est un ouvrier Profero).
+Si les ressources ou le planning des autres chantiers sont illisibles, les
+jours seuls restent proposés « isolés » et la raison dit pourquoi. Le point 9
+reste « concerné » dès qu'un seul jour est vraiment seul ; les jours couverts
+sont alors cités à part dans la raison et ne s'ajoutent pas aux mesures.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -1227,3 +1277,24 @@ l'environnement de Claude : les écrans dans un navigateur ou un téléphone
 (tracé au doigt, ouverture repliée, panneau) — à faire sur la première
 fiche validée ; la compilation et les autres contrôles sont faits par
 GitHub.
+
+### 25/11/2026 — Tâche 6b : travail isolé, les collègues de la même opération comptent
+
+**Ce qui change.** Au point 9 de la fiche sécurité, un jour où une seule
+personne est planifiée sur le logement n'est plus proposé comme « travail
+isolé » si un autre ouvrier Profero est planifié le même jour sur un autre
+logement de la même opération (votre réponse du 25/11). Les prestataires et
+les noms inconnus du planning ne comptent pas comme collègue. Le point reste
+« concerné » s'il reste au moins un jour vraiment seul.
+
+**Résultat sur les vrais chantiers** (requête sur la base du 25/11/2026) :
+
+| Chantier | Avant | Après |
+|---|---|---|
+| FOUGERAY APPT 101 | Concerné : 16 jours seul sur 37 | Non concerné : « 16 jours avec une seule personne sur le logement, tous couverts par un collègue Profero sur un autre chantier de la même opération (37 jours planifiés). » |
+| KATHLEEN T2 | Concerné : 2 jours sur 17 (13/10 et 26/10/2026, Steven) | Inchangé : concerné, 2 jours (l'autre chantier de l'opération, « Faux plafond entrée », n'a aucun jour planifié) |
+
+**Vérifié.** Contrôle `verif-securite-preremplissage` mis à jour (exemples
+issus des tests, données fictives) et lancé en local : 15 vérifications
+réussies. Les autres contrôles et la compilation sont faits par GitHub.
+

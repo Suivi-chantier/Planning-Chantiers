@@ -202,14 +202,38 @@ test("8. point 8 : étage sans ascenseur, rez-de-chaussée, inconnu ; quantités
   assert.match(texteAidesManutention(a), /menuiseries 1 ligne sans quantité/);
 });
 
-test("9. point 9 : jours avec une seule personne (date calculée), autres logements de l'opération", () => {
+test("9. point 9 : jours avec une seule personne (date calculée), couverts par un collègue Profero de l'opération", () => {
   const p = P().p9;
   assert.equal(p.statut_propose, "concerne");
-  assert.deepEqual(p.valeurs.jours.map((j) => [j.date, j.personne]), [["2026-12-08", "Ouvrier A"], ["2026-12-17", "Presta X"]]);
-  assert.deepEqual(p.valeurs.jours[0].autresSurOperation, ["Ouvrier B"]);
-  assert.match(p.raison_proposition, /2 jours planifiés avec une seule personne sur 3/);
-  assert.match(p.raison_proposition, /dont 1 où d'autres personnes travaillent sur un autre chantier/);
-  assert.equal(texteJoursIsoles(p.valeurs.jours), "Jours avec une seule personne : 08/12/2026 (Ouvrier A), 17/12/2026 (Presta X).");
+  // Mardi 08/12 : Ouvrier A seul sur le logement, mais Ouvrier B (Profero) sur un autre logement de l'opération → couvert.
+  assert.deepEqual(p.valeurs.jours.map((j) => [j.date, j.personne]), [["2026-12-17", "Presta X"]]);
+  assert.deepEqual(p.valeurs.couverts.map((j) => [j.date, j.personne, j.collegues]), [["2026-12-08", "Ouvrier A", ["Ouvrier B"]]]);
+  assert.match(p.raison_proposition, /^1 jour planifié avec une seule personne sur 3 \(17\/12\/2026 Presta X\)/);
+  assert.match(p.raison_proposition, /1 autre jour seul sur le logement couvert par un collègue Profero sur un autre chantier de la même opération/);
+  assert.equal(texteJoursIsoles(p.valeurs.jours), "Jours avec une seule personne : 17/12/2026 (Presta X).");
+  // Tous les jours seuls couverts → non concerné, la raison le dit.
+  const tousCouverts = P({ planningOperation: { cellules: [cel("2026-W50", "Mardi", ["Ouvrier B"]), cel("2026-W51", "Jeudi", ["Ouvrier A"])], erreur: null } }).p9;
+  assert.equal(tousCouverts.statut_propose, "non_concerne");
+  assert.equal(tousCouverts.raison_proposition, "2 jours avec une seule personne sur le logement, tous couverts par un collègue Profero sur un autre chantier de la même opération (3 jours planifiés).");
+  assert.deepEqual(tousCouverts.valeurs.jours, []);
+  // Un prestataire sur l'autre logement ne couvre pas : ce n'est pas un ouvrier Profero.
+  const presta = P({ planningOperation: { cellules: [cel("2026-W50", "Mardi", ["Presta X"])], erreur: null } }).p9;
+  assert.equal(presta.statut_propose, "concerne");
+  assert.deepEqual(presta.valeurs.jours.map((j) => [j.date, j.autresSurOperation, j.collegues]), [["2026-12-08", ["Presta X"], []], ["2026-12-17", [], []]]);
+  // Même semaine mais autre jour : ne couvre pas.
+  const autreJour = P({ planningOperation: { cellules: [cel("2026-W50", "Mercredi", ["Ouvrier B"])], erreur: null } }).p9;
+  assert.equal(autreJour.valeurs.jours.length, 2);
+  // Un nom absent des ressources n'est pas compté comme collègue Profero.
+  const inconnu = P({ planningOperation: { cellules: [cel("2026-W50", "Mardi", ["Inconnu Z"])], erreur: null } }).p9;
+  assert.equal(inconnu.valeurs.couverts.length, 0);
+  // Ressources illisibles : on ne peut pas reconnaître un collègue, l'impossibilité est dite.
+  const sansRess = P({ ressources: { liste: null, erreur: "refus" } }).p9;
+  assert.equal(sansRess.statut_propose, "concerne");
+  assert.match(sansRess.raison_proposition, /collègues Profero non reconnus/);
+  // Planning de l'opération illisible : jours seuls gardés, l'impossibilité est dite.
+  const opIllisible = P({ planningOperation: { cellules: null, erreur: "refus" } }).p9;
+  assert.equal(opIllisible.valeurs.jours.length, 2);
+  assert.match(opIllisible.raison_proposition, /planning des autres chantiers de l'opération illisible/);
   const deux = P({ planning: { cellules: [cel("2026-W50", "Lundi", ["Ouvrier A", "Ouvrier B"]), cel("2026-W50", "Lundi", ["Ouvrier A"])], erreur: null } }).p9;
   assert.equal(deux.statut_propose, "non_concerne", "deux cases du même jour : les personnes s'additionnent");
   const aucun = P({ planning: { cellules: [cel("2026-W50", "Lundi", [])], erreur: null } }).p9;
