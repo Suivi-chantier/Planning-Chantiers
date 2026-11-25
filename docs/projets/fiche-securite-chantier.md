@@ -97,7 +97,7 @@ attendent l'accord de François.
 | 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | en ligne (fusion le 25/11/2026, contrôles verts ; question posée à François : un collègue dans un autre logement du même immeuble suffit-il à écarter le travail isolé ?) | Auto | Propositions justes sur des chantiers réels (phasage, planning) | [#286](https://github.com/Suivi-chantier/Planning-Chantiers/pull/286) |
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en ligne (fusion le 25/11/2026, 24 contrôles verts) ; **en attente de François** : reprise des 20 chantiers en cours, alertes dans `notifications`, droit du chargé d'affaires sur l'étape | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | [#287](https://github.com/Suivi-chantier/Planning-Chantiers/pull/287) |
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en ligne (fusion le 25/11/2026 après une correction du contrôle `verif-securite-preremplissage`, qui lisait par erreur les fonctions de signature ajoutées) ; questions à François : signature bloquée sur fiche « à mettre à jour », points 1-2 hors comparaison | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
-| 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire | **Arrêt** : nouvelle page, qui la voit | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
+| 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | en attente de François (qui voit la nouvelle page) | **Arrêt** : nouvelle page, qui la voit | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
 
 ## Journal des décisions
 
@@ -759,6 +759,25 @@ tâche 3 par l'enregistrement automatique).
   `securite-preuves`, 0 entrée `fiche_securite` au journal, chantier toujours
   « en cours ».
 - Aucune migration, aucune règle de droits modifiée, aucune page ajoutée.
+
+**25/11/2026 — Arrêt avant la tâche 9 : questions en attente de François.**
+Tâches 1 à 8 en ligne. La tâche 9 crée une page bureau (arrêt obligatoire :
+`src/access.js`). Questions posées, chacune à réponse courte :
+
+1. Page « Justificatifs entreprise » : quels rôles la voient, en plus d'admin
+   (auto-grant) ? Proposition : admin et conducteur ; aptitudes médicales
+   visibles des seuls admins quoi qu'il arrive.
+2. Reprise : créer les fiches brouillon des 20 chantiers en cours
+   (`sql/20261125_securite_fiches_reprise_en_cours.sql`) ? Proposition : oui.
+3. Alertes dans `notifications` (nouveau type + tâche planifiée) ?
+   Proposition : oui.
+4. Chargé d'affaires et étape « Fiche sécurité validée » ? Proposition : non.
+5. Travail isolé : un collègue dans un autre logement du même immeuble
+   suffit-il ?
+6. Accueil : ouvriers bloqués pendant « à mettre à jour » (le bureau peut
+   faire signer) — d'accord ? Points 1-2 hors comparaison — d'accord ?
+7. PDF v2 de la procédure (cases à aligner) ; comptes conducteurs non reliés :
+   à examiner ?
 
 ## Comptes rendus
 
