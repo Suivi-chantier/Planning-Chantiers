@@ -235,3 +235,9 @@ restent ici parce que la base les a enregistrées toutes les deux ; la table
 n'existe plus. Le script et le retour arrière cités dans les commentaires de
 la première n'ont jamais été mis en ligne. Détail :
 `docs/projets/editeur-plans.md`, « Arrêt du projet ».
+
+`20261125114305_securite_fiches_chantier.sql` **NON appliquée** (projet « fiche
+de préparation sécurité chantier », tâche 1) : en attente de l'accord de
+François, car elle touche aux droits d'accès. Essayée dans une transaction
+annulée sur la vraie base le 25/11/2026 (54 contrôles conformes, rien n'est
+resté). Détail : `docs/projets/fiche-securite-chantier.md`.

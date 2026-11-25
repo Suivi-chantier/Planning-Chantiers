@@ -89,7 +89,7 @@ attendent l'accord de François.
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | à faire | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | — |
+| 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | **en attente de François** (accord pour appliquer) | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | — (branche `claude/busy-cannon-n478wr`, pas encore de demande de fusion) |
 | 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | à faire | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | — |
 | 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | à faire | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | — |
 | 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | à faire | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | — |
@@ -123,6 +123,45 @@ François).**
 16 à l'étude, 1 planifié, 6 en cours, 15 terminés, **24 sans statut**. Aucune
 table `securite_` n'existe encore. François demande la liste des 24 pour leur
 donner un statut (voir comptes rendus).
+
+**25/11/2026 — Tâche 1 : migration préparée, essayée, NON appliquée.**
+Fichier : `supabase/migrations/20261125114305_securite_fiches_chantier.sql`
+(nom horodaté au lieu de `20261125_…` de la spécification, convention du
+dossier). Écarts avec le SQL de la spécification, et pourquoi :
+
+- a. Verrou `profero_collaborateurs_seulement` de `storage.objects` recréé à
+  l'identique avec `securite-confidentiel` en plus (correction déjà validée).
+  `notes-ouvriers` et `factures-privees` volontairement laissés de côté (hors
+  projet). Aucune autre liste de buckets à tenir à jour dans le dépôt : celles
+  de `scripts/verif-collaborateurs-seulement.mjs` et du document 3A décrivent
+  la migration du 01/10, pas l'état courant.
+- b. Droits SQL explicites, modèle `chantiers_statut_journal` : tout retiré à
+  `anon`, et pour les connectés lecture / ajout / modification seulement, jamais
+  suppression ni vidage ; sur les versions, seule la colonne `pdf_path` peut
+  être modifiée. Sans cela, les droits par défaut de Supabase donnaient tout.
+- c. Vidage complet (`truncate`) des versions et signatures refusé aussi par
+  déclencheur (les déclencheurs ligne par ligne ne le voient pas).
+- d. Signature d'accueil d'un ouvrier : seulement sur la version en cours,
+  validée, d'une fiche d'un chantier non archivé, avec l'empreinte exacte de
+  cette version. En contrepartie, l'ouvrier peut lire les versions des fiches
+  qu'il voit déjà (il en a besoin pour signer).
+- e. Signature saisie au bureau : elle ne peut pas porter le compte d'un autre
+  utilisateur (compte vide pour un sous-traitant, ou celui de la personne
+  connectée). Le SQL d'origine permettait de signer au nom d'un collègue.
+- f. Colonnes qualifiées dans les sous-requêtes des règles ouvrier ; chemin de
+  recherche figé sur les 3 fonctions de déclencheur (recommandation Supabase).
+- g. Garde-fou en fin de migration : elle échoue sans rien laisser si une table
+  `securite_` n'a pas la RLS et le verrou, ou si le bucket n'est pas couvert.
+- Inchangé : `auth_user_id`, vues `security_invoker`, `on delete restrict`.
+  La vue d'état ne calcule pas « prêt à démarrer » (fait dans l'appli).
+- Vérifié en base au passage : aucun objet `securite_` ni bucket
+  `securite-confidentiel` n'existe ; `chantiers.id`, `operations.id` en texte,
+  `chantiers.archive_le` présent ; fonctions de droits présentes.
+- **Constat à trancher (question 2 ci-dessous)** : dans `chantier-documents`,
+  tout collaborateur connecté, ouvriers compris, peut supprimer un fichier
+  (règle existante « chantier-documents suppression »). Les images de
+  signature et les PDF de version prévus dans ce bucket pourraient donc être
+  effacés, même si la ligne en base reste intacte.
 
 ## Comptes rendus
 
@@ -158,3 +197,37 @@ le statut.
 | Montilliers | MONTILLERS APPT 4 (T2) | W43 → 2027-W03 | en cours ? |
 | Tourbouton | TOURBOUTON 101 | W24 → W46 | terminé ? |
 | Tourbouton | TOURBOUTON 102 | W29 → W45 | terminé ? |
+
+### 25/11/2026 — Tâche 1 : migration prête, en attente de votre accord
+
+**Ce que fait la migration.** Elle crée les cinq tableaux de la fiche sécurité
+(données du bâtiment, fiche, versions figées, signatures, justificatifs), deux
+vues pour les pastilles et les expirations, et un dossier de stockage
+`securite-confidentiel` pour les aptitudes médicales. Elle ne modifie aucun
+tableau existant. Seule règle existante touchée : le verrou « réservé aux
+collaborateurs » du stockage, recréé à l'identique avec le nouveau dossier en
+plus.
+
+**Essai sur la vraie base, annulé à la fin (rien n'est resté, vérifié
+ensuite).** 54 contrôles, tous conformes, avec de vrais comptes (un ouvrier,
+la comptable, un admin) et une fiche d'essai sur un chantier en cours :
+
+- chaque nouveau tableau a bien le verrou « réservé aux collaborateurs » ;
+- une version ou une signature ne peut être ni modifiée, ni supprimée, ni
+  vidée, même par un admin ; le PDF d'une version s'enregistre une seule fois ;
+- une aptitude médicale non confidentielle est refusée ; la comptable ne voit
+  pas l'aptitude médicale (ni dans la liste des expirations), l'admin la voit ;
+  la comptable ne peut rien déposer dans le dossier confidentiel ;
+- l'ouvrier voit la fiche, signe l'accueil à son nom, et ne peut ni signer
+  pour un autre, ni signer « chef d'équipe », ni modifier la fiche ;
+- une fiche verrouillée (chantier terminé) ne peut plus être modifiée ;
+- personne sans compte ne lit quoi que ce soit.
+
+**Questions pour François** (réponse en une phrase) :
+
+1. J'applique la migration sur la vraie base ? (oui / non)
+2. Les images de signature et les PDF de version doivent-ils aller dans un
+   dossier de stockage à part où rien ne peut être supprimé (au lieu de
+   `chantier-documents`, où tout collaborateur peut effacer un fichier) ?
+   Si oui, je l'ajoute à cette même migration avant de l'appliquer.
+
