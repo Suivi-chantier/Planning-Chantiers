@@ -146,7 +146,8 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 | 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
 | 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
 | 5 | Création par dépôt des exports iMapper (DXF + PDF), avec le parcours d'import existant, réutilisé tel quel. | à faire | Contrôles verts | Un import du DXF de référence donne le même relevé que dans l'ancien éditeur | — |
-| 6 | Affichage SVG : pièces colorées par type avec nom et surface, murs pleins à leur épaisseur, ouvertures, cotes intérieures automatiques ; déplacement et zoom à la souris et au doigt (pincement). | à faire | Contrôles verts | Captures des 2 relevés réels | — |
+| 6a | Module pur « scène du plan » : à partir du relevé redressé et du modèle, la liste de ce qu'il faut dessiner (pièces colorées par type avec nom et surface, murs pleins à leur épaisseur avec leurs angles, ouvertures, cotes intérieures automatiques, points à valider en orange) et sa sortie en SVG. Script de vérification. Aucun écran. | à faire | Contrôles verts | Images des 2 relevés réels produites par le module (hors application), remises dans la conversation | — |
+| 6b | Affichage dans la page : composant SVG qui dessine la scène ; déplacement et zoom à la souris et au doigt (pincement). | à faire | Contrôles verts (après la tâche 4) | Captures des 2 relevés réels dans l'application | — |
 | 7 | Redressement branché à la création du plan ; points à valider affichés en orange, à confirmer ou refuser un par un. | à faire | Contrôles verts | Sur les 2 relevés réels : liste des points à valider, capture avant / après | — |
 | 8 | Panneau de pièce (nom, type, hauteur sous plafond, métrés, photos de ses murs) ; sauvegarde automatique. | à faire | Contrôles verts | Métrés du panneau = ceux de l'ancien éditeur, pièce par pièce | — |
 | 9 | **Fin d'étape 1** : tableau de comparaison des métrés ancien / nouvel éditeur sur tous les relevés réels en base, captures. | à faire | **Arrêt si un seul métré diffère** | Tableau recopié dans le compte rendu, écart nul | — |
@@ -452,6 +453,37 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   - Tâche 6 (affichage) : les murs dessinés du relevé redressé suivent les
     pièces mais ne sont pas redessinés ; leurs faces extérieures peuvent
     garder un écart de l'ordre du millimètre entre deux murs voisins.
+
+- **25/11/2026 — Modification du plan : la tâche 6 est coupée en 6a et 6b, et
+  6a passe avant les tâches 3 à 5.** Raison : les tâches 3 et 4 attendent la
+  réponse de Loris à la question 1 (droits d'accès), et les tâches 5, 6, 7 et
+  8 ont besoin de la page. La partie « calcul de ce qu'il faut dessiner »
+  (6a) est un module pur, sans page ni base : elle peut avancer tout de suite
+  et produire les premières images des relevés réels. L'affichage dans la
+  page (6b) viendra après la tâche 4. Si la question 1 reste sans réponse
+  après 6a, on enchaîne sur la tâche 11 (découpage des pièces, module pur),
+  qui ne dépend d'aucune question.
+- **25/11/2026 — QUESTION 5 à Loris (à trancher avant les tâches 8 et 9, ne
+  bloque pas 6a).** Constat de la tâche 2 : à la création du plan, les métrés
+  affichés du plan redressé sont identiques à ceux de l'ancien éditeur sur
+  les deux relevés réels (0 différence sur 54 et sur 78 valeurs), mais de
+  justesse (les valeurs exactes diffèrent de 0,0014 m² au plus), et ils
+  changent dès qu'on accepte un point à valider, puisqu'on déplace alors un
+  mur. Question : « Les métrés du nouvel éditeur suivent le plan redressé :
+  identiques à l'ancien à la création, ils changent quand on accepte de
+  redresser un mur. D'accord ? » Réponse attendue : « oui », ou « non, les
+  métrés restent toujours ceux du relevé brut ». Recommandation : oui (un
+  seul jeu de chiffres pour le plan, les cotes et les métrés) ; la
+  comparaison de fin d'étape 1 se fait alors à la création du plan, avant
+  tout point accepté.
+- **25/11/2026 — Point à régler avec Loris en tâche 7, sur captures (pas une
+  question bloquante).** Le redressement propose 16 points à valider sur
+  « Louison RDC » et 23 sur Montillers. Un tiers sont de petites retouches
+  (moins de 3 cm) ; les autres sont des murs réellement tournés de 1 à 5°,
+  dont la correction déplacerait un bout de mur de 3 à 50 cm. Le réglage
+  « jusqu'à quel angle un mur est presque droit » (5° aujourd'hui) ramène la
+  liste à 13 et 17 points à 3°, 11 et 13 à 2°. À décider en voyant les
+  propositions dessinées.
 
 ## Comptes rendus
 
