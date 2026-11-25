@@ -142,7 +142,7 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | en ligne | Contrôles verts | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu | [#269](https://github.com/Suivi-chantier/Planning-Chantiers/pull/269) |
-| 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | en cours | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** | — |
+| 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | en cours | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** |[#271](https://github.com/Suivi-chantier/Planning-Chantiers/pull/271) |
 | 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
 | 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
 | 5 | Création par dépôt des exports iMapper (DXF + PDF), avec le parcours d'import existant, réutilisé tel quel. | à faire | Contrôles verts | Un import du DXF de référence donne le même relevé que dans l'ancien éditeur | — |
@@ -345,6 +345,114 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   rouge. Les questions 1, 2 et 3 restent ouvertes : cette réponse ne les
   couvre pas.
 
+- **25/11/2026 — Tâche 2 : comment le relevé est redressé.** Deux modules
+  purs : `planV2Redressement.mjs` (ce qu'on corrige et si la tolérance le
+  permet) et `planV2RedressementGeo.mjs` (la géométrie : poser des côtés sur
+  des droites, faire suivre le reste). Aucune IA. Trois natures de correction :
+  - **angle** — le code cherche la ou les directions dominantes du logement :
+    celle que suivent le plus de mètres de murs, à un quart de tour près ; une
+    autre direction n'est retenue que si elle porte au moins 15 % des côtés
+    (aile de bâtiment en biais). Un côté à moins de 5° d'une direction
+    dominante est « presque droit » : on propose de le remettre d'équerre.
+    Au-delà, il est franchement en biais et on n'y touche pas. Les côtés d'une
+    même pièce tournés du même angle (à 0,1° près) forment un seul groupe, qui
+    tourne d'un bloc autour de son centre : les dimensions de la pièce ne
+    changent pas ;
+  - **alignement** — deux côtés parallèles, proches (moins de 1 m de vide
+    entre eux le long de la ligne), décalés de moins de 5 cm : mis sur la même
+    droite, le plus court s'alignant sur le plus long au prorata des
+    longueurs. Un petit décrochement à l'intérieur d'une pièce n'est jamais
+    supprimé : la pièce garde son nombre de côtés ;
+  - **épaisseur** — les deux faces en biais d'un même mur partagé, pas tout à
+    fait parallèles : rendues parallèles, donc épaisseur constante le long du
+    mur. Aucune épaisseur n'est ramenée à une valeur « standard » : celle du
+    relevé est gardée.
+- **25/11/2026 — Tâche 2 : tolérance, cumul, deuxième passe.** Départ 1 cm et
+  0,5°, en paramètres nommés. Une correction n'est appliquée que si aucun
+  sommet ne finit à plus de 1 cm de sa position relevée, toutes corrections
+  cumulées, et si aucun côté ne tourne de plus de 0,5°. Sinon elle devient un
+  point à valider : rien n'est déplacé, la correction proposée et son ampleur
+  sont jointes, et une fonction l'applique sur action de l'utilisateur. Quand
+  deux corrections tiennent chacune dans la tolérance mais pas ensemble, les
+  **deux** deviennent des points à valider : le résultat ne dépend pas d'un
+  ordre de passage, et redresser un relevé déjà redressé ne change plus rien
+  (vérifié sur tous les cas du script et sur les deux relevés réels ; les
+  points à valider d'une deuxième passe sont les mêmes, leur ampleur proposée
+  peut varier de quelques centièmes de millimètre). Le relevé redressé garde
+  la pleine précision du calcul, sans arrondi au dixième de millimètre, sinon
+  un angle droit ne serait plus exact. Les fenêtres « presque droit » (5°,
+  l'écart déjà retenu en tâche 1 pour « parallèles ») et « presque aligné »
+  (5 cm) sont des choix de Claude, réglables : elles décident du nombre de
+  points à valider, pas de ce qui est appliqué.
+- **25/11/2026 — Tâche 2 : ce que devient le reste du relevé.** Les murs
+  dessinés par iMapper suivent les pièces : un coin de mur posé sur un coin de
+  pièce bouge avec lui, la face extérieure d'un mur périphérique suit le coin
+  le plus proche. L'épaisseur dessinée est donc conservée telle quelle, et la
+  tâche 1 y relit les mêmes épaisseurs périphériques. Les ouvertures gardent
+  leur identifiant, leur côté, leur largeur et leur position réelle ; une
+  ouverture qui couvrait tout son côté le couvre toujours. Les points de
+  mesure et les scanners ne bougent pas : ce sont des mesures brutes. Les deux
+  pièces qui se chevauchent (Montillers) deviennent un point à valider sans
+  correction automatique : rien ne dit laquelle des deux a raison.
+- **25/11/2026 — Tâche 2 : constat sur les métrés, à trancher par Loris avant
+  la fin d'étape 1 (question à poser par la session pilote).** Avec les
+  tolérances de départ, les métrés calculés sur le relevé redressé sont
+  identiques à ceux de l'ancien éditeur **à la précision affichée** sur les
+  deux relevés réels (0 valeur différente sur 54 et sur 78). Ils ne sont pas
+  identiques en valeur exacte (38 et 48 valeurs diffèrent, de 0,00035 et
+  0,00135 au plus), et rien ne garantit l'égalité affichée sur un autre
+  relevé : il suffit qu'une valeur soit à moins d'un millimètre d'un
+  changement d'arrondi. Deux faits le montrent. Une première version du
+  calcul faisait pivoter chaque côté autour du centre de la pièce : le bruit
+  du relevé (0,1 mm) s'y trouvait amplifié (jusqu'à 0,9 mm sur Louison) et
+  4 métrés affichés changeaient sur chaque relevé ; ce défaut est corrigé (un côté ne corrige
+  plus son propre bruit qu'autour de son milieu), ce n'est pas un réglage de
+  tolérance. Et sur le relevé de référence anonymisé, où les corrections
+  appliquées vont jusqu'à 8,5 mm, 28 métrés affichés sur 42 changent (exemple
+  issu des tests, données fictives). Enfin, dès qu'un point à valider est
+  accepté, les métrés changent franchement (jusqu'à 0,80 et 1,44 si tous
+  étaient acceptés). Options, avec leurs conséquences :
+  1. métrés toujours calculés sur le relevé brut : identiques par
+     construction, mais le plan dessiné et ses cotes (relevé redressé) ne
+     racontent plus tout à fait la même chose que les métrés, et l'écart
+     grandit avec chaque point accepté ;
+  2. métrés calculés sur le relevé redressé : un seul jeu de chiffres pour le
+     plan, les cotes et les métrés ; identiques à l'affichage sur les deux
+     relevés réels tant qu'aucun point n'est accepté, sans garantie ailleurs,
+     et différents ensuite par décision de l'utilisateur ;
+  3. ne rien appliquer sans validation (tout devient point à valider) :
+     métrés identiques tant que rien n'est accepté, mais 26 et 35 points à
+     valider au lieu de 16 et 23, et aucun nettoyage automatique.
+- **25/11/2026 — Tâche 2 : limites connues, à reprendre dans les tâches
+  suivantes.**
+  - Tâche 7 (écran des points à valider) : 16 et 23 points sur les deux
+    relevés réels. La plupart ne sont pas des « presque » : ce sont des murs
+    réellement tournés de 1 à 5°, dont la correction déplace de 1 à 50 cm.
+    Élargir la tolérance ne règle rien (8 et 14 points à 5 cm et 2°, mais 40
+    et 28 métrés affichés qui changent). Resserrer la fenêtre « presque
+    droit » à 3° ou 2° donne 13 et 17, ou 11 et 13 points. L'écran devra
+    trier par ampleur et permettre d'accepter ou de refuser par pièce.
+  - Tâche 7 : après un point accepté, relancer le redressement fait apparaître
+    les corrections devenues possibles (alignements de la pièce redressée).
+    Chaque relance repart du relevé qu'on lui donne : pour que le cumul reste
+    mesuré depuis le relevé d'origine, garder ce relevé brut et la liste des
+    points acceptés ou refusés (chaque point a une clé stable).
+  - Un point à valider d'angle sur un côté seul peut faire tourner fortement
+    un petit côté voisin presque dans son prolongement (cas réel : redresser
+    de 3,3° un côté de 1,30 m fait tourner de 9,7° son voisin de 22 cm) ;
+    l'ampleur annoncée en tient compte.
+  - Identifiants de murs (tâche 1) : identiques avant et après sur les deux
+    relevés réels. Ce n'est pas garanti : sur le relevé de référence, un bout
+    de raccord de 1,07 cm disparaît parce qu'il passe sous le centimètre en
+    dessous duquel la tâche 1 rattache un reste de côté au mur voisin
+    (exemple issu des tests, données fictives).
+  - Épaisseurs périphériques : la lecture de la tâche 1 avance par pas de
+    1 cm sur des murs dessinés à 30,0 cm ; un déplacement infime la fait
+    basculer de 29 à 30 ou l'inverse (3 et 4 murs sur les relevés réels).
+  - Tâche 6 (affichage) : les murs dessinés du relevé redressé suivent les
+    pièces mais ne sont pas redessinés ; leurs faces extérieures peuvent
+    garder un écart de l'ordre du millimètre entre deux murs voisins.
+
 ## Comptes rendus
 
 ### Tâche 1 — modèle de l'existant et murs partagés (24/11/2026)
@@ -413,3 +521,106 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   fichier chargé par l'application.
 - **Précision** : l'absence de points de mesure dans le relevé « Louison RDC »
   vient bien de la base (le champ y est vide), pas de l'extraction.
+
+### Tâche 2 — redressement du relevé (25/11/2026)
+
+- **Ce qui a changé** : rien de visible à l'écran. L'application sait
+  maintenant « redresser » un relevé iMapper : remettre d'équerre les angles
+  presque droits, mettre sur une même ligne les murs presque alignés, rendre
+  parallèles les deux faces d'un même mur. C'est du calcul, sans IA. Tout ce
+  qui déplacerait un point de plus de 1 cm, ou tournerait un mur de plus de
+  0,5°, n'est **pas** appliqué : c'est rangé dans une liste de points à
+  valider, avec la correction proposée et son ampleur, pour que l'utilisateur
+  décide (tâche 7).
+- **Rien n'est touché dans l'existant** : aucun fichier de l'ancien éditeur
+  ni de la tâche 1 modifié, aucune écriture en base, aucune migration. Le
+  relevé d'origine n'est jamais modifié : le redressement rend un nouveau
+  relevé, de même forme, sur lequel les métrés et le modèle de la tâche 1
+  s'appliquent tels quels.
+- **Essai sur les deux relevés réels de la base**, tolérances de départ (1 cm
+  et 0,5°). Chiffres agrégés ; les relevés eux-mêmes ne sont pas dans le
+  dépôt.
+
+  | | Louison RDC | Montillers appt 1 T3 |
+  |---|---|---|
+  | Direction dominante du logement (part des côtés qui la suivent) | 1,18° (40 %) | 0,88° (25 %) |
+  | **Corrections appliquées** | 10 | 12 |
+  | — angles remis d'équerre (groupes de côtés) | 4 | 7 |
+  | — côtés alignés | 5 | 0 |
+  | — faces de mur rendues parallèles | 1 | 5 |
+  | Sommets déplacés | 54 sur 92 | 60 sur 132 |
+  | Déplacement le plus grand / moyen sur tous les sommets | 0,09 mm / 0,02 mm | 3,14 mm / 0,08 mm |
+  | Rotation la plus grande | 0,04° | 0,29° |
+  | **Points à valider** | 16 | 23 |
+  | — angles | 15 | 19 |
+  | — alignements | 1 | 1 |
+  | — faces de mur | 0 | 2 |
+  | — pièces qui se chevauchent (sans correction proposée) | 0 | 1 |
+  | Déplacement proposé par chaque point, du plus petit au plus grand (cm) | 1,4 · 1,5 · 2,0 · 2,2 · 2,9 · 2,9 · 3,0 · 3,8 · 4,2 · 7,5 · 12,3 · 12,6 · 16,7 · 19,2 · 19,3 · 26,9 | 0,0 · 0,2 · 0,3 · 1,2 · 1,5 · 2,1 · 2,6 · 3,1 · 3,6 · 3,7 · 4,2 · 4,6 · 4,9 · 7,6 · 12,6 · 14,5 · 15,5 · 15,9 · 19,1 · 40,1 · 43,3 · 49,6 |
+  | **Métrés comparés**, relevé brut contre relevé redressé (sol, périmètre, plafond, murs bruts, plinthes, murs nets ; par pièce et au total) | 54 | 78 |
+  | — différents à la précision affichée | **0** | **0** |
+  | — différents en valeur exacte | 38 | 48 |
+  | — écart le plus grand | 0,00035 | 0,00135 |
+  | Murs du modèle (tâche 1), avant → après | 95 → 95, mêmes identifiants et mêmes types | 152 → 152, mêmes identifiants et mêmes types |
+  | Ouvertures rattachées à un mur, avant → après | 55 sur 55 → 55 sur 55 | 3 sur 4 → 3 sur 4 |
+  | Murs partagés dont les deux faces sont parallèles, avant → après | 8 → 13 sur 17 | 9 → 13 sur 22 |
+  | Épaisseurs de mur changées de plus de 0,1 mm | 4 (dont 3 lectures au centimètre qui basculent de 1 cm) | 5 (dont 4 lectures qui basculent de 1 cm ; l'autre passe de 10,00 à 10,18 cm) |
+  | Relevé d'entrée non modifié ; deuxième passe sans effet ; ordre des pièces indifférent | oui | oui |
+
+- **Les métrés, en clair.** Aucun métré affiché ne change sur ces deux
+  relevés : la liste des différences à la précision affichée est vide. Les
+  valeurs exactes, elles, bougent de quelques dixièmes de millimètre ou de
+  millimètre carré. Ce « zéro » n'est donc pas une garantie : sur un autre
+  relevé, une valeur proche d'un changement d'arrondi peut basculer d'un
+  centième. Et il ne vaut que tant qu'aucun point à valider n'est accepté :
+  si tous l'étaient, 34 métrés affichés sur 54 et 58 sur 78 changeraient,
+  jusqu'à 0,80 et 1,44. Le journal détaille le constat et trois options ; la
+  décision revient à Loris.
+- **Les points à valider sont-ils vivables ?** 16 et 23, c'est faisable mais
+  lourd. Un tiers environ sont de petites retouches (moins de 3 cm) ; les
+  autres sont des murs réellement tournés de 1 à 5°, que l'utilisateur
+  refusera ou acceptera en connaissance de cause. Élargir la tolérance ne
+  résout rien :
+
+  | Tolérance | Louison : points à valider | Louison : métrés affichés qui changent | Montillers : points à valider | Montillers : métrés affichés qui changent |
+  |---|---|---|---|---|
+  | 1 cm et 0,5° (départ) | 16 | 0 sur 54 | 23 | 0 sur 78 |
+  | 1 cm et 1° | 16 | 0 | 22 | 4 |
+  | 1 cm et 2° | 16 | 0 | 21 | 4 |
+  | 2 cm et 0,5° | 15 | 9 | 21 | 10 |
+  | 2 cm et 1° | 15 | 9 | 20 | 10 |
+  | 2 cm et 2° | 15 | 11 | 19 | 12 |
+  | 3 cm et 0,5° | 14 | 15 | 21 | 10 |
+  | 3 cm et 1° | 14 | 15 | 19 | 10 |
+  | 3 cm et 2° | 13 | 15 | 18 | 14 |
+  | 5 cm et 0,5° | 14 | 15 | 20 | 16 |
+  | 5 cm et 1° | 13 | 23 | 18 | 16 |
+  | 5 cm et 2° | 8 | 40 | 14 | 28 |
+
+  Ce qui réduit vraiment la liste, c'est de ne plus appeler « presque droit »
+  un mur tourné de plus de 3° ou de 2° (au lieu de 5°) : 13 et 17 points, ou
+  11 et 13, sans changer un seul métré affiché. À l'inverse, ne rien
+  appliquer sans validation donnerait 26 et 35 points.
+- **Points surprenants, creusés** (détail dans le journal) :
+  - Dans ces relevés, la plupart des côtés d'une même pièce sont déjà
+    d'équerre entre eux (surtout sur Louison) ; ce sont des groupes de côtés,
+    souvent la pièce entière, qui sont tournés par rapport au reste du
+    logement, de 0,5 à 4°. D'où le choix de faire tourner ces côtés d'un
+    bloc : les dimensions de la pièce ne changent pas.
+  - Une première version changeait 4 métrés affichés sur chaque relevé pour
+    des déplacements inférieurs au millimètre. Cause trouvée et corrigée (le
+    bruit du relevé était amplifié) ; ce n'est pas un réglage de tolérance.
+  - Les murs du modèle gardent leurs identifiants sur les deux relevés réels,
+    mais ce n'est pas garanti dans tous les cas (voir le journal).
+- **Vérifications automatiques** : nouveau script `verif-plan-v2-redressement`,
+  19 cas, branché sur GitHub. Chaque cas vérifie en plus que le relevé reçu
+  n'est pas modifié, que la tolérance n'est jamais dépassée et qu'une deuxième
+  passe ne change rien. Les logements dessinés ou tirés au sort pour les cas
+  et le relevé de référence anonymisé : exemple issu des tests, données
+  fictives. Sur ce relevé de référence (6 pièces) : 14 corrections appliquées
+  (8 angles, 6 alignements), 7 points à valider, 35 sommets déplacés sur 39,
+  de 8,5 mm au plus, et 28 métrés affichés sur 42 qui changent — exemple issu
+  des tests, données fictives.
+- **Journal des MAJ** : pas d'entrée (rien de visible pour les utilisateurs).
+- **Mise en ligne** : demande de fusion #271, état réel confirmé par la
+  session pilote.
