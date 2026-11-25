@@ -1,0 +1,40 @@
+name: Verify Fiche sécurité (justificatifs entreprise)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/securite/**'
+      - 'src/Renovation/securiteEntreprise.mjs'
+      - 'src/Renovation/securiteEntreprise.js'
+      - 'src/Renovation/securiteValidation.mjs'
+      - 'src/Renovation/securiteVersion.mjs'
+      - 'src/Renovation/securitePdf.mjs'
+      - 'src/Renovation/securiteAccueil.mjs'
+      - 'src/Renovation/securiteAlertesPush.mjs'
+      - 'src/Renovation/securiteDonnees.js'
+      - 'src/Renovation/storageChantier.js'
+      - 'src/Renovation/FicheSecuriteChantier.jsx'
+      - 'src/Renovation/PageJustificatifsEntreprise.jsx'
+      - 'src/Renovation/Navigation.jsx'
+      - 'src/Renovation/journalMaj.js'
+      - 'src/App.jsx'
+      - 'src/access.js'
+      - 'supabase/migrations/*securite_fiches*'
+      - 'scripts/verif-securite-entreprise.mjs'
+      - '.github/workflows/verify-securite-entreprise.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fiche sécurité — espace entreprise, statuts d'expiration, rattachement automatique, aptitudes médicales (modules purs, exemples fictifs)
+        run: node scripts/verif-securite-entreprise.mjs

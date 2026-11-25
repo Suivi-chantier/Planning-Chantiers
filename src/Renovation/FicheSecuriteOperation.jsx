@@ -226,7 +226,7 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
       cibles.forEach((c) => {
         chargerDonneesMiseAJourProposee({ chantier: c, op }).then((d) => {
           if (!actif) return;
-          const res = d.erreur ? { erreur: d.erreur } : propositionsMiseAJour({ fiche: d.fiche, sources: d.sources, lots, justificatifs: d.justificatifs, aujourdhui });
+          const res = d.erreur ? { erreur: d.erreur } : propositionsMiseAJour({ fiche: d.fiche, sources: d.sources, lots, justificatifs: d.justificatifs, justificatifsEntreprise: d.justificatifsEntreprise, aujourdhui });
           setMajProposees((m) => ({ ...m, [c.id]: res }));
         }).catch((e) => actif && setMajProposees((m) => ({ ...m, [c.id]: { erreur: e?.message || String(e) } })));
       });

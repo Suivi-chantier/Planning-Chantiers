@@ -195,7 +195,7 @@ await test("8. contenu figé et empreinte sha256 déterministes", async () => {
   assert.equal(t1, t2);
   assert.ok(!/updated_at|maj_par|archive_le/.test(t1), "rien de volatil dans le contenu figé");
   assert.equal(c1.version, 1);
-  assert.equal(c1.format, "fiche-securite-v1");
+  assert.equal(c1.format, "fiche-securite-v2");
   assert.equal(c1.justificatifs.length, 2);
   // Web Crypto (navigateur) et sha256 de Node donnent la même empreinte, accents compris.
   const wc = Buffer.from(await webcrypto.subtle.digest("SHA-256", new TextEncoder().encode(t1))).toString("hex");

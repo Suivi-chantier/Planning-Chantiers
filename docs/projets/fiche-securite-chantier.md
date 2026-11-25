@@ -97,9 +97,10 @@ attendent l'accord de François.
 | 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | en ligne (fusion le 25/11/2026, contrôles verts ; question posée à François : un collègue dans un autre logement du même immeuble suffit-il à écarter le travail isolé ?) | Auto | Propositions justes sur des chantiers réels (phasage, planning) | [#286](https://github.com/Suivi-chantier/Planning-Chantiers/pull/286) |
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en ligne (fusion le 25/11/2026, 24 contrôles verts) ; **en attente de François** : reprise des 20 chantiers en cours, alertes dans `notifications`, droit du chargé d'affaires sur l'étape | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | [#287](https://github.com/Suivi-chantier/Planning-Chantiers/pull/287) |
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en ligne (fusion le 25/11/2026 après une correction du contrôle `verif-securite-preremplissage`, qui lisait par erreur les fonctions de signature ajoutées) ; questions à François : signature bloquée sur fiche « à mettre à jour », points 1-2 hors comparaison | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
-| 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire (François : admin + conducteur) | Accès accordé par François le 25/11 | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
+| 9a | Page « Justificatifs entreprise » (accès admin + conducteur), rattachement automatique dans la fiche (validation, pastille, alertes, contenu figé v2, PDF) + entrée `journalMaj.js` | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; configuration d'accès en base écrite le 25/11) | Accès accordé par François le 25/11 | Aptitudes médicales invisibles pour un non-admin (essai en transaction annulée) ; habilitation permanente valide = point 6 satisfait | [#291](https://github.com/Suivi-chantier/Planning-Chantiers/pull/291) |
+| 9b | Bouton « Dossier de contrôle » (ZIP : PDF de la dernière version validée + justificatifs du chantier et de l'entreprise rattachés, sans les confidentiels pour un non-admin) ; alerte « expire sous 30 jours » de l'espace entreprise dans S1 / S2 | à faire (démarre quand 9a est en ligne) | Auto (ajout d'une bibliothèque ZIP à justifier) | ZIP d'une fiche validée réelle sans document confidentiel pour un non-admin ; alerte 30 jours envoyée une seule fois | — |
 | 6b | Point 9 : un jour n'est pas « isolé » si un collègue Profero est planifié le même jour sur un autre chantier de la même opération (réponse de François du 25/11) | en ligne (fusion le 25/11/2026, 21 contrôles verts) | Auto | FOUGERAY APPT 101 : les 16 jours « seul » ne sont plus proposés isolés | [#289](https://github.com/Suivi-chantier/Planning-Chantiers/pull/289) |
-| 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | en cours : migration appliquée le 25/11/2026 (types S1/S2, tâche planifiée 7h35 Paris jours ouvrés) ; demande de fusion ouverte ; **après fusion : redéployer `send-push`, `notifications-boite` et `notifications-pilotage`** (catalogue S1/S2) avant le premier passage du 26/11 à 7h35 | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | [#290](https://github.com/Suivi-chantier/Planning-Chantiers/pull/290) |
+| 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | en ligne (fusion le 25/11/2026, #290 ; migration appliquée ; `send-push` v8, `notifications-boite` v4, `notifications-pilotage` v2 redéployées le 25/11 ; premier passage le 26/11 à 7h35) | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | [#290](https://github.com/Suivi-chantier/Planning-Chantiers/pull/290) |
 
 ## Journal des décisions
 
@@ -857,6 +858,123 @@ sont alors cités à part dans la raison et ne s'ajoutent pas aux mesures.
   (erreur dans le résumé du dispatcher), rien n'est inscrit, et il est rejoué
   le lendemain.
 
+**25/11/2026 — Tâche 7b en ligne : fonctions serveur redéployées.** Après la
+fusion de #290 (commit `4b04dd0`), redéploiement depuis `main`, avec les
+fichiers complets du dépôt (fonction + dépendances `_partage/…`), réglage
+« Verify JWT » inchangé (activé) : `send-push` v7 → v8 (6 fichiers),
+`notifications-boite` v3 → v4 (4 fichiers), `notifications-pilotage` v1 → v2
+(5 fichiers). Relu après déploiement : les fichiers en ligne sont identiques
+octet pour octet à ceux du dépôt, et le catalogue contient S1 et S2.
+**Non vérifié** : un appel réel aux fonctions (l'environnement de Claude n'a
+pas accès au domaine Supabase, et la simulation `?job=push_simulation&type=S1`
+exige la clé du dispatcher) ; la première exécution réelle sera celle du
+26/11 à 7h35 (résumé dans `cron.job_run_details` et la réponse du dispatcher).
+
+**25/11/2026 — Tâche 9 découpée en 9a / 9b.** Une seule demande de fusion
+aurait mêlé la page, l'accès, le rattachement (règle de validation et
+contenu figé) et le ZIP (nouvelle bibliothèque : aucune n'est dans
+`package.json`). 9a = page + accès + rattachement ; 9b = « Dossier de
+contrôle » + alerte 30 jours de l'espace entreprise. Constat pour 9b : les
+alertes 7b couvrent déjà « justificatif requis expiré » sur un chantier en
+cours (S1) et « aptitude médicale expirée » (S2), mais **pas** « expire sous
+30 jours » pour l'espace entreprise : à ajouter en 9b dans le même
+mécanisme (S1 / S2, sans migration).
+
+**25/11/2026 — Tâche 9a : page « Justificatifs entreprise » et rattachement automatique.**
+
+- **Accès (accord de François du 25/11, question 1).** Page `justificatifs-entreprise`
+  ajoutée à `src/access.js` (liste des pages, défauts admin et conducteur),
+  aux deux menus et au repli du menu (`Navigation.jsx`), et à `App.jsx`.
+  `loadAccessConfig` relu jusqu'au bout : la liste en base remplace le
+  défaut pour chaque rôle, puis l'admin reçoit toute page de sa liste par
+  défaut absente de la sienne (auto-grant) — **admin la voit par
+  l'auto-grant** ; super_admin a sa propre liste en base sans cette page et
+  n'est pas concerné par l'auto-grant (« admin » seulement) : il ne la voit
+  pas. **Conducteur : par la configuration en base**, écrite le 25/11
+  (donnée de configuration, rien retiré, autres rôles identiques — vérifié
+  dans la même requête). Aucune policy, aucune fonction SECURITY DEFINER,
+  aucun autre rôle touché. À savoir : aucun compte conducteur actif en base
+  aujourd'hui (4 admins, 1 comptable, 2 commerciaux, 7 ouvriers, 1 agent EDL).
+- **Valeur de `planning_config.access_pages_renovation` AVANT (sauvegarde)** :
+  `{"admin":["dashboard","planning","planning-mensuel","notes-todo","commandes","planning-commandes","equipe","plans","phasage","bibliotheque","biblio-materiaux","visite","info-client","compte-rendu","admin","chantiers","dashboard-analyse","phasage-v2","etats-financiers","validation","guide-ouvrages","capture-cmd","rapprochement","notes-ouvriers","operations"],"ouvrier":[],"comptable":["dashboard","chantiers","commandes","biblio-materiaux","phasage","etats-financiers","dashboard-analyse","info-client","visite","bibliotheque","phasage-v2","plans","equipe","planning-commandes","notes-todo","planning-mensuel","planning","notes-ouvriers","operations"],"commercial":["dashboard","chantiers","planning","notes-todo","equipe","plans","phasage","visite","notes-ouvriers","operations"],"conducteur":["dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes","equipe","plans","phasage","bibliotheque","biblio-materiaux","visite","info-client","compte-rendu","notes-ouvriers","operations"],"super_admin":["dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","planning-commandes","equipe","plans","phasage","bibliotheque","biblio-materiaux","visite","info-client","compte-rendu","admin","dashboard-analyse","validation","phasage-v2","etats-financiers","guide-ouvrages","notes-ouvriers","operations"],"charge_affaires":["operations","chantiers","info-client","journal-maj"]}`
+- **APRÈS** : identique, sauf `conducteur` : 17 → 18 pages, `"justificatifs-entreprise"`
+  ajouté en fin de liste. Retour arrière : retirer cette seule valeur de la
+  liste `conducteur`.
+- **Statut d'expiration** : la vue `securite_justificatifs_expiration` fait
+  foi, la page la lit (`etat`). La vue écarte les lignes sans date
+  d'expiration : affichées « sans date d'expiration ». Ligne datée absente de
+  la vue, ou vue illisible : « statut illisible », jamais « valide ».
+  `etatExpiration()` (module pur `securiteEntreprise.mjs`) reproduit la règle
+  pour le contrôle, qui la compare au SQL de la vue.
+- **Types de l'espace entreprise** : habilitation électrique, formations SS4
+  et échafaudage, aptitude médicale (admins), DUERP, mode opératoire amiante,
+  consigne de travail isolé, Kbis, attestations décennale et URSSAF, autre.
+  Personne obligatoire pour habilitation, formations et aptitude.
+- **Stockage** : non confidentiel → `chantier-documents` sous
+  `securite/entreprise/{type}/` ; aptitude médicale → `securite-confidentiel`
+  sous `entreprise/aptitude_medicale/`, `confidentiel = true`, proposé aux
+  seuls admins (`profil.role === "admin"`, même règle que `is_admin()`).
+  Retrait = archivage. Ligne refusée après dépôt : fichier non confidentiel
+  retiré ; fichier confidentiel conservé (aucune suppression possible dans ce
+  bucket), l'écran le dit.
+- **Rattachement automatique — règle retenue.** Types rattachables
+  (`TYPES_RATTACHABLES_ENTREPRISE`) : habilitation électrique, formations SS4
+  et échafaudage, DUERP, mode opératoire amiante, consigne de travail isolé.
+  Un justificatif de portée entreprise, actif, **non confidentiel**, non
+  expiré, est rattaché à chaque point **concerné** qui attend ce type. Il
+  satisfait un requis (point 6 habilitation ; point 9 consigne de travail
+  isolé). Kbis et attestations ne sont pas rattachés (au point 1 ils
+  concernent les entreprises intervenantes, pas Profero) ; la fiche de
+  remise des EPI reste propre à chaque chantier. Même fonction
+  (`justificatifsRequisManquants`) pour la validation, la pastille du
+  panneau, la mise à jour proposée et les alertes S1 (le job lit déjà toutes
+  les portées) : une habilitation de chantier expirée couverte par une
+  habilitation permanente valide ne déclenche plus d'alerte.
+- **Habilitation et personne affectée — écart avec la consigne, et
+  pourquoi.** La consigne : « une personne affectée au chantier si l'info est
+  disponible, sinon n'importe laquelle avec mention ». Retenu : n'importe
+  quelle habilitation valide satisfait l'exigence, et la fiche affiche la
+  mention « au planning de ce chantier » / « pas retrouvé au planning de ce
+  chantier : à vérifier » / « affectation inconnue » (noms de
+  `planning_cells.ouvriers`, sans accents ni casse, prénom seul accepté).
+  Raison : le planning ne doit pas entrer dans la règle ni dans le contenu
+  figé, sinon une modification du planning (ou une lecture en échec) changerait
+  l'empreinte entre la signature et la validation, et les noms du planning
+  (prénoms) ne correspondent pas toujours à ceux des documents. La mention
+  n'est pas figée dans le PDF (la personne y figure).
+- **Contenu figé : format `fiche-securite-v2`**, nouvelle clé
+  `justificatifs_entreprise` (point, origine « entreprise », id, type, fichier,
+  dates, personne, entreprise). Dans l'empreinte. La lecture de l'espace
+  entreprise pour la fiche filtre explicitement `confidentiel = false` :
+  admin et non-admin lisent la même liste, donc la même empreinte. Le PDF et
+  l'accueil de l'équipe lisent v1 et v2 (0 version figée en base au 25/11 :
+  aucune réécriture). Conséquence à connaître : un justificatif permanent
+  ajouté, retiré ou qui expire entre la signature et la validation change
+  l'empreinte → signatures « à refaire » (voulu : la version figée dit ce
+  qui était valable).
+- **PDF** : sous chaque point, justificatifs du chantier puis ceux de
+  l'espace entreprise, « depuis l'espace entreprise, valable jusqu'au … ».
+- **Essais sur la vraie base (transactions annulées, 25/11)**, comptes réels
+  (rôle `authenticated`, identifiant et e-mail dans les claims). Admin
+  (`is_admin()` vrai) : fichier sous `securite/entreprise/…` et ligne
+  habilitation acceptés ; fichier dans `securite-confidentiel` et ligne
+  aptitude acceptés ; lit 2/2 lignes, la vue en donne 2/2 (habilitation
+  « expire_bientot », aptitude « valide ») ; lit le fichier confidentiel (1) ;
+  archive l'aptitude (1 ligne). Comptable (bureau non admin) : fichier et
+  ligne DUERP acceptés ; ligne aptitude refusée (42501, droits) ; aptitude
+  non confidentielle refusée (23514, contrôle) ; fichier confidentiel refusé
+  (42501) ; lit 0 aptitude dans la table, 0 dans la vue, 0 fichier
+  confidentiel ; lit les 2 justificatifs non confidentiels ; archive le DUERP
+  (1 ligne), ne peut pas archiver l'aptitude (0 ligne). Après annulation :
+  0 justificatif, 0 fichier d'essai, 0 fichier confidentiel, 0 fichier sous
+  `securite/entreprise/`.
+- Scripts : nouveau `verif-securite-entreprise.mjs` (13 vérifications,
+  exemples fictifs) + workflow `verify-securite-entreprise.yml` ;
+  `verif-securite-validation.mjs` ajusté (format v2). Lancés en local et
+  réussis : les 10 contrôles `verif-securite-*`, plus `verif-refonte-lot5`,
+  `verif-refonte-lot6`, `verif-organisation-jour`, `verif-notifications-push`.
+  Aucune migration.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -1392,3 +1510,44 @@ GitHub. **Non vérifié** : le premier passage réel (26/11 à 7h35, après la
 fusion et le redéploiement des trois edge functions) et l'affichage de la
 cloche dans un navigateur. La fonction n'a pas été lancée à la main.
 
+### 25/11/2026 — Tâche 9a : la page « Justificatifs entreprise »
+
+**Ce qui change.** Une nouvelle page « Justificatifs entreprise » dans le
+menu range une seule fois les documents permanents de Profero :
+habilitations électriques, formations amiante SS4 et échafaudage, DUERP,
+modes opératoires amiante, consigne de travail isolé, Kbis, attestations…
+Pour chacun : personne, type, date, expiration et statut (valide, expire
+sous 30 jours, expiré), la date la plus proche en haut. On ajoute un document
+par photo ou fichier ; « Retirer » l'archive sans le supprimer. Les aptitudes
+médicales sont réservées aux administrateurs : eux seuls les voient, les
+ajoutent et les ouvrent ; un conducteur n'en voit ni la ligne ni le nombre.
+
+Dans la fiche sécurité d'un chantier, un document permanent encore valable
+est repris tout seul sous le point qui l'attend, en vert « depuis l'espace
+entreprise, valable jusqu'au … » : une habilitation électrique valable suffit
+pour le point 6, une consigne de travail isolé pour le point 9. Pour une
+habilitation, la fiche précise si la personne est au planning du chantier ou
+s'il faut vérifier. Ces documents entrent dans la version validée et dans son
+PDF. Un document expiré n'est plus repris : la fiche redemande le
+justificatif.
+
+**Qui voit la page.** Administrateurs : oui, automatiquement (l'appli donne
+toute nouvelle page aux administrateurs). Conducteurs : oui, par la
+configuration des accès enregistrée en base, complétée le 25/11 (seul
+changement : cette page ajoutée à la liste des conducteurs). Aucun autre
+rôle (comptable, commercial, chargé d'affaires, direction, ouvriers). Il n'y a
+aujourd'hui aucun compte conducteur actif.
+
+**Vérifié.** Sur la vraie base, dans des essais annulés ensuite (rien n'est
+resté) : un administrateur ajoute une habilitation et une aptitude médicale
+et les lit ; la comptable ajoute un DUERP, mais ne peut ni ajouter une
+aptitude médicale, ni déposer un fichier confidentiel, ni en voir aucune.
+Contrôle automatique de 13 vérifications (exemples issus des tests, données
+fictives) et contrôles existants de la fiche sécurité : réussis en local.
+**Non vérifié** : l'affichage dans un navigateur (pas d'accès depuis
+l'environnement de Claude) ; la compilation complète est faite par les
+contrôles GitHub.
+
+**Reste (tâche 9b).** Le bouton « Dossier de contrôle » (fichier ZIP) et
+l'alerte « expire sous 30 jours » des documents de l'espace entreprise :
+aujourd'hui, seules les expirations déjà passées déclenchent une alerte.

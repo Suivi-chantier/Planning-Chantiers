@@ -85,10 +85,15 @@ export function premiereDatePrevuePhasage(ouvrages) {
  * validation de la fiche et que la « mise à jour proposée » (tâche 8) —
  * justificatifsRequisManquants, raison « expire ». Les justificatifs
  * confidentiels n'entrent jamais ici (aptitudes médicales : type S2).
+ * Tâche 9 : un requis couvert par un justificatif permanent valide de
+ * l'espace entreprise n'est pas « expiré » (même règle que la fiche).
  */
-export function nbRequisExpires({ reponses, justificatifs, aujourdhui }) {
-  const actifs = (Array.isArray(justificatifs) ? justificatifs : []).filter((j) => estJustificatifActif(j) && j.confidentiel !== true);
-  const m = justificatifsRequisManquants({ reponses: estObjet(reponses) ? reponses : {}, justificatifs: actifs, aujourdhui });
+export function nbRequisExpires({ reponses, justificatifs, aujourdhui, justificatifsEntreprise = [] }) {
+  const sansConfidentiel = (l) => (Array.isArray(l) ? l : []).filter((j) => estJustificatifActif(j) && j.confidentiel !== true);
+  const m = justificatifsRequisManquants({
+    reponses: estObjet(reponses) ? reponses : {}, justificatifs: sansConfidentiel(justificatifs), aujourdhui,
+    justificatifsEntreprise: sansConfidentiel(justificatifsEntreprise),
+  });
   return (m || []).filter((x) => x.raison === "expire").length;
 }
 
@@ -114,13 +119,15 @@ export function entreesAlertesSecurite({ chantiers = [], fiches = [], phasages =
     if (d && (!premieresDates[id] || d < premieresDates[id])) premieresDates[id] = d;
   }
   const justifsParChantier = {};
+  const justifsEntreprise = [];
   for (const j of Array.isArray(justificatifs) ? justificatifs : []) {
+    if (j?.portee === "entreprise") { justifsEntreprise.push(j); continue; }
     if (j?.portee !== "chantier" || j.chantier_id == null) continue;
     (justifsParChantier[String(j.chantier_id)] ||= []).push(j);
   }
   const expires = {};
   for (const [id, f] of Object.entries(fichesParChantier)) {
-    const n = nbRequisExpires({ reponses: f.reponses, justificatifs: justifsParChantier[id] || [], aujourdhui });
+    const n = nbRequisExpires({ reponses: f.reponses, justificatifs: justifsParChantier[id] || [], aujourdhui, justificatifsEntreprise: justifsEntreprise });
     if (n > 0) expires[id] = n;
   }
   return { chantiers: Array.isArray(chantiers) ? chantiers : [], fiches: fichesParChantier, premieresDates, expires, aujourdhui };
