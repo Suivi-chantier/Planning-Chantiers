@@ -1,0 +1,33 @@
+name: Verify Fiche sécurité (alertes dans les notifications)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/securiteAlertesPush.mjs'
+      - 'src/Renovation/securiteCycleVie.mjs'
+      - 'src/Renovation/securiteValidation.mjs'
+      - 'src/Renovation/securite/**'
+      - 'src/Renovation/ClocheNotifications.jsx'
+      - 'src/Renovation/ReglagesNotificationsAdmin.jsx'
+      - 'supabase/functions/_partage/notificationsPushV1.mjs'
+      - 'supabase/migrations/**'
+      - 'api/cron-dispatcher.js'
+      - 'api/_cron/cron-alertes-securite.js'
+      - 'scripts/verif-securite-alertes.mjs'
+      - '.github/workflows/verify-securite-alertes.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fiche sécurité — alertes S1 / S2 (mêmes règles que l'appli, migration sans droit, une alerte une fois ; exemples fictifs)
+        run: node scripts/verif-securite-alertes.mjs

@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
+    type: "nouveaute",
+    titre: "Fiche sécurité : les alertes arrivent dans la cloche et sur le téléphone chaque matin",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "Chaque jour ouvré à 7h35, l'appli envoie aux administrateurs et aux conducteurs une notification qui regroupe les nouvelles alertes de fiche sécurité : chantier planifié sans fiche, fiche non validée à 7 jours ou moins du premier jour prévu au phasage, justificatif requis expiré sur un chantier en cours, fiche « à mettre à jour ». Une même alerte n'est envoyée qu'une fois tant qu'elle reste vraie ; si elle est réglée puis revient, elle repart. Les chantiers planifiés dont le phasage n'a aucune date sont signalés à part (« alerte à 7 jours impossible à calculer »). Les aptitudes médicales expirées font l'objet d'une notification séparée, réservée aux administrateurs, sans aucun nom.",
+    comment: "Cloche en haut de l'écran : les alertes de fiche sécurité portent un bouclier rouge et le libellé « Alertes fiche sécurité chantier ». Toucher la notification ouvre la fiche du chantier (ou la liste des chantiers s'il y en a plusieurs). Réglages › Notifications : les deux nouveaux types S1 et S2 s'y coupent ou s'y règlent comme les autres ; les destinataires de S2 (administrateurs) ne sont pas modifiables. Chacun peut couper ces alertes dans « Mon profil ».",
+  },
+  {
+    date: "2026-11-25",
     type: "amelioration",
     titre: "Fiche sécurité : un ouvrier seul sur un logement n'est plus compté « isolé » si un collègue travaille le même jour dans l'opération",
     pages: [{ id: "operations", label: "Opérations" }],

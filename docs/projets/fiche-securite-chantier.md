@@ -98,8 +98,8 @@ attendent l'accord de François.
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en ligne (fusion le 25/11/2026, 24 contrôles verts) ; **en attente de François** : reprise des 20 chantiers en cours, alertes dans `notifications`, droit du chargé d'affaires sur l'étape | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | [#287](https://github.com/Suivi-chantier/Planning-Chantiers/pull/287) |
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en ligne (fusion le 25/11/2026 après une correction du contrôle `verif-securite-preremplissage`, qui lisait par erreur les fonctions de signature ajoutées) ; questions à François : signature bloquée sur fiche « à mettre à jour », points 1-2 hors comparaison | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
 | 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire (François : admin + conducteur) | Accès accordé par François le 25/11 | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
-| 6b | Point 9 : un jour n'est pas « isolé » si un collègue Profero est planifié le même jour sur un autre chantier de la même opération (réponse de François du 25/11) | en cours (demande de fusion ouverte, contrôles GitHub en attente) | Auto | FOUGERAY APPT 101 : les 16 jours « seul » ne sont plus proposés isolés | [#289](https://github.com/Suivi-chantier/Planning-Chantiers/pull/289) |
-| 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | à faire | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | — |
+| 6b | Point 9 : un jour n'est pas « isolé » si un collègue Profero est planifié le même jour sur un autre chantier de la même opération (réponse de François du 25/11) | en ligne (fusion le 25/11/2026, 21 contrôles verts) | Auto | FOUGERAY APPT 101 : les 16 jours « seul » ne sont plus proposés isolés | [#289](https://github.com/Suivi-chantier/Planning-Chantiers/pull/289) |
+| 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | en cours : migration appliquée le 25/11/2026 (types S1/S2, tâche planifiée 7h35 Paris jours ouvrés) ; demande de fusion ouverte ; **après fusion : redéployer `send-push`, `notifications-boite` et `notifications-pilotage`** (catalogue S1/S2) avant le premier passage du 26/11 à 7h35 | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | [#290](https://github.com/Suivi-chantier/Planning-Chantiers/pull/290) |
 
 ## Journal des décisions
 
@@ -810,6 +810,53 @@ jours seuls restent proposés « isolés » et la raison dit pourquoi. Le point 
 reste « concerné » dès qu'un seul jour est vraiment seul ; les jours couverts
 sont alors cités à part dans la raison et ne s'ajoutent pas aux mesures.
 
+**25/11/2026 — Tâche 7b : alertes sécurité dans les notifications.**
+
+- **Mécanisme reproduit tel quel (pas de fonction SQL).** Les notifications
+  existantes ne sont pas calculées en SQL : les 7 jobs pg_cron
+  `profero_push_*` appellent le dispatcher Vercel (`?job=…`), dont le job
+  lit les tables avec la clé serveur, calcule avec le module de l'appli et
+  appelle l'edge function `send-push` (mode « serveur »), seule à écrire dans
+  `notifications`. Les 2 autres jobs sont ProGBat. On a donc ajouté : un job
+  pg_cron `profero_push_alertes_securite` (7h35 Paris, jours ouvrés, deux
+  heures UTC 05h35/06h35 = 22h35 la veille en Pacifique), la tâche
+  `alertes_securite` du dispatcher (`api/_cron/cron-alertes-securite.js`),
+  et rien en SQL : aucune fonction, aucune SECURITY DEFINER, aucun droit ;
+  `invest_dossier_etapes` non concernée. « Même chiffre = même service » est
+  donc garanti par construction : le job appelle `alertesSecurite()`.
+- **Types** : `S1` « Alertes fiche sécurité chantier » (admin + conducteur,
+  décision du 25/11) et `S2` « Aptitude médicale expirée (confidentiel) »
+  (administrateurs seulement, rôles imposés : un réglage qui ajouterait un
+  autre rôle est ramené à admin, cases grisées dans Réglages ›
+  Notifications ; jamais de nom dans le texte). Ajoutés au catalogue
+  (`notificationsPushV1.mjs`) et aux contrôles de type de `notifications`
+  et `notifications_etat` (migration `20261125145616`).
+- **Regroupement et déduplication (modèle F1)** : au plus une notification
+  par type et par jour (clé `S1-<date>`), qui liste les alertes NOUVELLES ;
+  chaque alerte est inscrite dans `notifications_etat` (`S1`,
+  `<alerte>:<chantier>`) seulement après une écriture réussie en boîte ;
+  elle n'est plus renvoyée tant qu'elle reste vraie ; résolue, sa ligne est
+  retirée (elle repartira si elle revient). Interrupteur coupé ou type
+  désactivé : rien d'inscrit, l'alerte partira au premier passage utile.
+- **Règles** (module pur `securiteAlertesPush.mjs`, entrées de
+  `alertesSecurite()`) : première date prévue du phasage = plus petite
+  `date_prevue` des tâches des ouvrages (même champ que la dépose des
+  sanitaires) ; justificatif expiré = justificatif REQUIS expiré, même
+  fonction que la validation (`justificatifsRequisManquants`), non
+  confidentiel ; chantier planifié sans date au phasage : jamais « pas
+  d'alerte », cité dans la notification (« alerte à 7 jours impossible à
+  calculer »). Lien : la fiche du chantier s'il est seul, sinon la liste des
+  chantiers. Écart corrigé au passage : une date impossible (« 2026-13-45 »)
+  n'est plus prise pour une date.
+- **Affichage** : la cloche montre un bouclier rouge pour S1/S2 et le
+  libellé du type sous chaque notification (tous types).
+- **À faire après la fusion (déploiement hors GitHub)** : redéployer les
+  edge functions `send-push`, `notifications-boite` et
+  `notifications-pilotage` depuis `main` (elles embarquent le catalogue).
+  Sans cela, `send-push` refuse le type S1 : le passage échoue visiblement
+  (erreur dans le résumé du dispatcher), rien n'est inscrit, et il est rejoué
+  le lendemain.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -1297,4 +1344,51 @@ les noms inconnus du planning ne comptent pas comme collègue. Le point reste
 **Vérifié.** Contrôle `verif-securite-preremplissage` mis à jour (exemples
 issus des tests, données fictives) et lancé en local : 15 vérifications
 réussies. Les autres contrôles et la compilation sont faits par GitHub.
+
+### 25/11/2026 — Tâche 7b : les alertes de fiche sécurité arrivent dans la cloche
+
+**Ce qui change.** Chaque jour ouvré à 7h35, les administrateurs et les
+conducteurs reçoivent une notification (cloche et téléphone) qui regroupe
+les nouvelles alertes : chantier planifié sans fiche, fiche non validée à
+7 jours ou moins du début prévu, justificatif requis expiré sur un chantier
+en cours, fiche « à mettre à jour ». Une alerte n'est envoyée qu'une fois
+tant qu'elle reste vraie. Les aptitudes médicales expirées partent à part,
+aux administrateurs seulement, sans nom.
+
+**Modifié en base (25/11/2026).** Migration `20261125145616` : les deux
+listes de types autorisés (`notifications`, `notifications_etat`) acceptent
+S1 et S2 (élargissement : 198 notifications et 919 lignes d'état existantes
+revalidées, aucune modifiée) ; une tâche planifiée « profero_push_alertes_securite »
+(7h35 Paris, jours ouvrés). Aucun droit modifié, aucune fonction. Avant :
+le job n'existait pas, 9 tâches planifiées ; après : 10.
+
+**Essai sur la vraie base (transaction annulée, 25/11/2026).** Alertes qui
+partiraient aujourd'hui, calculées par le module sur les vrais chantiers :
+
+| Alerte | Nombre |
+|---|---|
+| Fiche à créer (chantiers planifiés) | 10 (LOUISON APPT 1 à 4, FOUGERAY 001, 101, 102, 201, 202, COMMUN) |
+| Non validée à 7 jours | 0 (premier jour prévu des FOUGERAY : 07/12 ; elles entreront dans les 7 jours le 30/11) |
+| Justificatif requis expiré | 0 (aucun justificatif en base) |
+| Fiche à mettre à jour | 0 |
+| Aptitudes médicales expirées (S2) | 0 |
+| Planifiés sans date au phasage (signalés) | 4 (les LOUISON) |
+
+Destinataires : 4 administrateurs, 0 conducteur (aucun compte conducteur
+actif relié). Une seule notification S1 par personne : « 10 alertes fiche
+sécurité ». Dans la transaction : 4 lignes de boîte + 10 lignes d'état
+acceptées, doublon du même jour refusé, type inconnu refusé ; après
+annulation : 198 notifications, 919 lignes d'état, 0 S1/S2, 9 tâches
+planifiées (retour exact à l'état d'avant). Un second passage le même jour
+n'envoie rien (vérifié par le calcul).
+
+**Vérifié.** Migration enregistrée (`20261125145616`), tâche planifiée
+présente et active, contrôles de type à jour ; alertes de sécurité Supabase :
+aucune nouvelle (les alertes listées existaient déjà, aucune ne concerne ces
+objets). Contrôle `verif-securite-alertes` (15 vérifications, exemples issus
+des tests, données fictives) lancé en local : réussi. Le contrôle
+`verif-notifications-push` est adapté (catalogue S1/S2) ; il tourne sur
+GitHub. **Non vérifié** : le premier passage réel (26/11 à 7h35, après la
+fusion et le redéploiement des trois edge functions) et l'affichage de la
+cloche dans un navigateur. La fonction n'a pas été lancée à la main.
 

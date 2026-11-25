@@ -365,14 +365,16 @@ export const TYPES_ALERTE_SECURITE = Object.freeze({
 
 /**
  * Alertes de la fiche sécurité à écrire dans la table notifications (une
- * ligne par alerte et par chantier). PRÉPARÉ pour une tâche planifiée côté
- * serveur : la table notifications n'est écrite que par le serveur (aucun
- * droit pour un compte connecté) et son type est limité à une liste fermée.
+ * ligne par alerte et par chantier). Utilisé par la tâche planifiée du
+ * serveur (tâche 7b : api/_cron/cron-alertes-securite.js, via
+ * securiteAlertesPush.mjs, notification S1) : la table notifications n'est
+ * écrite que par le serveur (aucun droit pour un compte connecté).
  * @param {object} p
  * @param {Array}  p.chantiers      [{ id, nom, statut, archive_le? }]
  * @param {object} p.fiches         { [chantierId]: ligne securite_fiches } — chantier absent = pas de fiche
  * @param {object} p.premieresDates { [chantierId]: "AAAA-MM-JJ" } première date prévue du phasage ; absent = inconnue
- * @param {object} p.expires        { [chantierId]: nombre de justificatifs actifs expirés }
+ * @param {object} p.expires        { [chantierId]: nombre de justificatifs REQUIS expirés, non
+ *                                  confidentiels (securiteAlertesPush.nbRequisExpires) }
  * @param {string} p.aujourdhui     "AAAA-MM-JJ" (fourni par l'appelant)
  * @returns {Array<{ type, chantier_id, titre, texte, lien, cle }>}
  *   cle = clé de regroupement (une alerte par type, chantier et jour) ;

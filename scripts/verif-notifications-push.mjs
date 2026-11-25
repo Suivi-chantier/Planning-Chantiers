@@ -446,7 +446,13 @@ test("23. réglages : absents → défauts, interrupteur général COUPÉ, catal
   const r = V.normaliserReglages(null);
   assert.equal(r.actif, false, "livré coupé");
   assert.equal(r.source, "defaut");
-  assert.deepEqual(Object.keys(r.types), ["C1", "C2", "C3", "C4", "C5", "F1", "F2", "D1", "D2", "D3", "D4"]);
+  assert.deepEqual(Object.keys(r.types), ["C1", "C2", "C3", "C4", "C5", "F1", "F2", "D1", "D2", "D3", "D4", "S1", "S2"]);
+  // S1 / S2 : fiche sécurité (projet fiche-securite-chantier, tâche 7b).
+  assert.deepEqual(r.types.S1.roles, ["admin", "conducteur"]);
+  assert.deepEqual(r.types.S2.roles, ["admin"], "aptitudes médicales : administrateurs seulement");
+  const s2Force = V.normaliserReglages({ actif: true, types: { S2: { actif: true, roles: ["admin", "conducteur", "comptable"] } } });
+  assert.deepEqual(s2Force.types.S2.roles, ["admin"], "S2 : rôles imposés, même cochés à la main en base");
+  assert.ok(s2Force.avertissements.some((a) => /^S2 :/.test(a)));
   // Décision de Loris du 06/11/2026 (aucun compte conducteur) : conducteur + admin.
   for (const c of ["C1", "C2", "C3", "C4", "C5"]) assert.deepEqual(r.types[c].roles, ["conducteur", "admin"], c);
   for (const c of ["F1", "F2"]) assert.deepEqual(r.types[c].roles, ["comptable"], c);
@@ -682,7 +688,9 @@ test("37. migration boîte : deux tables, seule la policy restrictive, aucune fo
   assert.ok(!/alter table (?!public\.notifications(_preferences)? enable row level security)/.test(sql), "aucune table existante modifiée");
   assert.ok(!/planning_config/.test(sql), "les réglages ne sont pas écrits par la migration (absents = interrupteur coupé)");
   for (const s of V.PUSH_STATUTS) assert.match(sql, new RegExp(`'${s}'`), `statut ${s} accepté par la base`);
-  for (const c of [...V.CODES_TYPES, "test"]) assert.match(sql, new RegExp(`'${c.toLowerCase()}'`), `type ${c} accepté par la base (SQL comparé en minuscules)`);
+  // S1 / S2 sont ajoutés au contrôle de type par une migration ultérieure
+  // (*_securite_alertes_notifications.sql), vérifiée par verif-securite-alertes.mjs.
+  for (const c of [...V.CODES_TYPES.filter((x) => !/^S\d$/.test(x)), "test"]) assert.match(sql, new RegExp(`'${c.toLowerCase()}'`), `type ${c} accepté par la base (SQL comparé en minuscules)`);
 });
 
 test("38. boîte de réception : appelant identifié, toujours limitée à ses propres lignes", () => {
@@ -784,8 +792,8 @@ test("41. valeurs par défaut C1 à C5 : conducteur + admin (décision de Loris 
   assert.deepEqual(p.resume.destinataires_par_role, { admin: 2, conducteur: 1 });
   // Préférences proposées par rôle, avec les défauts.
   const allume = ALLUME();
-  assert.deepEqual(V.typesRecevables({ reglages: allume, role: "admin" }), ["C1", "C2", "C3", "C4", "C5", "D1", "D2", "D3", "D4"]);
-  assert.deepEqual(V.typesRecevables({ reglages: allume, role: "conducteur" }), ["C1", "C2", "C3", "C4", "C5", "D2"]);
+  assert.deepEqual(V.typesRecevables({ reglages: allume, role: "admin" }), ["C1", "C2", "C3", "C4", "C5", "D1", "D2", "D3", "D4", "S1", "S2"]);
+  assert.deepEqual(V.typesRecevables({ reglages: allume, role: "conducteur" }), ["C1", "C2", "C3", "C4", "C5", "D2", "S1"]);
   assert.deepEqual(V.typesRecevables({ reglages: allume, role: "comptable" }), ["F1", "F2"]);
   assert.deepEqual(V.typesRecevables({ reglages: allume, role: "commercial" }), []);
   // Un type coupé dans les Réglages disparaît des préférences.

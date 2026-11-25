@@ -180,13 +180,18 @@ export default function ReglagesNotificationsAdmin({ T, saveConfig }) {
                       display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: RADIUS.lg, cursor: "pointer",
                       border: `1px solid ${coche ? ro.color : T.border}`, background: coche ? `${ro.color}1a` : T.surface,
                     }}>
-                      <input type="checkbox" checked={coche} onChange={() => basculerRole(t.code, ro.id)}
+                      <input type="checkbox" checked={coche} disabled={!!t.rolesFixes} onChange={() => basculerRole(t.code, ro.id)}
                         style={{ width: 15, height: 15, accentColor: ro.color, cursor: "pointer" }}/>
                       <span style={{ fontSize: 13, fontWeight: 700, color: coche ? ro.color : T.textSub }}>{ro.label}</span>
                     </label>
                   );
                 })}
               </div>
+              {t.rolesFixes && (
+                <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 8 }}>
+                  Destinataires imposés : {t.rolesFixes.join(", ")} seulement (donnée confidentielle).
+                </div>
+              )}
               {rt.roles.length === 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 8, background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: RADIUS.md, fontSize: 13, color: "#f59e0b", fontWeight: 600 }}>
                   <Icon as={AlertTriangle} size={14}/>
