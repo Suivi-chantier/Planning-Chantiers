@@ -1,0 +1,26 @@
+name: Verify Plan V2 — document du plan et requêtes (nouvel éditeur de plans, tâche 3)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/planV2/**'
+      - 'src/Renovation/releveImapper.mjs'
+      - 'scripts/verif-plan-v2-document.mjs'
+      - 'scripts/fixtures/releve-imapper-reference*'
+      - '.github/workflows/verify-plan-v2-document.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Document d'un plan (relevé copié et intact, existant figé jamais recalculé, mesures brutes stockées une fois, points acceptés ou refusés, erreur explicite sur un document illisible) et requêtes (pas d'écrasement d'une version plus récente, ancienne table seulement lue)
+        run: node scripts/verif-plan-v2-document.mjs

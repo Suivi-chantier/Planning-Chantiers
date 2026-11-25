@@ -143,7 +143,7 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | en ligne | Contrôles verts | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu | [#269](https://github.com/Suivi-chantier/Planning-Chantiers/pull/269) |
 | 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | en ligne | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** |[#271](https://github.com/Suivi-chantier/Planning-Chantiers/pull/271) |
-| 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | en cours | Droits accordés par Loris (question 1, « oui ») : mêmes droits que `plans` ; migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
+| 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | en cours | Droits accordés par Loris (question 1, « oui ») : mêmes droits que `plans` ; migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | [#274](https://github.com/Suivi-chantier/Planning-Chantiers/pull/274) |
 | 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | à faire | Droits accordés par Loris (question 1, « oui ») : admin seul ; contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
 | 5 | Création par dépôt des exports iMapper (DXF + PDF), avec le parcours d'import existant, réutilisé tel quel. | à faire | Contrôles verts | Un import du DXF de référence donne le même relevé que dans l'ancien éditeur | — |
 | 6a | Module pur « scène du plan » : à partir du relevé redressé et du modèle, la liste de ce qu'il faut dessiner (pièces colorées par type avec nom et surface, murs pleins à leur épaisseur avec leurs angles, ouvertures, cotes intérieures automatiques, points à valider en orange) et sa sortie en SVG. Script de vérification. Aucun écran. | en ligne | Contrôles verts | Images des 2 relevés réels produites par le module (hors application), remises dans la conversation | [#272](https://github.com/Suivi-chantier/Planning-Chantiers/pull/272) |
@@ -646,6 +646,142 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   1) : accès réservé aux comptes connectés, policy `bureau_all` (tout le
   monde sauf les ouvriers) et policy `profero_collaborateurs_seulement`.
 
+- **25/11/2026 — Tâche 3 : forme de la table `plans_v2`.** Un plan du nouvel
+  éditeur = une ligne. Colonnes : identifiant ; chantier (obligatoire) ; nom ;
+  logement (texte libre, pour le cartouche des PDF de l'étape 4) ; le document
+  du plan (`data`, obligatoire, sans valeur par défaut : un plan sans document
+  n'existe pas) ; un résumé pour la liste (`resume` : nombre de pièces,
+  surface, points à valider restants), écrit en même temps que le document par
+  le même service, pour que la liste n'ait pas à charger des documents de
+  plusieurs centaines de ko ; l'identifiant de l'ancien plan dont le relevé a
+  été copié (vide pour un import direct) ; qui a créé, qui a modifié en
+  dernier ; dates de création et de modification. Pas de miniature en image
+  (dans l'ancien éditeur elle est réécrite à chaque sauvegarde et alourdit la
+  liste). La date de modification est posée par la base elle-même (déclencheur
+  avec la fonction existante `set_updated_at`, relue en base : elle ne fait
+  que dater la ligne et n'est pas SECURITY DEFINER), pas par l'horloge de la
+  tablette.
+- **25/11/2026 — Tâche 3 : rattachement au chantier.** `chantier_id` porte
+  une clé étrangère vers la table `chantiers` (celle de la refonte
+  Opérations, en service depuis le 06/11), avec « modification suivie,
+  suppression refusée ». Raison : c'est ce que font les trois tables créées
+  depuis que les chantiers ont leur table (journal des statuts, cycle de vie,
+  relances) ; les tables plus anciennes n'ont pas de clé étrangère parce que
+  les chantiers vivaient alors dans un bloc de configuration, pas par choix.
+  Relevé en base ce jour (lecture seule) : 62 chantiers, aucun archivé ; les
+  12 anciens plans qui portent un chantier désignent tous un chantier
+  existant ; 21 anciens plans sur 33 n'en portent aucun, dont « Louison
+  RDC ». La table `planning_chantiers`, évoquée au départ, est vide et aucun
+  code ne la lit : ce n'est pas la table des chantiers. Conséquences : un
+  plan ne peut pas être créé sur un chantier qui n'existe pas (la création
+  le dit) ; un chantier qui a des plans ne peut pas être supprimé de la base
+  — ce qui est déjà la règle de la refonte : un chantier s'archive, il ne se
+  supprime pas ; ses plans restent alors rattachés à lui. Si l'identifiant
+  d'un chantier change, ses plans suivent. En revanche, AUCUNE clé étrangère
+  vers l'ancienne table `plans` : elle y aurait posé des déclencheurs
+  internes, alors que la règle 1 veut cette table intacte ; l'identifiant de
+  l'ancien plan est un simple repère.
+- **25/11/2026 — Tâche 3 : droits de la table.** Exactement ce que Loris a
+  accordé (question 1) : les deux règles de l'ancienne table — tout le
+  bureau, pas les ouvriers ; réservé aux collaborateurs — écrites à
+  l'identique, rien de plus (aucune autre règle, aucune fonction). Pour les
+  privilèges, convention des tables récentes : tout est d'abord retiré aux
+  visiteurs non connectés et aux comptes connectés, puis les comptes
+  connectés reçoivent lecture, création, modification et suppression, et
+  rien d'autre. Différence voulue avec l'ancienne table : celle-ci accorde
+  encore, par héritage des réglages d'origine, tous les privilèges aux
+  visiteurs non connectés (sans effet, ses règles ne s'appliquant qu'aux
+  comptes connectés) ; la nouvelle ne leur accorde rien.
+- **25/11/2026 — Tâche 3 : forme du document enregistré.** Module pur
+  `planV2Document.mjs`. Le document contient : le relevé d'origine, copié en
+  entier et jamais retouché ensuite ; l'existant, c'est-à-dire le relevé
+  redressé, ENREGISTRÉ ; les corrections appliquées à la création ; les
+  points à valider, chacun avec sa correction proposée et son état (à
+  valider, accepté, refusé) ; les emplacements du projet (modifications,
+  équipements, notes, traits libres), vides ; les réglages d'affichage (cotes
+  masquées ou déplacées) ; d'où vient le relevé (ancien plan copié ou import
+  iMapper) ; la version du document, la version des algorithmes et les
+  tolérances utilisées. Ouvrir un plan LIT l'existant enregistré : le
+  redressement n'est jamais relancé. Si l'algorithme évolue, un plan déjà
+  créé garde son existant au millimètre, et l'ouverture signale que le plan
+  vient d'une version précédente au lieu de le recalculer. Le modèle (murs,
+  ouvertures accrochées) et les métrés, eux, sont calculés à l'ouverture sur
+  cet existant, avec les tolérances enregistrées dans le plan (question 5 :
+  les métrés suivent le plan redressé).
+- **25/11/2026 — Tâche 3 : ce qui n'est pas stocké deux fois.** Les points de
+  mesure et les positions des scanners pèsent l'essentiel d'un relevé (185 ko
+  sur 230 pour Montillers) et le redressement n'y touche pas : ils ne sont
+  que dans le relevé d'origine, et l'existant les y reprend à la lecture. Le
+  reste de l'existant (pièces, murs dessinés, ouvertures, alertes) est
+  enregistré en entier, parce que c'est lui qui portera les corrections
+  faites dans le nouvel éditeur (nom ou hauteur d'une pièce, ouverture
+  validée). L'existant garde la pleine précision du redressement : ses
+  nombres sont plus longs que ceux du relevé, d'où un document plus gros que
+  le relevé même sans points de mesure (101 ko pour 39 sur « Louison RDC »).
+- **25/11/2026 — Tâche 3 : accepter ou refuser un point.** Accepter un point
+  applique SA correction enregistrée à l'existant, et rien d'autre ; le
+  relevé d'origine ne change pas, et l'écart cumulé de l'existant se mesure
+  toujours depuis lui. Le redressement n'est pas relancé après un point
+  accepté : il pourrait appliquer seul de nouvelles corrections, ce que la
+  règle 8 interdit sans action de l'utilisateur. Si la tâche 7 veut proposer
+  les corrections devenues possibles, elles devront revenir comme des points
+  à valider. Un point refusé peut être remis à valider ; un point accepté ne
+  se rouvre pas dans le document (c'est l'annulation de l'éditeur, tâche 13,
+  qui y reviendra). Une correction qui déformerait une pièce — possible
+  quand d'autres points ont été acceptés avant — est refusée avec un
+  message, rien n'est déplacé (un cas sur Montillers en acceptant tout).
+- **25/11/2026 — Tâche 3 : erreurs et écrasement.** Un document illisible,
+  incomplet ou d'une version inconnue donne une erreur avec une phrase à
+  afficher, jamais un plan vide ; le contenu d'un plan de l'ancien éditeur
+  n'est pas pris pour un document du nouveau. Les requêtes
+  (`planV2Donnees.js`) rendent soit le résultat, soit l'erreur : en cas
+  d'échec la liste attendue est absente, pas vide. Enregistrer un plan exige
+  la date de la version qu'on a ouverte : si la base en porte une autre,
+  quelqu'un a enregistré entre-temps, rien n'est écrit et le message dit par
+  qui. Écraser quand même reste possible, sur action explicite. Renommer un
+  plan change aussi sa date : un éditeur ouvert doit reprendre la date
+  rendue (tâche 8).
+- **25/11/2026 — Tâche 3 : la garde « aucune écriture dans `plans` ».** Le
+  script lit tous les fichiers du nouvel éditeur et tout ce qu'ils importent,
+  de proche en proche, où qu'ils soient. La table `plans` n'y est atteinte
+  que par une lecture ; toute écriture, tout appel de fonction de la base
+  (`rpc`), tout accès dont on ne peut pas lire la table est refusé.
+  Conséquence pour la suite : le nouvel éditeur ne peut rien importer de
+  `Plans.jsx` (qui écrit dans `plans`) ; ce qui doit être partagé en sort
+  d'abord (question 2, déjà accordée). Les migrations du projet portent
+  `plans_v2` dans leur nom : c'est à ce nom que le script les reconnaît, et
+  la table `plans` ne doit y être nommée nulle part. Limite : le script ne
+  voit pas ce que ferait une fonction du serveur appelée par le nouvel
+  éditeur ; aucune ne l'est aujourd'hui.
+- **25/11/2026 — Tâche 3 : constats à reprendre dans les tâches suivantes.**
+  - Tâche 4 (copie d'un ancien plan) : « Louison RDC », l'un des deux seuls
+    plans avec relevé, n'a pas de chantier. La création refuse un plan sans
+    chantier : l'écran devra faire choisir le chantier (question 3 toujours
+    ouverte pour ce plan précis). Les photos du relevé ne sont pas
+    recopiées : le plan copié désigne les mêmes fichiers que l'ancien plan.
+    Supprimer un plan du nouvel éditeur ne supprime donc aucune photo.
+    Le montant d'analyse IA déjà dépensé sur le relevé est copié avec lui :
+    le plafond par relevé ne repart pas de zéro.
+  - Tâche 5 (import iMapper) : le dossier de stockage des photos de l'ancien
+    éditeur est « chantier / plans / identifiant du plan / releve ». Avec
+    l'identifiant du nouveau plan, aucun risque de collision ; il faut donc
+    créer la ligne du plan avant d'envoyer les photos, ou choisir
+    l'identifiant d'avance.
+  - Tâche 6b et 8 (écran, sauvegarde automatique) : ouvrir un plan prend
+    0,1 s (Louison) à 0,3 s (Montillers) sur la machine de Claude, presque
+    entièrement dans le calcul des murs (tâche 1) ; ce sera plus long sur
+    tablette. À faire une fois à l'ouverture et après un point accepté, pas
+    à chaque geste. Le document entier (100 à 300 ko) est renvoyé à chaque
+    enregistrement : la sauvegarde automatique devra attendre une pause dans
+    les modifications, comme l'ancien éditeur.
+  - Tâche 7 : l'ampleur notée sur un point date de la création ; après
+    d'autres points acceptés, elle se remesure (`mesurerEffetPoint`).
+  - Tâche 10 : les modifications du projet désigneront des murs du modèle
+    par leur identifiant ; le modèle est recalculé à l'ouverture, et ses
+    identifiants peuvent changer si le calcul des murs évolue. Le plan note
+    la version et les tolérances pour le détecter ; il faudra décider alors
+    s'il faut figer aussi le modèle.
+
 ## Comptes rendus
 
 ### Tâche 1 — modèle de l'existant et murs partagés (24/11/2026)
@@ -914,3 +1050,115 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 - **Images remises à Loris dans la conversation le 25/11/2026** : plan entier
   et détail de chacun des deux relevés réels (elles ne sont pas dans le
   dépôt).
+
+### Tâche 3 — table des plans, document du plan et lecture / écriture (25/11/2026)
+
+- **Ce qui a changé** : rien de visible dans l'application. Le nouvel éditeur
+  a maintenant de quoi ranger ses plans : une table à lui (`plans_v2`), une
+  forme de document, et les fonctions qui lisent et enregistrent. Un plan
+  garde trois choses séparées : le relevé d'origine, copié tel quel et jamais
+  retouché ; l'existant, c'est-à-dire ce relevé une fois redressé, enregistré
+  une fois pour toutes ; et la liste des points à valider, chacun avec son
+  état (à valider, accepté, refusé). Rouvrir un plan relit ce qui a été
+  enregistré : rien n'est recalculé dans le dos de l'utilisateur.
+- **Rien n'est touché dans l'existant** : aucun fichier de l'ancien éditeur
+  modifié, aucune écriture dans la table `plans`, aucune page, rien dans les
+  droits d'accès des pages. Dans les fichiers des tâches précédentes, une
+  seule ligne ajoutée : le numéro de version du redressement.
+- **Ce que la migration crée** (et rien d'autre) : la table `plans_v2` —
+  chantier, nom, logement, document, résumé pour la liste, repère de l'ancien
+  plan copié, auteurs, dates ; deux index ; la date de modification tenue par
+  la base ; les deux règles d'accès de l'ancienne table des plans, à
+  l'identique (tout le bureau, pas les ouvriers ; réservé aux
+  collaborateurs), selon l'accord de Loris ; aucun accès pour un visiteur non
+  connecté. Chaque plan est rattaché à un chantier existant. La table `plans`
+  n'est nommée nulle part dans la migration. Un retour arrière est écrit ; il
+  ne supprime rien (la table serait mise de côté sous un autre nom).
+- **Migration** : *à compléter par la session pilote* (relecture, contrôles
+  sur la base, application, nom du fichier aligné sur la base). Au moment de
+  la demande de fusion, elle n'est **pas appliquée** et son SQL n'a été
+  exécuté nulle part : il a été relu, et contrôlé par le script de garde.
+- **Essai sur les deux relevés réels de la base** : création d'un plan à
+  partir de chaque relevé, puis ouverture, hors application. Chiffres
+  agrégés ; les relevés eux-mêmes ne sont pas dans le dépôt. Les tailles sont
+  celles du texte enregistré, sans espaces. Les temps sont ceux de la machine
+  de Claude, et varient d'une série à l'autre (une série précédente a donné
+  1,1 s pour la création du plan de Montillers).
+
+  | | Louison RDC | Montillers appt 1 T3 |
+  |---|---|---|
+  | Relevé d'origine | 39 ko | 230 ko |
+  | — dont points de mesure et scanners | 0 | 185 ko |
+  | **Document du plan créé** | 101 ko | 302 ko |
+  | — s'il stockait deux fois les points de mesure | 101 ko | 487 ko |
+  | — dont existant figé | 45 ko | 51 ko |
+  | — dont corrections et points à valider | 16 ko | 21 ko |
+  | Temps de création (15 mesures : la plus courte · médiane · la plus longue) | 0,13 · 0,15 · 0,25 s | 0,49 · 0,55 · 0,69 s |
+  | Temps d'ouverture (idem) | 0,08 · 0,10 · 0,13 s | 0,25 · 0,29 · 0,50 s |
+  | Relevé d'origine identique avant et après la création | oui | oui |
+  | Copie gardée dans le document identique au relevé d'origine | oui | oui |
+  | Document identique après un aller-retour d'enregistrement | oui | oui |
+  | Plan relu identique quand la base range les données dans son ordre | oui | oui |
+  | Existant du document = relevé redressé de la tâche 2 | oui | oui |
+  | **Métrés affichés comparés** (ancien éditeur contre plan ouvert) | 54 | 78 |
+  | — différents à la précision affichée | **0** | **0** |
+  | — différents en valeur exacte (écart le plus grand) | 38 (0,00035) | 48 (0,00135) |
+  | Corrections appliquées à la création | 10 | 12 |
+  | **Points à valider enregistrés** | 16 | 23 |
+  | — dont sans correction automatique (à corriger à la main) | 0 | 1 |
+  | Essai « tout accepter, un par un » : acceptés / refusés car ils déformeraient une pièce | 16 / 0 | 21 / 1 |
+  | — métrés affichés qui changent alors | 34 sur 54 | 58 sur 78 |
+  | — plus grand déplacement depuis le relevé d'origine | 29,5 cm | 52 cm |
+  | Relevé d'origine toujours intact après ces acceptations | oui | oui |
+
+- **Ce que disent ces chiffres.** Les métrés d'un plan tout juste créé sont
+  ceux de l'ancien éditeur, à l'affichage, sur les deux relevés : c'est le
+  résultat de la tâche 2, retrouvé à travers l'enregistrement. Les points à
+  valider attendus sont bien enregistrés (16 et 23). Ne pas stocker deux fois
+  les points de mesure fait passer le plan de Montillers de 487 à 302 ko.
+  Pour « Louison RDC », qui n'a aucun point de mesure, le document pèse deux
+  fois et demie le relevé : il contient le relevé d'origine ET l'existant,
+  dont les nombres, calculés, sont plus longs. C'est le prix de « l'origine
+  ne change jamais, l'existant est figé ».
+- **Points surprenants ou à surveiller** (détail dans le journal) :
+  - le temps d'ouverture (jusqu'à 0,5 s pour Montillers ici, davantage sur
+    tablette) vient presque entièrement du calcul des murs de la tâche 1,
+    refait à chaque ouverture ;
+  - « Louison RDC » n'a pas de chantier, et 21 anciens plans sur 33 sont dans
+    ce cas : pour le copier, il faudra choisir un chantier ;
+  - en acceptant tous les points l'un après l'autre sur Montillers, un point
+    devient inapplicable (il déformerait une pièce) : il est refusé avec un
+    message, rien ne bouge ;
+  - la table des chantiers à laquelle les plans sont rattachés est
+    `chantiers` (62 chantiers), pas `planning_chantiers`, qui est vide.
+- **Vérifications automatiques** : deux nouveaux scripts, branchés sur
+  GitHub.
+  - `verif-plan-v2-aucune-ecriture-plans`, 6 cas : c'est le contrôle demandé
+    par le cahier. Il lit le code du nouvel éditeur et tout ce qu'il importe,
+    et refuse toute écriture dans la table `plans` ; il lit aussi la
+    migration et refuse qu'elle nomme cette table ou qu'elle contienne autre
+    chose que des créations sur `plans_v2` avec les deux règles d'accès
+    convenues. Il se contrôle lui-même sur 17 faux fichiers et 14 fausses
+    migrations qu'il doit refuser — exemples issus des tests, données
+    fictives. Aujourd'hui : 22 fichiers dans le dossier du nouvel éditeur,
+    3 importés d'ailleurs, 2 lectures de `plans`, aucune écriture.
+  - `verif-plan-v2-document`, 21 cas, sur le relevé de référence anonymisé
+    et avec une fausse base (aucune vraie base contactée) — exemples issus
+    des tests, données fictives : relevé reçu jamais modifié, existant relu
+    tel qu'enregistré même quand l'algorithme a changé, points de mesure
+    présents une seule fois, points acceptés / refusés / remis à valider,
+    22 documents abîmés qui donnent chacun une erreur, enregistrement refusé
+    quand quelqu'un d'autre a enregistré entre-temps, et uniquement des
+    lectures sur l'ancienne table. Sur ce relevé de référence (6 pièces) :
+    7 points à valider, tous acceptables l'un après l'autre — exemple issu
+    des tests, données fictives. Les scripts des tâches 1, 2 et 6a passent
+    toujours (15, 19 et 15 cas).
+- **Ce qui n'a pas été vérifié** : la migration n'a pas été essayée sur une
+  base. Les deux lectures de l'ancienne table n'ont pas pu être essayées
+  contre la vraie base depuis l'environnement de Claude (appel refusé par la
+  configuration) ; le même filtre, écrit en SQL, y trouve bien 2 anciens
+  plans avec relevé sur 33. Elles seront essayées pour de bon avec la page
+  (tâche 4).
+- **Journal des MAJ** : pas d'entrée (rien de visible pour les utilisateurs).
+- **Mise en ligne** : demande de fusion #274 ; état réel (contrôles, fusion,
+  migration, déploiement) confirmé par la session pilote.

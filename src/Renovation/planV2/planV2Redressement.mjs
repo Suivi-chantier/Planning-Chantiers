@@ -68,6 +68,13 @@ import { reconstruirePolygone, mesurerEcart, deplacerReleve, poserCotes, EPSILON
 
 export * from "./planV2RedressementGeo.mjs";
 
+// Version de l'algorithme. À AUGMENTER dès qu'un changement de ce module ou de
+// planV2RedressementGeo.mjs peut donner un autre résultat pour un même relevé :
+// chaque plan enregistré note la version qui a figé son existant
+// (planV2Document.mjs), et scripts/verif-plan-v2-document.mjs échoue si le
+// résultat sur le relevé de référence change sans que ce numéro change.
+export const VERSION_REDRESSEMENT = 1;
+
 export const NATURES_REDRESSEMENT = ["angle", "alignement", "epaisseur", "superposition"];
 
 export const TOLERANCES_REDRESSEMENT = Object.freeze({

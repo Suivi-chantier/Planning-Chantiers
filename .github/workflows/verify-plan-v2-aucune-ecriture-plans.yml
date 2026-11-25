@@ -1,0 +1,26 @@
+name: Verify Plan V2 — aucune écriture dans la table plans (nouvel éditeur de plans, tâche 3)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/planV2/**'
+      - 'supabase/migrations/**'
+      - 'sql/*plans_v2*'
+      - 'scripts/verif-plan-v2-aucune-ecriture-plans.mjs'
+      - '.github/workflows/verify-plan-v2-aucune-ecriture-plans.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Le nouvel éditeur et tout ce qu'il importe ne font que lire la table plans (select), aucun rpc ; les migrations du projet ne la nomment nulle part ; la migration plans_v2 ne fait que créer, avec les deux règles d'accès accordées
+        run: node scripts/verif-plan-v2-aucune-ecriture-plans.mjs

@@ -226,3 +226,16 @@ une transaction annulée. Re-synchronisation idempotente :
 le rôle une fois par requête au lieu d'une fois par ligne. Mêmes droits
 (vérifié : 60 tables × 5 rôles, 0 différence), après essai dans une transaction
 annulée. Retour arrière : `sql/202611_rls_bureau_role_verifie_une_fois_rollback.sql`.
+
+`20261125100000_plans_v2.sql` — **NON appliquée** au moment de sa demande de
+fusion (nouvel éditeur de plans, tâche 3 ; `docs/projets/editeur-plans.md`).
+Purement additive et rejouable : table `plans_v2` (un plan du nouvel éditeur
+par ligne, rattaché à un chantier par une clé étrangère vers `chantiers`), ses
+deux index, son déclencheur de date de modification (`set_updated_at`, fonction
+existante), les deux règles d'accès de l'ancienne table des plans (`bureau_all`
+et « réservé aux collaborateurs », accord de Loris du 25/11/2026), droits pour
+les comptes connectés seulement. L'ancienne table des plans n'y est nommée
+nulle part (contrôlé par `scripts/verif-plan-v2-aucune-ecriture-plans.mjs`).
+La session pilote du projet la relit, l'applique, puis renomme le fichier au
+numéro enregistré en base (règle 3). Retour arrière sans suppression :
+`sql/202611_plans_v2_rollback.sql`.
