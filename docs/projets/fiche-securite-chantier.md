@@ -89,7 +89,7 @@ attendent l'accord de François.
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | **migration appliquée** le 25/11/2026 ; demande de fusion ouverte (script de contrôle), en attente des contrôles GitHub | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | [#281](https://github.com/Suivi-chantier/Planning-Chantiers/pull/281) |
+| 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | en ligne (migration appliquée et fusion le 25/11/2026) | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | [#281](https://github.com/Suivi-chantier/Planning-Chantiers/pull/281) |
 | 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | à faire | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | — |
 | 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | à faire | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | — |
 | 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | à faire | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | — |
@@ -225,6 +225,13 @@ ne peut être effacé pour les images de signature et les PDF de version.
   `securite_` ou `securite-` (les alertes listées existaient déjà).
 - Reste pour clore la tâche : contrôles GitHub verts sur la demande de fusion,
   fusion par la session principale, application qui s'ouvre.
+
+**25/11/2026 — Tâche 1 en ligne.** 9 contrôles GitHub verts du premier coup,
+demande de fusion #281 fusionnée. Vérifié sur la base après fusion : migration
+`20261125121322` enregistrée, 5 tables avec RLS et verrou, buckets
+`securite-confidentiel` et `securite-preuves` privés. Ouverture de
+l'application dans un navigateur non faite depuis l'environnement de Claude ;
+la tâche 1 ne change aucun écran. Tâche 2 lancée.
 
 ## Comptes rendus
 
