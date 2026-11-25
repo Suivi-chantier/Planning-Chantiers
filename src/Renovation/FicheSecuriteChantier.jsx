@@ -498,8 +498,16 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
     if (numero === 9 && v.jours?.length) {
       return (
         <div style={{ marginTop: 4 }}>
-          {v.jours.slice(0, 12).map((j) => `${dateFrIso(j.date)} ${j.personne}${j.autresSurOperation?.length ? ` (autres logements : ${j.autresSurOperation.join(", ")})` : ""}`).join(" · ")}
+          {v.jours.slice(0, 12).map((j) => `${dateFrIso(j.date)} ${j.personne}${j.autresSurOperation?.length ? ` (sur l'opération : ${j.autresSurOperation.join(", ")}, pas un collègue Profero reconnu)` : ""}`).join(" · ")}
           {v.jours.length > 12 ? ` · et ${v.jours.length - 12} autres jours` : ""}
+        </div>
+      );
+    }
+    if (numero === 9 && v.couverts?.length) {
+      return (
+        <div style={{ marginTop: 4 }}>
+          Jours seuls sur le logement mais couverts sur l'opération : {v.couverts.slice(0, 6).map((j) => `${dateFrIso(j.date)} ${j.personne} (avec ${j.collegues.join(", ")})`).join(" · ")}
+          {v.couverts.length > 6 ? ` · et ${v.couverts.length - 6} autres jours` : ""}
         </div>
       );
     }

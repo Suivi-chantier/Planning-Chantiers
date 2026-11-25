@@ -98,7 +98,7 @@ attendent l'accord de François.
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en ligne (fusion le 25/11/2026, 24 contrôles verts) ; **en attente de François** : reprise des 20 chantiers en cours, alertes dans `notifications`, droit du chargé d'affaires sur l'étape | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | [#287](https://github.com/Suivi-chantier/Planning-Chantiers/pull/287) |
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en ligne (fusion le 25/11/2026 après une correction du contrôle `verif-securite-preremplissage`, qui lisait par erreur les fonctions de signature ajoutées) ; questions à François : signature bloquée sur fiche « à mettre à jour », points 1-2 hors comparaison | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
 | 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire (François : admin + conducteur) | Accès accordé par François le 25/11 | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
-| 6b | Point 9 : un jour n'est pas « isolé » si un collègue Profero est planifié le même jour sur un autre chantier de la même opération (réponse de François du 25/11) | à faire | Auto | FOUGERAY APPT 101 : les 16 jours « seul » ne sont plus proposés isolés | — |
+| 6b | Point 9 : un jour n'est pas « isolé » si un collègue Profero est planifié le même jour sur un autre chantier de la même opération (réponse de François du 25/11) | en cours (demande de fusion ouverte, contrôles GitHub en attente) | Auto | FOUGERAY APPT 101 : les 16 jours « seul » ne sont plus proposés isolés | — |
 | 7b | Alertes sécurité dans `notifications` : nouveau type, tâche planifiée quotidienne (fiche à créer, non validée 7 jours avant, justificatif expiré, à mettre à jour) | à faire | Migration accordée par François le 25/11 (droits) | Alertes reçues par admin et conducteurs ; pas de doublon | — |
 
 ## Journal des décisions
@@ -801,6 +801,15 @@ Tâches 1 à 8 en ligne. La tâche 9 crée une page bureau (arrêt obligatoire :
   opération.
 - 6 → règles d'accueil confirmées telles qu'en ligne.
 
+**25/11/2026 — Tâche 6b, règle retenue** : un « collègue » est un nom du
+planning reconnu dans les ressources (`planning_resources`) et qui n'est pas
+un prestataire. Un prestataire ou un nom absent des ressources ne couvre
+pas un jour (prudence : on ne peut pas dire que c'est un ouvrier Profero).
+Si les ressources ou le planning des autres chantiers sont illisibles, les
+jours seuls restent proposés « isolés » et la raison dit pourquoi. Le point 9
+reste « concerné » dès qu'un seul jour est vraiment seul ; les jours couverts
+sont alors cités à part dans la raison et ne s'ajoutent pas aux mesures.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -1268,3 +1277,24 @@ l'environnement de Claude : les écrans dans un navigateur ou un téléphone
 (tracé au doigt, ouverture repliée, panneau) — à faire sur la première
 fiche validée ; la compilation et les autres contrôles sont faits par
 GitHub.
+
+### 25/11/2026 — Tâche 6b : travail isolé, les collègues de la même opération comptent
+
+**Ce qui change.** Au point 9 de la fiche sécurité, un jour où une seule
+personne est planifiée sur le logement n'est plus proposé comme « travail
+isolé » si un autre ouvrier Profero est planifié le même jour sur un autre
+logement de la même opération (votre réponse du 25/11). Les prestataires et
+les noms inconnus du planning ne comptent pas comme collègue. Le point reste
+« concerné » s'il reste au moins un jour vraiment seul.
+
+**Résultat sur les vrais chantiers** (requête sur la base du 25/11/2026) :
+
+| Chantier | Avant | Après |
+|---|---|---|
+| FOUGERAY APPT 101 | Concerné : 16 jours seul sur 37 | Non concerné : « 16 jours avec une seule personne sur le logement, tous couverts par un collègue Profero sur un autre chantier de la même opération (37 jours planifiés). » |
+| KATHLEEN T2 | Concerné : 2 jours sur 17 (13/10 et 26/10/2026, Steven) | Inchangé : concerné, 2 jours (l'autre chantier de l'opération, « Faux plafond entrée », n'a aucun jour planifié) |
+
+**Vérifié.** Contrôle `verif-securite-preremplissage` mis à jour (exemples
+issus des tests, données fictives) et lancé en local : 15 vérifications
+réussies. Les autres contrôles et la compilation sont faits par GitHub.
+
