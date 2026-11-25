@@ -47,6 +47,9 @@ import { estChantierActif } from "./chantierActif.js";
 import { BadgeStatut } from "./ComposantsCommerciaux.jsx";
 import OperationCommercial from "./OperationCommercial.jsx";
 import SyntheseCycleVieOperation from "./SyntheseCycleVieOperation.jsx";
+// Fiche de préparation sécurité (projet fiche-securite-chantier, tâche 2) :
+// bloc Bâtiment de l'opération + pastille de la fiche de chaque chantier.
+import FicheSecuriteOperation from "./FicheSecuriteOperation.jsx";
 // Lot 5 : Opérations porte d'entrée — onglets par statut calculé.
 import { ONGLETS_OPERATIONS, repartirOperationsParOnglet, ongletInitialOperations } from "./navigationOperations.js";
 import { useReglagesMarges } from "./reglagesMarges";
@@ -54,7 +57,7 @@ import { detailKpiOperation, carteDeriveOperation } from "./operationKpiDetail";
 import {
   Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
   TrendingUp, TrendingDown, Settings, ExternalLink, Banknote, FileDown,
-  ChartBar, TrainFront, FileText, CalendarClock, ChevronDown, ChevronRight, X, Gauge,
+  ChartBar, TrainFront, FileText, CalendarClock, ChevronDown, ChevronRight, X, Gauge, ShieldCheck,
 } from "lucide-react";
 
 // recharts reste dans son chunk dédié (même règle que la fiche Chantier).
@@ -220,6 +223,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   const [notif, setNotif] = useState(null); // { ton: "ok"|"alerte"|"erreur", texte }
   // Détail d'un KPI (clic sur une carte) : "vendu" | "mo" | "derive" | "mat" | "fg" | "marge" | "marge_prev".
   const [kpiDetail, setKpiDetail] = useState(null);
+  // Panneau « Fiche sécurité » ouvert (même raison : hook avant le `return` anticipé).
+  const [ficheSecuOuverte, setFicheSecuOuverte] = useState(false);
   const grapheRef = useRef(null);
 
   // ── Chargement : une passe pour toutes les opérations ──
@@ -316,6 +321,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   const selection = opId ? parOperation.find((e) => e.op.id === opId) : null;
 
   const ouvrirOp = (id) => {
+    setFicheSecuOuverte(false);
     setOpId(id);
     try { localStorage.setItem("operations_selected", id || ""); } catch { /* mémoire du navigateur indisponible */ }
   };
@@ -766,6 +772,16 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         <select value={op.id} onChange={(e) => ouvrirOp(e.target.value)} style={selectStyle} title="Changer d'opération">
           {(operations || []).map((o) => <option key={o.id} value={o.id}>{o.nom}</option>)}
         </select>
+        {/* Fiche de préparation sécurité : bloc Bâtiment + une fiche par chantier. */}
+        <button onClick={() => setFicheSecuOuverte(true)}
+          title="Fiche de préparation sécurité : données du bâtiment et état de la fiche de chaque chantier"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px",
+            borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10,
+            color: acc.accent, fontWeight: 700, fontSize: FONT.sm.size, cursor: "pointer", fontFamily: "inherit",
+          }}>
+          <Icon as={ShieldCheck} size={15}/> Fiche sécurité
+        </button>
         {/* Bouton PDF unique de la fiche : il édite le dossier complet
             (finances + préparation de chaque logement). Pas de second bouton —
             le détail tâches/matériaux s'imprime depuis la fiche chantier. */}
@@ -802,6 +818,11 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
           </button>
         )}
       </div>
+
+      {ficheSecuOuverte && (
+        <FicheSecuriteOperation T={T} acc={acc} op={op} chantiersOp={chantiersOp} profil={profil}
+          onClose={() => setFicheSecuOuverte(false)}/>
+      )}
 
       {notif && (
         <div style={{
