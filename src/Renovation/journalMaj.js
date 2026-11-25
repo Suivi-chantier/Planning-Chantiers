@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
+    type: "amelioration",
+    titre: "Fonctions d'intelligence artificielle : passage aux modèles les plus récents",
+    pages: [],
+    quoi: "Toutes les fonctions qui s'appuient sur l'IA utilisent désormais la génération actuelle des modèles : lecture des bons de livraison, tickets et factures fournisseurs, lecture des factures client, analyse des photos d'un relevé, assistants Rénovation et Invest, préremplissage du compte rendu dicté, objectifs du planning, synthèse du Bilan et enrichissement du compte rendu Word. L'analyse des photos d'un relevé s'arrêtait presque à chaque fois sur une réponse coupée avant la fin : la limite de longueur qui la coupait a été nettement relevée.",
+    comment: "Rien à faire : les écrans et les boutons ne changent pas. Une analyse peut prendre quelques secondes de plus ou de moins qu'avant. Comme toujours, les propositions de l'IA restent à relire avant validation.",
+  },
+  {
+    date: "2026-11-25",
     type: "correctif",
     titre: "Encours fournisseurs : une lecture impossible est signalée au lieu d'afficher 0 €",
     pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],

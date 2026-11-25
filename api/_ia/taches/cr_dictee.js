@@ -42,8 +42,10 @@ module.exports = {
   id: "cr_dictee",
   libelle: "Compte rendu du soir : préremplissage depuis la dictée",
   roles: ["ouvrier", "admin", "conducteur"],
-  modele: "claude-haiku-4-5",
-  max_tokens: 1500,
+  modele: "claude-haiku-5-5",
+  effort: "medium",
+  // Le plafond couvre la réflexion du modèle ET la réponse (cf. registre.js).
+  max_tokens: 6000,
   cout_max_eur: 0.03,
   sensible: false,
   schema_entree(e) {

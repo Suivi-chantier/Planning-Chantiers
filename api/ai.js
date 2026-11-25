@@ -32,7 +32,18 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // Tarifs approximatifs en €/million de tokens (USD officiels × ~0,92).
 // À tenir à jour quand un nouveau modèle est utilisé par une tâche ;
 // modèle absent → cout_eur null dans ia_jobs (jamais bloquant).
+//
+// Les jetons de sortie facturés incluent la réflexion du modèle, même quand
+// son texte n'est pas renvoyé : `usage.output_tokens` la compte déjà.
+// claude-haiku-5-5 : tarif des prompts de 100 000 jetons au plus (au-delà,
+// le tarif est cinq fois plus élevé — aucune tâche actuelle n'en approche).
 const TARIFS_EUR_PAR_MTOK = {
+  // Modèles en service (mise à jour du 25/11/2026).
+  "claude-opus-5-5":   { entree: 3.68,  sortie: 18.4 },
+  "claude-sonnet-5-5": { entree: 1.84,  sortie: 9.2 },
+  "claude-haiku-5-5":  { entree: 0.092, sortie: 0.46 },
+  // Générations précédentes : conservées pour qu'un retour arrière garde un
+  // coût calculé (et donc des quotas qui fonctionnent).
   "claude-opus-5":    { entree: 4.6,  sortie: 23.0 },
   "claude-sonnet-5":  { entree: 2.76, sortie: 13.8 },
   "claude-haiku-4-5": { entree: 0.92, sortie: 4.6 },
@@ -293,6 +304,10 @@ module.exports = async function handler(req, res) {
       messages: prompt.messages,
     };
     if (prompt.system) params.system = prompt.system;
+    // Niveau de réflexion du modèle. Sur les modèles actuels la réflexion est
+    // toujours active et c'est ce réglage, pas le prompt, qui en fixe la
+    // quantité — donc aussi la durée et le coût. Absent → défaut du modèle.
+    if (tache.effort) params.output_config = { effort: tache.effort };
 
     // 6bis) Outils, si la tâche en déclare.
     //
@@ -453,15 +468,21 @@ module.exports = async function handler(req, res) {
         // compris les résultats. Repartir du prompt initial ferait répondre
         // le modèle sans les données qu'il vient de lire.
         //
-        // Les outils sont retirés de la relance : on veut une réponse au bon
-        // format, pas un nouvel appel d'outil qui ne serait plus bouclé.
+        // Aucun appel d'outil pendant la relance : on veut une réponse au bon
+        // format, pas un nouvel appel qui ne serait plus bouclé. Les outils
+        // restent DÉCLARÉS et leur usage est interdit par tool_choice : les
+        // modèles actuels vérifient que `system`, `tools` et les messages
+        // déjà échangés n'ont pas changé depuis leur réflexion, et retirer la
+        // liste d'outils d'un échange qui en a utilisé ferait refuser la
+        // relance. Pour la même raison, la réponse à corriger est renvoyée
+        // telle quelle (blocs de réflexion compris), pas réduite à son texte.
         const paramsRelance = { ...params };
-        delete paramsRelance.tools;
+        if (paramsRelance.tools) paramsRelance.tool_choice = { type: "none" };
         relance = await anthropic.messages.create({
           ...paramsRelance,
           messages: [
             ...params.messages,
-            { role: "assistant", content: texte || "(réponse vide)" },
+            { role: "assistant", content: texte ? reponse.content : "(réponse vide)" },
             {
               role: "user",
               content:

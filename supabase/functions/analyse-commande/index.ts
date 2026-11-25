@@ -39,8 +39,13 @@ import {
 // fait que lire un rôle. Ni `user_metadata`, ni un rôle transmis dans le corps
 // ne sont consultés — ce sont deux sources que l'appelant contrôle.
 //
-// CE QUI N'A PAS CHANGÉ, volontairement : le modèle, max_tokens et le format
-// de la réponse rendue au navigateur.
+// CE QUI N'A PAS CHANGÉ lors de cette fermeture, volontairement : le modèle,
+// max_tokens et le format de la réponse rendue au navigateur.
+//
+// MODÈLE (25/11/2026) : passage de claude-opus-4-8 à claude-opus-5-5. Sur ce
+// modèle la réflexion est toujours active : elle compte dans max_tokens, et la
+// réponse peut commencer par un bloc de réflexion avant le bloc de texte — les
+// écrans lisent déjà le bloc de type "text", pas le premier bloc.
 //
 // REMISES (20/10/2026) : l'IA ne calcule plus aucune remise. Elle recopie le HT
 // imprimé de chaque ligne ; la répartition d'une remise globale est faite par
@@ -164,11 +169,14 @@ serve(async (req) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        // Pour réduire le coût sur gros volume : remplacer par "claude-sonnet-4-6"
-        model: "claude-opus-4-8",
+        // Pour réduire le coût sur gros volume : remplacer par "claude-sonnet-5-5"
+        model: "claude-opus-5-5",
         // Un gros BL (ex. 38 lignes sur 5 pages) génère un JSON > 3000 tokens :
         // la réponse était tronquée et le JSON.parse échouait. On monte le plafond.
-        max_tokens: 16000,
+        // Le plafond couvre aussi la réflexion du modèle, d'où la marge.
+        max_tokens: 24000,
+        // Niveau de réflexion : c'est lui qui règle durée et coût de l'appel.
+        output_config: { effort: "medium" },
         messages: [{
           role: "user",
           content: [

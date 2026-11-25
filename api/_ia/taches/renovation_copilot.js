@@ -49,8 +49,10 @@ module.exports = {
   roles: null,
 
   // Même modèle que le Copilote Invest.
-  modele: "claude-sonnet-5",
-  max_tokens: 4096,
+  modele: "claude-sonnet-5-5",
+  effort: "medium",
+  // Le plafond couvre la réflexion du modèle ET la réponse (cf. registre.js).
+  max_tokens: 16000,
   // Plus haut que le Copilote Invest (0,15 €) : une question d'alerte enchaîne
   // souvent chercher_chantier puis expliquer_alerte, et la liste des alertes
   // porte jusqu'à 25 chantiers. Contrôlé a posteriori par api/ai.js.

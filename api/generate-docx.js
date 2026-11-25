@@ -49,15 +49,23 @@ Règles :
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 4096,
+            model: 'claude-haiku-5-5',
+            // Le plafond couvre la réflexion du modèle ET le JSON renvoyé
+            // (le tableau complet des chantiers).
+            max_tokens: 16000,
+            output_config: { effort: 'medium' },
             messages: [{ role: 'user', content: prompt }],
           }),
         });
 
         if (response.ok) {
           const aiData = await response.json();
-          const text = aiData.content?.[0]?.text || '';
+          // Lecture par TYPE de bloc : la réponse peut commencer par un bloc
+          // de réflexion, le texte n'est donc plus forcément le premier bloc.
+          const text = (aiData.content || [])
+            .filter((b) => b.type === 'text')
+            .map((b) => b.text)
+            .join('');
           const clean = text.replace(/```json|```/g, '').trim();
           const parsed = JSON.parse(clean);
           // On ne récupère de Claude que les champs texte (nom / présences /

@@ -512,7 +512,7 @@ await bloc("13. Route /api/ai : question ambiguë, le faux modèle appelle l'out
   verifier(egal(res.body.outils_utilises, ["chercher_chantier"]), "trace serveur des outils");
   verifier(egal(res.body.resultat.outils_appeles, ["chercher_chantier"]) && res.body.resultat.chiffres_utilises.length === 1, "sortie : texte + outils + chiffres");
   const params = modele.recus[0];
-  verifier(params.model === "claude-sonnet-5" && params.model === REGISTRE.invest_copilot.modele, "même modèle que le Copilote Invest");
+  verifier(params.model === "claude-sonnet-5-5" && params.model === REGISTRE.invest_copilot.modele, "même modèle que le Copilote Invest");
   verifier(egal(params.tools.map((t) => t.name).sort(), ["alertes", "chercher_chantier", "etat_chantier", "expliquer_alerte"]), "les quatre outils exposés");
   const s = params.system;
   verifier(s.includes(tache.PHRASE_ABSENCE) && s.includes("Je n'ai pas trouvé cette information dans Profero Rénovation."), "phrase d'absence dans le prompt");

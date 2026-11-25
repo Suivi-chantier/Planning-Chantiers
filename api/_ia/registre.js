@@ -9,8 +9,16 @@
 //   id                 identifiant stable, ex. "extraction_bl"
 //   libelle            nom lisible (logs, écran admin)
 //   roles              rôles autorisés, ex. ["admin", "conducteur"]
-//   modele             modèle Anthropic à utiliser, ex. "claude-haiku-4-5"
-//   max_tokens         plafond de sortie du modèle (défaut 8192)
+//   modele             modèle Anthropic à utiliser, ex. "claude-haiku-5-5".
+//                      Un nouveau modèle s'ajoute aussi à TARIFS_EUR_PAR_MTOK
+//                      (api/ai.js), sinon son coût n'est pas calculé.
+//   effort             niveau de réflexion : "low" | "medium" | "high" | "xhigh" | "max" (optionnel,
+//                      défaut du modèle). C'est le réglage qui fait varier la
+//                      durée et le coût d'un appel ; la réflexion elle-même ne
+//                      se désactive plus sur les modèles actuels.
+//   max_tokens         plafond de sortie du modèle (défaut 8192). Il couvre la
+//                      réflexion ET la réponse : un plafond calé au plus juste
+//                      sur la réponse la tronque (« max_tokens atteint »).
 //   cout_max_eur       garde-fou de coût par appel (contrôlé après l'appel)
 //   sensible           true → statut "en_attente_validation" au lieu de "succes"
 //   schema_entree(e)   validation du payload reçu → true | "erreur" | [erreurs]

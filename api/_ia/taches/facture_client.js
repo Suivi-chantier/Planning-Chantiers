@@ -99,8 +99,10 @@ module.exports = {
   // accès (et la RLS de chantier_factures_client le leur refuse de toute façon).
   roles: ["admin", "comptable", "conducteur", "commercial"],
 
-  modele: "claude-sonnet-5",
-  max_tokens: 1500,
+  modele: "claude-sonnet-5-5",
+  effort: "medium",
+  // Le plafond couvre la réflexion du modèle ET la réponse (cf. registre.js).
+  max_tokens: 8000,
   cout_max_eur: 0.12,
   sensible: false,
 

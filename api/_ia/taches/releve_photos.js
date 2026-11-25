@@ -119,8 +119,12 @@ module.exports = {
   // page Plans ; la visionneuse ouvrier reste en lecture seule.
   roles: ["admin", "conducteur"],
 
-  modele: "claude-sonnet-5",
-  max_tokens: 2500,
+  modele: "claude-sonnet-5-5",
+  effort: "medium",
+  // 2 500 ne suffisait pas : la réflexion du modèle compte dans ce plafond, et
+  // 14 analyses sur 16 ont été tronquées entre le 18/10 et le 25/11/2026
+  // (« max_tokens atteint » dans ia_jobs). Le coût reste borné par cout_max_eur.
+  max_tokens: 16000,
   // Par pièce. Le plafond PAR RELEVÉ (2,50 €) est tenu côté application, qui
   // cumule les coûts renvoyés et s'arrête avant de le dépasser.
   cout_max_eur: 0.4,
