@@ -1,0 +1,34 @@
+name: Verify Fiche sécurité chantier (accueil de l'équipe, nouvelles versions)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/securite/**'
+      - 'src/Renovation/securiteAccueil.mjs'
+      - 'src/Renovation/securiteAccueil.js'
+      - 'src/Renovation/securiteVersion.mjs'
+      - 'src/Renovation/securitePreRemplissage.mjs'
+      - 'src/Renovation/securiteValidation.mjs'
+      - 'src/Renovation/securiteDonnees.js'
+      - 'src/Renovation/FicheSecuriteOuvrier.jsx'
+      - 'src/Renovation/FicheSecuriteChantier.jsx'
+      - 'src/Renovation/OuvrierDashboard.jsx'
+      - 'src/access.js'
+      - 'scripts/verif-securite-accueil.mjs'
+      - '.github/workflows/verify-securite-accueil.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fiche sécurité — qui doit re-signer, accueil ouvrier, mise à jour proposée (module pur, exemples fictifs)
+        run: node scripts/verif-securite-accueil.mjs

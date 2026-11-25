@@ -6,6 +6,7 @@ import { Icon } from "../ui";
 import { MapPin, ClipboardList, CheckCircle2, CalendarX, Building2, Clock, Users, RotateCcw } from "lucide-react";
 import { MobileStat, MobileSection, MobileCard, MobileEmptyState } from "../mobileUI";
 import { NavButtons } from "./ouvrierNav";
+import FicheSecuriteOuvrier from "./FicheSecuriteOuvrier.jsx";
 
 // Statut dérivé de l'avancement du phasage (les tâches n'ont pas de champ
 // statut : 100 % ⟺ terminé, cohérence garantie par construction).
@@ -14,7 +15,7 @@ const statutAvancement = (av) =>
 
 const fmtJJMM = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");
 
-export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
+export default function OuvrierDashboard({ prenom, nomComplet = "", preview = false, T, accent = "#FFC200" }) {
   const [loading, setLoading]             = useState(true);
   const [chantiersJour, setChantiersJour] = useState([]);
   const [aReprendre, setAReprendre]       = useState([]);
@@ -247,6 +248,8 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
                 )}
               </div>
               <div style={{ marginBottom:12 }}><NavButtons geo={c.geo}/></div>
+              {/* Tâche 8 (fiche sécurité) : lecture de la fiche validée et signature d'accueil. */}
+              <FicheSecuriteOuvrier chantierId={c.chantier_id} chantierNom={c.nom} nomComplet={nomComplet} T={T} accent={accent} preview={preview}/>
               {c.taches.length > 0 ? (
                 <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:8 }}>
                   {c.taches.map((t, j) => (

@@ -20,7 +20,7 @@
 // enregistrement écraserait des données qu'on n'a pas vues).
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useRef, useState } from "react";
-import { FONT, RADIUS } from "../constants";
+import { FONT, RADIUS, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import { ShieldCheck, Building2, X } from "lucide-react";
 import { estChantierArchive } from "./chantierActif.js";
@@ -29,7 +29,8 @@ import {
   texteOuiNon, texteEtage, texteAvantDate, libelleReperageAmiante,
   formulaireBatiment, preparerEnregistrementBatiment,
 } from "./securitePastilles.js";
-import { chargerEtatFiches, chargerBatiment, enregistrerBatiment, creerFiche, chargerJustificatifsPastilles, dateDuJourLocale } from "./securiteDonnees.js";
+import { chargerEtatFiches, chargerBatiment, enregistrerBatiment, creerFiche, chargerJustificatifsPastilles, dateDuJourLocale, chargerDonneesMiseAJourProposee } from "./securiteDonnees.js";
+import { propositionsMiseAJour } from "./securiteAccueil.js";
 import { peutCreerFiche } from "./securiteFiche.js";
 import FicheSecuriteChantier from "./FicheSecuriteChantier.jsx";
 import { alerteChantierEnCours } from "./securiteCycleVie.js";
@@ -210,8 +211,33 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(chargerFiches, [ids]);
 
+  // Tâche 8 : « Mise à jour proposée » pour les fiches validées (ou à mettre à
+  // jour) : nouveau prestataire au planning, lot ajouté au phasage qui change
+  // un statut proposé, justificatif requis expiré. Lecture seule.
+  const [majProposees, setMajProposees] = useState({});
+  useEffect(() => {
+    if (etat.lecture !== "ok") { setMajProposees({}); return undefined; }
+    let actif = true;
+    const cibles = chantiersListes.filter((c) => ["validee", "a_mettre_a_jour"].includes(etat.parChantier[c.id]?.statut));
+    if (!cibles.length) { setMajProposees({}); return undefined; }
+    const aujourdhui = dateDuJourLocale();
+    loadLots().catch(() => null).then((l) => {
+      const lots = Array.isArray(l) && l.length ? l : LOTS_DEFAUT;
+      cibles.forEach((c) => {
+        chargerDonneesMiseAJourProposee({ chantier: c, op }).then((d) => {
+          if (!actif) return;
+          const res = d.erreur ? { erreur: d.erreur } : propositionsMiseAJour({ fiche: d.fiche, sources: d.sources, lots, justificatifs: d.justificatifs, aujourdhui });
+          setMajProposees((m) => ({ ...m, [c.id]: res }));
+        }).catch((e) => actif && setMajProposees((m) => ({ ...m, [c.id]: { erreur: e?.message || String(e) } })));
+      });
+    });
+    return () => { actif = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etat, op.id]);
+
   // Fiche d'un chantier ouverte par-dessus le panneau (tâche 3).
   const [ficheOuverte, setFicheOuverte] = useState(null); // chantier
+  const [ouvrirEnMiseAJour, setOuvrirEnMiseAJour] = useState(false);
   const [creation, setCreation] = useState({ chantierId: null, erreur: null });
   const ficheOuverteRef = useRef(null);
   ficheOuverteRef.current = ficheOuverte;
@@ -236,7 +262,7 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
     synchroniserEtapeFicheSecurite({ chantierId: c.id, auteur: auteur || "" }); // tâche 7 : étape du cycle de vie
     setFicheOuverte(c);
   };
-  const fermerFiche = () => { setFicheOuverte(null); chargerFiches(); };
+  const fermerFiche = () => { setFicheOuverte(null); setOuvrirEnMiseAJour(false); chargerFiches(); };
 
   const boutonLigne = (actif) => ({
     display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", minHeight: 36, flexShrink: 0,
@@ -298,6 +324,22 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
                         const a = alerteChantierEnCours({ chantier: c, fiche: etat.parChantier[c.id] || null, lecture: etat.lecture });
                         return a ? <div style={{ fontSize: 10.5, color: "#e15a5a", fontWeight: 700, marginTop: 2 }}>{a}</div> : null;
                       })()}
+                      {(() => {
+                        const m = majProposees[c.id];
+                        if (!m) return null;
+                        if (m.erreur) return <div style={{ fontSize: 10.5, color: "#b97a10", fontWeight: 600, marginTop: 2 }}>Mise à jour proposée : non vérifiée ({m.erreur}).</div>;
+                        return (
+                          <>
+                            {m.raisons.length > 0 && (
+                              <div style={{ fontSize: 11, color: "#b97a10", fontWeight: 700, marginTop: 3 }}>
+                                Mise à jour proposée : {m.raisons.map((x) => x.message).join(" ; ")}.{" "}
+                                <button onClick={() => { setOuvrirEnMiseAJour(true); setFicheOuverte(c); }} style={{ border: "none", background: "transparent", color: acc.accent, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline", fontSize: 11 }}>Mettre à jour</button>
+                              </div>
+                            )}
+                            {m.impossibles.length > 0 && <div style={{ fontSize: 10.5, color: T.textMuted, marginTop: 2 }}>Non vérifié : {m.impossibles.join(" ; ")}.</div>}
+                          </>
+                        );
+                      })()}
                     </div>
                     <Pastille p={p}/>
                     {etat.lecture === "ok" && etat.parChantier[c.id] ? (
@@ -322,7 +364,7 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
       </div>
     </div>
     {ficheOuverte && (
-      <FicheSecuriteChantier T={T} acc={acc} op={op} chantier={ficheOuverte} profil={profil} onClose={fermerFiche}/>
+      <FicheSecuriteChantier T={T} acc={acc} op={op} chantier={ficheOuverte} profil={profil} onClose={fermerFiche} miseAJourDemandee={ouvrirEnMiseAJour}/>
     )}
     </>
   );

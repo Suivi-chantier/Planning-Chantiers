@@ -43,7 +43,12 @@ import {
   chargerJustificatifs, ajouterJustificatif, archiverJustificatif, urlJustificatif, urlImageSignature,
   chargerSignatures, chargerVersions, chargerMotifVersion, empreinteContenu,
   signerFiche, validerFicheSecurite, mettreAJourFiche, dateDuJourLocale, chargerDonneesPreRemplissage,
+  chargerVersionsAvecContenu, signerAccueil, marquerAMettreAJour,
 } from "./securiteDonnees.js";
+import {
+  accueilParVersion, indexVersions, versionValideeCourante, quiDoitResigner, propositionsMiseAJour, preparerAMettreAJour,
+  lectureOuvrier,
+} from "./securiteAccueil.js";
 import { synchroniserEtapeFicheSecurite } from "./securiteCycleVieDonnees.js";
 import {
   SIGNATURES_REQUISES, etatValidation, justificatifsDuPoint, justificatifsRequisManquants, typesJustificatifPoint,
@@ -296,7 +301,7 @@ function CartePoint({ T, acc, point, reponse, modifiable, onChange, styles, ctxJ
   );
 }
 
-export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = null, onClose }) {
+export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = null, onClose, miseAJourDemandee = false }) {
   const auteur = profil?.nom || profil?.email || null;
   const [lecture, setLecture] = useState({ charge: false, ligne: null, erreur: null });
   const [form, setForm] = useState(null);
@@ -319,6 +324,13 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   const [pdfEtat, setPdfEtat] = useState({ enCours: null, erreurs: {}, message: null, apercu: false });
   // Tâche 6 : sources du pré-remplissage (phasage, planning, ressources, commandes)
   const [sourcesPre, setSourcesPre] = useState({ charge: false, donnees: null, erreur: null });
+  // Tâche 8 : versions avec leur contenu (accueil de l'équipe), signature d'un
+  // sous-traitant au bureau, passage « à mettre à jour » sur clic.
+  const [versionsContenu, setVersionsContenu] = useState({ charge: false, liste: null, erreur: null });
+  const [accueilOuvert, setAccueilOuvert] = useState(false);
+  const [marquage, setMarquage] = useState({ enCours: false, erreur: null, avertissement: null });
+  const formMajRef = useRef(null);
+  const miseAJourDemandeeRef = useRef(miseAJourDemandee);
   const aujourdhui = dateDuJourLocale();
 
   const formRef = useRef(null);
@@ -377,9 +389,10 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   }, [chantier.id]);
   const rechargerSignatures = useCallback(() => {
     if (!ficheId) return Promise.resolve();
-    return Promise.all([chargerSignatures(ficheId), chargerVersions(ficheId)]).then(([s1, v1]) => {
+    return Promise.all([chargerSignatures(ficheId), chargerVersions(ficheId), chargerVersionsAvecContenu(ficheId)]).then(([s1, v1, vc]) => {
       setSigs({ charge: true, liste: s1.liste, erreur: s1.erreur });
       setVersions({ charge: true, liste: v1.liste, erreur: v1.erreur });
+      setVersionsContenu({ charge: true, liste: vc.liste, erreur: vc.erreur });
     });
   }, [ficheId]);
   useEffect(() => { rechargerJustifs(); }, [rechargerJustifs]);
@@ -658,6 +671,53 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
     charger();
   };
 
+  // ── Tâche 8 : accueil de l'équipe (par version) et mise à jour proposée ──
+  const idxVersions = indexVersions(versionsContenu.liste || []);
+  const versionCourante = versionValideeCourante(lecture.ligne, idxVersions);
+  const groupesAccueil = accueilParVersion(sigs.liste || [], { versionCourante, versions: idxVersions });
+  const resignature = (() => {
+    const v = lecture.ligne?.version;
+    if (!v || v < 2 || !idxVersions[v] || !idxVersions[v - 1]) return null;
+    return quiDoitResigner({ contenuSigne: idxVersions[v - 1].contenu, contenuCourant: idxVersions[v].contenu });
+  })();
+  const propMaj = sourcesPre.charge && sourcesPre.donnees && batiment.charge && justifs.charge && ligneEnregistree
+    ? propositionsMiseAJour({
+      fiche: ligneEnregistree, lots, aujourdhui, justificatifs: justifs.erreur ? null : justifs.liste,
+      sources: { ...sourcesPre.donnees, batiment: { ligne: batiment.ligne, erreur: batiment.erreur } },
+    })
+    : null;
+  const ouvrirMiseAJour = (motifPropose = "") => {
+    setMiseAJour({ motif: motifPropose, enCours: false, erreur: null, versionDejaFigee: false });
+    setTimeout(() => formMajRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" }), 50);
+  };
+  // Ouverture depuis le panneau de l'opération avec « Mettre à jour » : le
+  // formulaire s'ouvre avec le motif proposé (modifiable), rien n'est écrit.
+  useEffect(() => {
+    if (!miseAJourDemandeeRef.current || !propMaj || !["validee", "a_mettre_a_jour"].includes(lecture.ligne?.statut)) return;
+    miseAJourDemandeeRef.current = false;
+    ouvrirMiseAJour(propMaj.motif);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propMaj?.motif, lecture.ligne?.statut]);
+  const prepMarquage = propMaj?.raisons.length ? preparerAMettreAJour({ fiche: lecture.ligne, chantier, motif: propMaj.motif, auteur }) : null;
+  const marquer = async () => {
+    if (!prepMarquage?.ok) return;
+    if (!window.confirm(`Marquer la fiche v${lecture.ligne.version} « à mettre à jour » ?\n\nLe chantier continue. La fiche reste valable en lecture et au PDF, mais tant que la nouvelle version n'est pas validée, les ouvriers ne peuvent plus signer l'accueil depuis leur téléphone (la base n'accepte leur signature que sur une fiche validée). L'accueil d'un sous-traitant reste possible ici.`)) return;
+    setMarquage({ enCours: true, erreur: null, avertissement: null });
+    const r = await marquerAMettreAJour({ fiche: lecture.ligne, prep: prepMarquage });
+    setMarquage({ enCours: false, erreur: r.erreur ? `Passage impossible : ${r.erreur}.` : null, avertissement: r.avertissement || null });
+    if (!r.erreur) { synchroniserEtapeFicheSecurite({ chantierId: chantier.id, auteur }); charger(); }
+  };
+  const signerAccueilSousTraitant = async (v) => {
+    const r = await signerAccueil({
+      ficheId: lecture.ligne.id, chantierId: chantier.id, version: versionCourante.version, empreinte: versionCourante.empreinte,
+      nom: v.nom, entreprise: v.entreprise, png: v.png, sansCompte: true, statutsPermis: ["validee", "a_mettre_a_jour"],
+    });
+    if (r.erreur) return `Signature non enregistrée : ${r.erreur}.`;
+    setAccueilOuvert(false);
+    await rechargerSignatures();
+    return null;
+  };
+
   const styles = {
     label: { fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, marginBottom: 4, display: "block" },
     input: {
@@ -746,6 +806,35 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                       : "Pour information : les données du chantier ne correspondent plus à cette version (aucune modification faite ; « Mettre à jour » pour en tenir compte)"}
                   </div>
                   <ul style={{ margin: 0, paddingLeft: 18 }}>{divergences.map((d, i) => <li key={i}>Point {d.numero} — {d.message}</li>)}</ul>
+                </div>
+              )}
+              {/* Tâche 8 : mise à jour proposée (fiche validée ou à mettre à jour) — rien n'est écrit sans clic. */}
+              {propMaj?.applicable && (propMaj.raisons.length > 0 || propMaj.impossibles.length > 0) && (
+                <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 10, fontSize: 12.5, background: "rgba(245,166,35,.12)", border: "1px solid rgba(245,166,35,.45)", color: T.text }}>
+                  {propMaj.raisons.length > 0 && (
+                    <>
+                      <div style={{ fontWeight: 800, marginBottom: 4, color: ORANGE }}>Mise à jour proposée :</div>
+                      <ul style={{ margin: 0, paddingLeft: 18 }}>{propMaj.raisons.map((x, i) => <li key={i}>{x.message}</li>)}</ul>
+                    </>
+                  )}
+                  {propMaj.impossibles.map((m, i) => <div key={`i${i}`} style={{ marginTop: 4, color: ROUGE, fontWeight: 600 }}>Non vérifié : {m}.</div>)}
+                  {propMaj.raisons.length > 0 && (
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+                      {!miseAJour && (
+                        <button onClick={() => ouvrirMiseAJour(propMaj.motif)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", minHeight: 38, borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontWeight: 800, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>
+                          <Icon as={PenLine} size={14}/> Mettre à jour
+                        </button>
+                      )}
+                      {prepMarquage?.ok && (
+                        <button onClick={marquer} disabled={marquage.enCours} title="Le chantier continue ; la fiche est signalée « à mettre à jour » jusqu'à la validation de la version suivante."
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", minHeight: 38, borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>
+                          {marquage.enCours ? "Enregistrement…" : "Marquer « à mettre à jour »"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {marquage.erreur && <div style={{ marginTop: 6, color: ROUGE, fontWeight: 600 }}>{marquage.erreur}</div>}
+                  {marquage.avertissement && <div style={{ marginTop: 6, color: ORANGE, fontWeight: 600 }}>{marquage.avertissement}</div>}
                 </div>
               )}
               {enreg.etat === "enregistre" && enreg.messages.length > 0 && (
@@ -1063,7 +1152,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                     </button>
                   )}
                   {["validee", "a_mettre_a_jour"].includes(statutFiche) && !miseAJour && (
-                    <button onClick={() => setMiseAJour({ motif: "", enCours: false, erreur: null, versionDejaFigee: false })}
+                    <button onClick={() => ouvrirMiseAJour(propMaj?.motif || "")}
                       style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "11px 18px", minHeight: 44, borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>
                       <Icon as={PenLine} size={16}/> Mettre à jour
                     </button>
@@ -1071,7 +1160,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                 </div>
 
                 {miseAJour && (
-                  <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: RADIUS.lg, border: `1px solid ${T.border}`, background: T.card || "transparent" }}>
+                  <div ref={formMajRef} style={{ marginTop: 12, padding: "10px 12px", borderRadius: RADIUS.lg, border: `1px solid ${T.border}`, background: T.card || "transparent" }}>
                     <label style={styles.label}>Motif de la mise à jour (obligatoire) — la fiche repassera en brouillon en v{lecture.ligne.version + 1}, à signer et valider de nouveau</label>
                     <textarea rows={2} value={miseAJour.motif} disabled={miseAJour.enCours} style={{ ...styles.input, resize: "vertical" }}
                       placeholder="Ex. : nouveau sous-traitant électricité à partir de la semaine prochaine"
@@ -1085,6 +1174,55 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                       </button>
                     </div>
                   </div>
+                )}
+              </Carte>
+
+              {/* ── Tâche 8 : accueil de l'équipe, par version ── */}
+              <Carte T={T} numero={null} titre="Accueil de l'équipe"
+                objet="Chaque intervenant signe l'accueil sur la version validée. Une signature d'une version précédente reste valable si les points 3 à 12 n'ont pas changé.">
+                {resignature && (
+                  <div style={{ fontSize: 12.5, color: T.textSub, marginBottom: 8 }}>
+                    v{lecture.ligne.version} par rapport à la v{lecture.ligne.version - 1} : « Établie par » et « Chef d'équipe » re-signent à chaque version. {resignature.raison}
+                  </div>
+                )}
+                {statutFiche === "brouillon" && (
+                  <div style={{ fontSize: 12.5, color: T.textMuted, fontStyle: "italic", marginBottom: 8 }}>
+                    La signature d'accueil s'ouvre quand la fiche est validée (ouvriers sur leur téléphone, sous-traitants ici sur la tablette).
+                  </div>
+                )}
+                {statutFiche === "a_mettre_a_jour" && (
+                  <div style={{ fontSize: 12.5, color: ORANGE, fontWeight: 600, marginBottom: 8 }}>
+                    Fiche « à mettre à jour » : les ouvriers ne peuvent pas signer l'accueil depuis leur téléphone tant que la nouvelle version n'est pas validée.
+                  </div>
+                )}
+                {(sigs.erreur || versionsContenu.erreur) && (
+                  <div style={{ fontSize: 12.5, color: ROUGE, fontWeight: 600, marginBottom: 8 }}>Signatures d'accueil illisibles ({sigs.erreur || versionsContenu.erreur}).</div>
+                )}
+                {sigs.charge && versionsContenu.charge && !sigs.erreur && !versionsContenu.erreur && (
+                  groupesAccueil.length === 0 ? (
+                    <div style={{ fontSize: 12.5, color: T.textMuted, fontStyle: "italic", marginBottom: 8 }}>Aucune signature d'accueil.</div>
+                  ) : groupesAccueil.map((g) => (
+                    <div key={g.version} style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.6 }}>v{g.version} — {g.signatures.length} signature{g.signatures.length > 1 ? "s" : ""}</div>
+                      {g.signatures.map((x) => (
+                        <div key={x.id} style={{ fontSize: 12.5, color: T.textSub, padding: "3px 0", borderBottom: `1px solid ${T.border}` }}>
+                          <b style={{ color: T.text }}>{x.signataire_nom}</b>{x.signataire_entreprise ? ` (${x.signataire_entreprise})` : ""} — {dateHeureFr(x.signe_le)}
+                          {" "}· {x.auth_user_id ? "compte connecté" : "sans compte, signée au bureau"} ·{" "}
+                          <span style={{ fontWeight: 700, color: x.valable ? VERT : x.etat === "en_attente" ? T.textSub : ROUGE }}>{x.libelle}</span> ·{" "}
+                          <button onClick={() => ouvrirImageSignature(x)} style={{ border: "none", background: "transparent", color: acc.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline", fontSize: 12 }}>voir la signature</button>
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                )}
+                {["validee", "a_mettre_a_jour"].includes(statutFiche) && (
+                  versionCourante ? (
+                    <button onClick={() => setAccueilOuvert(true)} style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", minHeight: 40, borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+                      <Icon as={PenLine} size={14}/> Faire signer l'accueil (sous-traitant sans compte)
+                    </button>
+                  ) : versionsContenu.charge && !versionsContenu.erreur ? (
+                    <div style={{ fontSize: 12.5, color: ROUGE, fontWeight: 600 }}>Version figée v{lecture.ligne.version} introuvable : signature d'accueil impossible.</div>
+                  ) : null
                 )}
               </Carte>
 
@@ -1128,6 +1266,25 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
           entrepriseParDefaut={signatureOuverte === "etablie_par" ? "Profero" : ""}
           onSigner={(v) => signer(signatureOuverte, v)} onAnnuler={() => setSignatureOuverte(null)}/>
       )}
+      {accueilOuvert && versionCourante && (() => {
+        const lu = lectureOuvrier(versionCourante.contenu);
+        return (
+          <SignatureFicheSecurite T={T} acc={acc} libelle="Accueil (sous-traitant)"
+            version={versionCourante.version} empreinte={versionCourante.empreinte}
+            synthese={lu.risques}
+            consignes={lu.ok && lu.points.length ? (
+              <div style={{ marginTop: 8, fontSize: 13, color: T.text }}>
+                <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>Consignes</div>
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {lu.points.map((p) => <li key={p.numero}><b>{p.titre}</b>{p.consignes.length ? ` : ${p.consignes.join(" ; ")}` : ""}{p.mesures ? ` — ${p.mesures}` : ""}</li>)}
+                </ul>
+              </div>
+            ) : null}
+            nomConnecte=""
+            note={`Signature d'accueil sur la v${versionCourante.version}, prise sur cet appareil pour une personne sans compte (aucun compte rattaché).`}
+            onSigner={signerAccueilSousTraitant} onAnnuler={() => setAccueilOuvert(false)}/>
+        );
+      })()}
     </div>
   );
 }

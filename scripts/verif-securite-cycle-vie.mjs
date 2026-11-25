@@ -252,7 +252,7 @@ test("11. fiche chantier : le menu de statut passe par la règle, verrouillage a
   assert.match(panneau, /alerteChantierEnCours\(\{ chantier: c, fiche: etat\.parChantier\[c\.id\] \|\| null, lecture: etat\.lecture \}\)/);
   assert.match(panneau, /synchroniserEtapeFicheSecurite\(\{ chantierId: c\.id/);
   const ecran = sansCommentaires(lire("src/Renovation/FicheSecuriteChantier.jsx"));
-  assert.equal((ecran.match(/synchroniserEtapeFicheSecurite\(\{ chantierId: chantier\.id, auteur \}\)/g) || []).length, 2, "après validation et après « Mettre à jour »");
+  assert.equal((ecran.match(/synchroniserEtapeFicheSecurite\(\{ chantierId: chantier\.id, auteur \}\)/g) || []).length, 3, "après validation, après « Mettre à jour » et (tâche 8) après « Marquer « à mettre à jour » »");
   assert.ok(!/securite/i.test(lire("src/access.js")), "aucune page « sécurité » dans access.js");
 });
 
