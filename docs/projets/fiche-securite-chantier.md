@@ -89,7 +89,7 @@ attendent l'accord de François.
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | **en cours** — accord de François reçu, `securite-preuves` ajouté et essayé ; application pas encore faite (voir journal) | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | — (branche `claude/busy-cannon-n478wr`, pas encore de demande de fusion) |
+| 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | **migration appliquée** le 25/11/2026 ; demande de fusion ouverte (script de contrôle), en attente des contrôles GitHub | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | branche `claude/busy-cannon-n478wr` (lien au compte rendu) |
 | 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | à faire | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | — |
 | 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | à faire | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | — |
 | 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | à faire | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | — |
@@ -125,7 +125,7 @@ table `securite_` n'existe encore. François demande la liste des 24 pour leur
 donner un statut (voir comptes rendus).
 
 **25/11/2026 — Tâche 1 : migration préparée, essayée, NON appliquée.**
-Fichier : `supabase/migrations/20261125114305_securite_fiches_chantier.sql`
+Fichier : `supabase/migrations/20261125114305_securite_fiches_chantier.sql` (renommé ensuite `20261125121322_…`, voir plus bas)
 (nom horodaté au lieu de `20261125_…` de la spécification, convention du
 dossier). Écarts avec le SQL de la spécification, et pourquoi :
 
@@ -205,6 +205,27 @@ ne peut être effacé pour les images de signature et les PDF de version.
 - **Pas encore appliquée** : à reprendre par cet essai ciblé, puis
   l'application (même nom), puis les vérifications prévues.
 
+**25/11/2026 — Tâche 1 : migration appliquée.**
+
+- Essai ciblé sur `securite-preuves`, annulé ensuite (vraie base, protection
+  générale de suppression levée comme le fait le service de stockage) :
+  ouvrier et admin suppriment 0 fichier, modifient 0 fichier, l'écrasement est
+  refusé par les règles (« row-level security »), le redépôt du même nom est
+  refusé, les 2 fichiers d'essai restent intacts. 10 contrôles conformes.
+- Appliquée par `apply_migration` (nom `securite_fiches_chantier`). Version
+  enregistrée par la base : **20261125121322** ; le fichier a été renommé
+  `20261125121322_securite_fiches_chantier.sql` pour rester aligné.
+- Vérifié après application (requêtes réelles) : migration présente dans la
+  liste ; 5 tables avec RLS et verrou `profero_collaborateurs_seulement`,
+  2 vues ; 21 règles sur les tables `securite_` ; buckets
+  `securite-confidentiel` et `securite-preuves` privés ; verrou du stockage
+  couvrant chantier-documents, invest-documents, photos,
+  securite-confidentiel, securite-preuves ; 6 règles de stockage, uniquement
+  lecture ou dépôt. Alertes sécurité Supabase : aucune ne concerne un objet
+  `securite_` ou `securite-` (les alertes listées existaient déjà).
+- Reste pour clore la tâche : contrôles GitHub verts sur la demande de fusion,
+  fusion par la session principale, application qui s'ouvre.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -281,4 +302,13 @@ seront rangés, et personne, admin compris, ne pourra les effacer ni les
 remplacer. Un deuxième essai complet sur la vraie base, annulé ensuite, est
 conforme. La migration n'est pas encore appliquée : un dernier contrôle sur la
 suppression des fichiers attend une confirmation technique côté base.
+
+### 25/11/2026 — Tâche 1 : la base est prête
+
+Les tableaux de la fiche sécurité et les deux espaces de stockage protégés
+existent maintenant sur la vraie base. Rien de visible ne change encore dans
+l'application : les écrans arrivent avec les tâches suivantes. Vérifié après
+la mise en place : chaque tableau est réservé aux collaborateurs, et personne,
+admin compris, ne peut effacer ni remplacer une signature ou le PDF d'une
+version.
 
