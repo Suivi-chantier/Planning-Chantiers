@@ -90,8 +90,8 @@ attendent l'accord de François.
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | en ligne (migration appliquée et fusion le 25/11/2026) | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | [#281](https://github.com/Suivi-chantier/Planning-Chantiers/pull/281) |
-| 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | en cours (demande de fusion ouverte, contrôles GitHub à attendre) | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | [#282](https://github.com/Suivi-chantier/Planning-Chantiers/pull/282) |
-| 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | à faire | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | — |
+| 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | en ligne (fusion le 25/11/2026, 13 contrôles verts ; enregistrement du bloc Bâtiment à confirmer par François dans l'appli) | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | [#282](https://github.com/Suivi-chantier/Planning-Chantiers/pull/282) |
+| 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; libellés des cases à faire relire par François) | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | [#283](https://github.com/Suivi-chantier/Planning-Chantiers/pull/283) |
 | 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | à faire | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | — |
 | 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | à faire | Auto | PDF conforme au modèle v2 avec signatures | — |
 | 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | à faire | Auto | Propositions justes sur des chantiers réels (phasage, planning) | — |
@@ -268,6 +268,64 @@ la tâche 1 ne change aucun écran. Tâche 2 lancée.
 - Liste du panneau : chantiers de l'opération non archivés (règle
   `estChantierArchive`), tous statuts confondus.
 
+
+**25/11/2026 — Tâche 3 : écran de la fiche d'un chantier.**
+
+- Emplacement de la configuration des points : la spécification dit
+  `securite/points.ts` ; le dépôt est en JavaScript, donc
+  `src/Renovation/securite/points.mjs` (module pur, lisible par les scripts de
+  vérification) + façade `points.js`. La logique de l'écran est dans
+  `src/Renovation/securiteFiche.mjs` (+ façade), à côté de
+  `securitePastilles.mjs`.
+- Le PDF v2 n'est pas dans le dépôt : **les libellés des cases des points 4 à
+  12, les champs du point 2 et la liste des justificatifs attendus par point
+  sont une proposition** construite à partir de la spécification (seules les
+  cases du point 5 « zones listées, trémies protégées, échafaudage vérifié »
+  y figuraient). À faire relire par François. Les codes des cases ne doivent
+  plus changer une fois des fiches remplies (les réponses y sont rattachées).
+- `concerneSi` est présent et vide (null) sur les 12 points : réservé à la
+  tâche 6.
+- Justificatifs : `requis: true` proposé pour repérage amiante (point 4),
+  habilitation électrique (6), consigne de travail isolé (9), fiche de remise
+  des EPI (10) ; les autres « selon le cas ». Utilisé seulement à la tâche 4.
+- **« n/12 » : même définition que la vue `securite_fiches_etat`** (relue sur
+  la base, identique à la migration ; même résultat que PostgreSQL sur 4
+  échantillons, requête de lecture sur des valeurs littérales). Conséquence à
+  connaître : la vue compte le point 1 dès qu'il y a **un** intervenant (le
+  responsable seul suffit), le point 2 dès qu'**un** champ est rempli, le
+  point 3 dès qu'**une** ligne est saisie. L'appli suit la vue, sans
+  recalcul différent. Pour que ce compte reste honnête, l'enregistrement
+  n'écrit jamais de champ vide (une fiche ouverte et non remplie reste à
+  0/12) et n'écrit dans `reponses` que p4 à p12 (la vue compte toute clé).
+- Point 1 : le responsable est saisi à la main (décision du 25/11) ; le client
+  (celui du chantier, sinon celui de l'opération) et l'adresse (de
+  l'opération) sont **lus**, pas recopiés dans la fiche : ils seront figés
+  dans la version à la validation (tâche 4). Stockage dans `intervenants` :
+  `{type: "responsable", nom, telephone}` et
+  `{type: "entreprise", id, nom, activite, contact, telephone}`.
+- Point 2 (`donnees_base`) : lots (cases issues de la liste des lots de
+  l'appli), début et fin prévus, date de dépose des sanitaires, effectif
+  maximum, logement occupé (oui / non / non renseigné), accès, observations.
+  Bâtiment affiché en lecture ; le lien « Modifier dans le bloc Bâtiment »
+  ramène au panneau de l'opération.
+- Point 3 (`synthese_risques`) : tableau de 3 lignes de texte au plus.
+- « Créer la fiche » n'apparaît que quand la pastille dit « à créer » : pas
+  pour un chantier terminé (décision du 25/11), ni pour une affaire perdue,
+  ni quand l'état des fiches est illisible. Si quelqu'un a créé la fiche
+  entre-temps, on ouvre la sienne.
+- Enregistrement automatique 0,9 s après la dernière frappe. L'écriture ne
+  passe que si la fiche est toujours en brouillon **et** n'a pas été
+  modifiée ailleurs depuis la lecture (même `updated_at`) ; sinon rien n'est
+  écrit, l'écran affiche « erreur, non enregistré » avec la raison et
+  propose de recharger. Une saisie invalide (date impossible, effectif non
+  entier) n'est pas enregistrée et le dit.
+- Lecture seule : toute fiche qui n'est pas en brouillon (validée, à mettre à
+  jour, verrouillée), et toute fiche dont le contenu en base a une forme
+  inattendue (pour ne rien écraser). Les éléments inconnus (case retirée de
+  la configuration, clé ou type inattendus) sont conservés tels quels.
+- Aucune page ajoutée dans `src/access.js`, aucune migration, aucune écriture
+  en base pendant le développement (0 fiche en base au 25/11).
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -389,3 +447,61 @@ lecture). Pas vérifié depuis l'environnement de Claude : l'ouverture du
 panneau dans un navigateur ; la compilation de l'application est faite par les
 contrôles GitHub.
 
+### 25/11/2026 — Tâche 3 : la fiche sécurité de chaque chantier se remplit dans l'appli
+
+**Ce qui change à l'écran.** Dans le panneau « Fiche sécurité » de la page
+Opération, chaque chantier a maintenant un bouton :
+
+- **« Créer la fiche »** pour un chantier qui n'en a pas (pas pour un
+  chantier terminé ni une affaire perdue) ; la fiche est créée en brouillon
+  et s'ouvre aussitôt ;
+- **« Ouvrir la fiche »** quand elle existe.
+
+La fiche s'ouvre en plein écran (ordinateur et tablette), dans l'ordre du
+modèle papier :
+
+1. un bandeau bleu nuit : chantier, opération, adresse, état de la fiche,
+   nombre de points complétés sur 12 et les 12 numéros (jaunes quand le point
+   est complété) ;
+2. **point 1 — Intervenants** : responsable du chantier et son téléphone
+   (saisis à la main), client et adresse repris de l'opération, liste des
+   entreprises (ajouter / retirer) ;
+3. **point 2 — Données de base** : lots prévus, dates de début et de fin,
+   date de dépose des sanitaires, effectif, logement occupé ou non, accès,
+   observations ; en dessous, les données du bâtiment en lecture, avec un
+   lien pour les modifier sur l'opération ;
+4. **points 4 à 12**, une carte chacun : « À compléter / Concerné / Non
+   concerné », les cases à cocher, « Mesures retenues », et la liste des
+   justificatifs attendus (l'ajout des documents arrive à la tâche suivante) ;
+5. **point 3 — Synthèse des risques** : trois lignes.
+
+Tout s'enregistre seul, un instant après la saisie. En haut à droite :
+« enregistrement… », puis « enregistré » ; si l'écriture échoue,
+« erreur, non enregistré » avec la raison, et rien n'est écrasé (par exemple
+si un collègue a modifié la même fiche entre-temps). Une fiche validée ou
+verrouillée s'affiche en lecture seule.
+
+**Le chiffre « n/12 »** de la fiche est calculé exactement comme celui de la
+pastille du panneau. À savoir : un point compte comme complété dès qu'il a
+quelque chose — un seul intervenant pour le point 1, un seul champ pour le
+point 2, une seule ligne pour le point 3 ; pour les points 4 à 12, dès que
+« Concerné » ou « Non concerné » est choisi.
+
+**À relire par vous.** Le modèle papier v2 n'est pas dans l'appli : les cases
+à cocher des points 4 à 12, les champs du point 2 et les justificatifs
+attendus par point sont une proposition à partir de la spécification. Dites
+ce qu'il faut ajouter, retirer ou reformuler ; c'est une modification simple
+tant qu'aucune fiche n'est remplie.
+
+**Qui le voit.** Les mêmes personnes que la page Opérations (admin, direction,
+conducteurs, comptable, commercial, chargés d'affaires). Pas les ouvriers.
+Aucune nouvelle page.
+
+**Vérifié.** Nouveau contrôle automatique de la fiche (12 vérifications,
+exemples issus des tests, données fictives) lancé en local : tout passe. Le
+calcul du « n/12 » donne les mêmes résultats que la base sur 4 exemples
+(requête de lecture, sans fiche réelle : la base n'en contient aucune). Pas
+vérifié depuis l'environnement de Claude : l'ouverture de la fiche dans un
+navigateur, la création d'une vraie fiche et son rechargement (« réponses
+intactes ») — à faire une fois en ligne ; la compilation est faite par les
+contrôles GitHub.

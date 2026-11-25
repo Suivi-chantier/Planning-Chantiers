@@ -6,13 +6,16 @@
 //   - bloc « Bâtiment » éditable (table securite_operations, une ligne par
 //     opération) : saisi une fois ici, repris en lecture dans chaque fiche ;
 //   - liste des chantiers de l'opération (non archivés), chacun avec la
-//     pastille de sa fiche (règle : securitePastilles.mjs, module pur).
+//     pastille de sa fiche (règle : securitePastilles.mjs, module pur) ;
+//   - tâche 3 : bouton « Créer la fiche » (seulement quand la pastille dit
+//     « à créer » : jamais pour un chantier terminé ou perdu, jamais quand
+//     l'état est illisible) et « Ouvrir la fiche » → FicheSecuriteChantier.
 //
 // Une lecture en échec reste visible : « état illisible », jamais « à créer » ;
 // le bloc Bâtiment ne s'édite pas tant que sa lecture n'a pas réussi (sinon un
 // enregistrement écraserait des données qu'on n'a pas vues).
 // ─────────────────────────────────────────────────────────────────────────────
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { ShieldCheck, Building2, X } from "lucide-react";
@@ -22,7 +25,9 @@ import {
   texteOuiNon, texteEtage, texteAvantDate, libelleReperageAmiante,
   formulaireBatiment, preparerEnregistrementBatiment,
 } from "./securitePastilles.js";
-import { chargerEtatFiches, chargerBatiment, enregistrerBatiment } from "./securiteDonnees.js";
+import { chargerEtatFiches, chargerBatiment, enregistrerBatiment, creerFiche } from "./securiteDonnees.js";
+import { peutCreerFiche } from "./securiteFiche.js";
+import FicheSecuriteChantier from "./FicheSecuriteChantier.jsx";
 
 function Pastille({ p }) {
   return (
@@ -193,15 +198,41 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(chargerFiches, [ids]);
 
+  // Fiche d'un chantier ouverte par-dessus le panneau (tâche 3).
+  const [ficheOuverte, setFicheOuverte] = useState(null); // chantier
+  const [creation, setCreation] = useState({ chantierId: null, erreur: null });
+  const ficheOuverteRef = useRef(null);
+  ficheOuverteRef.current = ficheOuverte;
+
   useEffect(() => {
-    const echap = (e) => { if (e.key === "Escape") onClose?.(); };
+    const echap = (e) => { if (e.key === "Escape" && !ficheOuverteRef.current) onClose?.(); };
     window.addEventListener("keydown", echap);
     return () => window.removeEventListener("keydown", echap);
   }, [onClose]);
 
   const auteur = profil?.nom || profil?.email || null;
 
+  const creer = async (c) => {
+    if (creation.chantierId) return;
+    setCreation({ chantierId: c.id, erreur: null });
+    const r = await creerFiche(c.id, auteur);
+    if (r.erreur || !r.ligne) {
+      setCreation({ chantierId: null, erreur: `${c.nom} : création impossible (${r.erreur || "fiche non relue"}). Aucune fiche n'a été créée.` });
+      return;
+    }
+    setCreation({ chantierId: null, erreur: null });
+    setFicheOuverte(c);
+  };
+  const fermerFiche = () => { setFicheOuverte(null); chargerFiches(); };
+
+  const boutonLigne = (actif) => ({
+    display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", minHeight: 36, flexShrink: 0,
+    borderRadius: RADIUS.md, border: `1px solid ${actif ? acc.border : T.border}`, background: actif ? acc.bg10 : "transparent",
+    color: actif ? acc.accent : T.textMuted, fontWeight: 700, fontSize: 12, cursor: actif ? "pointer" : "default", fontFamily: "inherit",
+  });
+
   return (
+    <>
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
       display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <style>{`@media(max-width:640px) { .fso-grille { grid-template-columns: 1fr !important; } .fso-large { grid-column: auto !important; } }`}</style>
@@ -239,23 +270,37 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
               {chantiersListes.map((c) => {
                 const p = pastilleFicheSecurite({ chantier: c, fiche: etat.parChantier[c.id] || null, lecture: etat.lecture });
                 return (
-                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
                     <span style={{ width: 9, height: 9, borderRadius: 3, background: c.couleur || "#888", flexShrink: 0 }}/>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ flex: 1, minWidth: 150 }}>
                       <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nom}</div>
                       {p.detail && <div style={{ fontSize: 10.5, color: T.textMuted, marginTop: 2 }}>{p.detail}</div>}
                     </div>
                     <Pastille p={p}/>
+                    {etat.lecture === "ok" && etat.parChantier[c.id] ? (
+                      <button onClick={() => setFicheOuverte(c)} style={boutonLigne(true)}>Ouvrir la fiche</button>
+                    ) : peutCreerFiche({ chantier: c, fiche: etat.parChantier[c.id] || null, lecture: etat.lecture }) ? (
+                      <button onClick={() => creer(c)} disabled={!!creation.chantierId} style={boutonLigne(!creation.chantierId)}>
+                        {creation.chantierId === c.id ? "Création…" : "Créer la fiche"}
+                      </button>
+                    ) : null}
                   </div>
                 );
               })}
             </div>
           )}
+          {creation.erreur && (
+            <div style={{ fontSize: FONT.sm.size, color: "#e15a5a", fontWeight: 600, marginTop: 8 }}>{creation.erreur}</div>
+          )}
           <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 10, fontStyle: "italic" }}>
-            La création et le remplissage de la fiche de chaque chantier arrivent avec la prochaine livraison.
+            Pas de fiche pour un chantier déjà terminé. Justificatifs, signatures et validation arrivent avec la prochaine livraison.
           </div>
         </div>
       </div>
     </div>
+    {ficheOuverte && (
+      <FicheSecuriteChantier T={T} acc={acc} op={op} chantier={ficheOuverte} profil={profil} onClose={fermerFiche}/>
+    )}
+    </>
   );
 }
