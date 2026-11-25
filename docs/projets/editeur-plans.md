@@ -142,15 +142,16 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Étape 1** — module pur « murs partagés » : à partir des pièces et des murs du relevé, calcule les murs (partagés entre deux pièces voisines, épaisseur, ouvertures accrochées) et le modèle d'objets métier de l'existant. Script `verif-plan-v2-modele` + workflow. Aucun écran. | en ligne | Contrôles verts | Cas du script verts ; tableau sur les 2 relevés réels : nombre de pièces, de murs partagés, d'ouvertures accrochées, rien de perdu | [#269](https://github.com/Suivi-chantier/Planning-Chantiers/pull/269) |
-| 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | en cours | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** |[#271](https://github.com/Suivi-chantier/Planning-Chantiers/pull/271) |
-| 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
-| 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
+| 2 | Module pur de redressement (angles presque droits, murs presque alignés, épaisseurs régularisées ; tolérance réglable, départ 1 cm et 0,5°) ; au-delà : point à valider. Script `verif-plan-v2-redressement` + workflow. Aucun écran. | en ligne | Contrôles verts | Tableau sur les 2 relevés réels : corrections appliquées, points à valider, **écart de chaque métré avant / après redressement** |[#271](https://github.com/Suivi-chantier/Planning-Chantiers/pull/271) |
+| 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | à faire | Droits accordés par Loris (question 1, « oui ») : mêmes droits que `plans` ; migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
+| 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | à faire | Droits accordés par Loris (question 1, « oui ») : admin seul ; contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
 | 5 | Création par dépôt des exports iMapper (DXF + PDF), avec le parcours d'import existant, réutilisé tel quel. | à faire | Contrôles verts | Un import du DXF de référence donne le même relevé que dans l'ancien éditeur | — |
-| 6 | Affichage SVG : pièces colorées par type avec nom et surface, murs pleins à leur épaisseur, ouvertures, cotes intérieures automatiques ; déplacement et zoom à la souris et au doigt (pincement). | à faire | Contrôles verts | Captures des 2 relevés réels | — |
+| 6a | Module pur « scène du plan » : à partir du relevé redressé et du modèle, la liste de ce qu'il faut dessiner (pièces colorées par type avec nom et surface, murs pleins à leur épaisseur avec leurs angles, ouvertures, cotes intérieures automatiques, points à valider en orange) et sa sortie en SVG. Script de vérification. Aucun écran. | en cours | Contrôles verts | Images des 2 relevés réels produites par le module (hors application), remises dans la conversation | [#272](https://github.com/Suivi-chantier/Planning-Chantiers/pull/272) |
+| 6b | Affichage dans la page : composant SVG qui dessine la scène ; déplacement et zoom à la souris et au doigt (pincement). | à faire | Contrôles verts (après la tâche 4) | Captures des 2 relevés réels dans l'application | — |
 | 7 | Redressement branché à la création du plan ; points à valider affichés en orange, à confirmer ou refuser un par un. | à faire | Contrôles verts | Sur les 2 relevés réels : liste des points à valider, capture avant / après | — |
 | 8 | Panneau de pièce (nom, type, hauteur sous plafond, métrés, photos de ses murs) ; sauvegarde automatique. | à faire | Contrôles verts | Métrés du panneau = ceux de l'ancien éditeur, pièce par pièce | — |
-| 9 | **Fin d'étape 1** : tableau de comparaison des métrés ancien / nouvel éditeur sur tous les relevés réels en base, captures. | à faire | **Arrêt si un seul métré diffère** | Tableau recopié dans le compte rendu, écart nul | — |
-| 10 | **Étape 2** — modèle pur du projet : liste de modifications posée sur l'existant figé (démolir un mur ou une portion, créer cloison 45 / 70 ou doublage 120 / 160) ; état d'un élément (existant, à démolir, à créer) et corps d'état. Script de vérification. | à faire | Contrôles verts (dépend de la question 2 pour les types de cloisons) | Cas du script verts ; l'existant reste identique après toute modification | — |
+| 9 | **Fin d'étape 1** : tableau de comparaison des métrés ancien / nouvel éditeur sur tous les relevés réels en base, captures. | à faire | **Arrêt si un seul métré affiché diffère à la création du plan**, avant tout point accepté (question 5, « oui ») | Tableau recopié dans le compte rendu, écart nul | — |
+| 10 | **Étape 2** — modèle pur du projet : liste de modifications posée sur l'existant figé (démolir un mur ou une portion, créer cloison 45 / 70 ou doublage 120 / 160) ; état d'un élément (existant, à démolir, à créer) et corps d'état. Script de vérification. | à faire | Contrôles verts | Cas du script verts ; l'existant reste identique après toute modification | — |
 | 11 | Module pur de découpage des pièces : une cloison qui coupe une pièce en crée deux ; échec signalé. Cas difficiles dans le script : cloison en biais, pièce en L, cloison qui ne touche qu'un mur. | à faire | Contrôles verts | Cas difficiles verts ; somme des surfaces conservée | — |
 | 12 | Module pur « métré travaux » : m² à démolir, ml et m² de cloison par type, m² de doublage, sol / plafond / murs nets par pièce après travaux. | à faire | Contrôles verts | Sans aucune modification, le métré après travaux = le métré existant, sur les 2 relevés réels | — |
 | 13 | Socle d'édition : barre des cinq outils, sélection, panneau de l'élément, annuler / rétablir, sauvegarde automatique des modifications. | à faire | Contrôles verts | Annuler / rétablir vérifié par script ; zones tactiles ≥ 44 px | — |
@@ -160,7 +161,7 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 | 17 | Outil Note et trait libre : grouper, dégrouper, enregistrer un groupe comme symbole (table de bibliothèque, migration additive) ; dégrouper un objet métier avec avertissement « ne comptera plus dans les métrés ». | à faire | Contrôles verts ; migration additive vérifiée | Symbole enregistré puis reposé sur un autre plan | — |
 | 18 | Panneau « Métré travaux » mis à jour en direct. | à faire | Contrôles verts | Chiffres du panneau = ceux du module, sur relevé réel | — |
 | 19 | **Fin d'étape 2** : sur un vrai relevé, démolir une cloison et en créer une autre ; plan, pièces et métré travaux à jour. Captures. | à faire | — | Captures et métré travaux dans le compte rendu | — |
-| 20 | **Étape 3** — bibliothèque métier (module pur) : symboles électricité, plomberie, chauffage et ventilation ; sanitaires repris de l'ancienne bibliothèque. | à faire | Contrôles verts (dépend de la question 2) | Planche de tous les symboles jointe au compte rendu | — |
+| 20 | **Étape 3** — bibliothèque métier (module pur) : symboles électricité, plomberie, chauffage et ventilation ; sanitaires repris de l'ancienne bibliothèque. | à faire | Contrôles verts | Planche de tous les symboles jointe au compte rendu | — |
 | 21 | Outil Équipement : poser dans une pièce ou sur un mur, déplacer, régler dans le panneau. | à faire | Contrôles verts | Capture sur relevé réel | — |
 | 22 | Comptages automatiques par pièce et par type d'équipement, ajoutés au métré travaux. | à faire | Contrôles verts | Comptage du panneau = comptage à la main sur un relevé réel | — |
 | 23 | Les quatre versions (vues pures) + sélecteur en haut de l'écran ; hors corps d'état : grisé et verrouillé ; légende ; notes propres à une version. | à faire | Contrôles verts | Script : une version ne contient que ses éléments ; aucune copie de données | — |
@@ -453,6 +454,180 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
     pièces mais ne sont pas redessinés ; leurs faces extérieures peuvent
     garder un écart de l'ordre du millimètre entre deux murs voisins.
 
+- **25/11/2026 — Modification du plan : la tâche 6 est coupée en 6a et 6b, et
+  6a passe avant les tâches 3 à 5.** Raison : les tâches 3 et 4 attendent la
+  réponse de Loris à la question 1 (droits d'accès), et les tâches 5, 6, 7 et
+  8 ont besoin de la page. La partie « calcul de ce qu'il faut dessiner »
+  (6a) est un module pur, sans page ni base : elle peut avancer tout de suite
+  et produire les premières images des relevés réels. L'affichage dans la
+  page (6b) viendra après la tâche 4. Si la question 1 reste sans réponse
+  après 6a, on enchaîne sur la tâche 11 (découpage des pièces, module pur),
+  qui ne dépend d'aucune question.
+- **25/11/2026 — QUESTION 5 à Loris (à trancher avant les tâches 8 et 9, ne
+  bloque pas 6a).** Constat de la tâche 2 : à la création du plan, les métrés
+  affichés du plan redressé sont identiques à ceux de l'ancien éditeur sur
+  les deux relevés réels (0 différence sur 54 et sur 78 valeurs), mais de
+  justesse (les valeurs exactes diffèrent de 0,0014 m² au plus), et ils
+  changent dès qu'on accepte un point à valider, puisqu'on déplace alors un
+  mur. Question : « Les métrés du nouvel éditeur suivent le plan redressé :
+  identiques à l'ancien à la création, ils changent quand on accepte de
+  redresser un mur. D'accord ? » Réponse attendue : « oui », ou « non, les
+  métrés restent toujours ceux du relevé brut ». Recommandation : oui (un
+  seul jeu de chiffres pour le plan, les cotes et les métrés) ; la
+  comparaison de fin d'étape 1 se fait alors à la création du plan, avant
+  tout point accepté.
+- **25/11/2026 — Point à régler avec Loris en tâche 7, sur captures (pas une
+  question bloquante).** Le redressement propose 16 points à valider sur
+  « Louison RDC » et 23 sur Montillers. Un tiers sont de petites retouches
+  (moins de 3 cm) ; les autres sont des murs réellement tournés de 1 à 5°,
+  dont la correction déplacerait un bout de mur de 3 à 50 cm. Le réglage
+  « jusqu'à quel angle un mur est presque droit » (5° aujourd'hui) ramène la
+  liste à 13 et 17 points à 3°, 11 et 13 à 2°. À décider en voyant les
+  propositions dessinées.
+
+- **25/11/2026 — Tâche 6a : une seule description, deux sorties.** Cinq
+  modules purs dans `src/Renovation/planV2/`. `planV2Scene.mjs` dresse la
+  liste de ce qu'il faut dessiner, en mètres, sans aucune taille d'écran :
+  chaque élément porte l'identifiant de son objet (pièce, mur, ouverture…),
+  son état (existant, à démolir, à créer), son corps d'état et son calque.
+  `planV2SceneDessin.mjs` (avec `planV2SceneTextes.mjs`) met cette liste en
+  page pour une échelle donnée et rend des formes simples (polygone, ligne,
+  arc, cercle, rectangle, texte). `planV2SceneSvg.mjs` ne fait qu'écrire ces
+  formes en SVG. Le composant de la tâche 6b dessinera les mêmes formes : la
+  géométrie n'existe qu'à un endroit. Les calques équipements, notes, traits
+  libres et projet existent, vides ; si le modèle en contient un jour, le plan
+  l'écrit au lieu de les passer sous silence.
+- **25/11/2026 — Tâche 6a : la surface affichée n'est pas recalculée.** La
+  scène reçoit les métrés (`calculerMetres`) en paramètre et écrit la surface
+  avec `texteMetre` : même chiffre, même service. Elle ne sait pas sur quel
+  relevé ces métrés ont été calculés : la réponse à la question 5 ne changera
+  rien ici. Sans métrés, l'étiquette dit « non calculable ». Les cotes sont
+  celles de `cotesInterieures` (un côté d'au moins 30 cm, en centimètres).
+- **25/11/2026 — Tâche 6a : comment les murs sont dessinés pleins.** Chaque
+  mur du modèle reste un objet à part (il pourra passer en jaune seul) : c'est
+  sa bande, entre ses deux faces ou entre sa face et son épaisseur. Les bandes
+  ne couvrent pas les angles. À chaque coin saillant d'une pièce, le coin vide
+  est rempli par une « jonction » : un petit quadrilatère qui va du coin de la
+  pièce jusqu'à la rencontre des deux faces extérieures. Fait depuis les coins
+  de toutes les pièces, cela ferme aussi les rencontres en T et en croix
+  (plusieurs jonctions peuvent alors couvrir le même carré ; en aplat cela ne
+  se voit pas). Chaque jonction liste les deux murs qu'elle relie. À un coin
+  rentrant entre deux murs extérieurs, les deux bandes sont recoupées sur leur
+  diagonale au lieu de se recouvrir. Derrière un décrochement (un « raccord »
+  de la tâche 1, sans épaisseur propre), la jonction reprend l'épaisseur du
+  mur voisin et longe tout le décrochement, comme iMapper le dessine ; elle
+  n'est gardée que si les murs dessinés du relevé montrent bien de la matière
+  à cet endroit (au moins la moitié).
+- **25/11/2026 — Tâche 6a : pourquoi les murs dessinés par iMapper ne sont
+  pas mis en fond.** Mesuré d'abord sur les deux relevés réels (relevé
+  redressé, grille de 1 cm, murs superposés comptés une seule fois) : les murs
+  d'iMapper recouvrent l'intérieur des pièces sur 0,52 % de leur emprise
+  (Louison) et 6,47 % (Montillers, où deux versions du plan sont superposées) ;
+  les murs calculés, 0,01 % et 0,13 %. Et 98,7 % et 97,5 % des murs d'iMapper
+  se retrouvent dans les murs calculés ou dans les pièces. Les murs d'iMapper
+  ne sont donc pas dessinés : ils servent de témoin (épaisseurs, matière
+  derrière un décrochement). Autre raison : dès l'étape 2, un mur démoli doit
+  disparaître du plan, ce qu'un fond figé empêcherait. (La tâche 1 annonçait
+  9,5 % et 0,9 % : c'était la somme mur par mur, où deux murs dessinés l'un
+  sur l'autre comptent deux fois ; recalculée ainsi, elle donne bien 9,57 % et
+  0,88 %. Les deux mesures disent la même chose.)
+- **25/11/2026 — Tâche 6a : ce qui reste visible quand on ne sait pas.** Un
+  mur dont l'épaisseur est inconnue est un trait interrompu sur sa face, avec
+  sa raison, jamais une bande d'épaisseur par défaut, et aucune jonction ne
+  s'y accroche. Une « limite » (deux pièces sans mur entre elles, ou qui se
+  chevauchent) est un trait fin pointillé. Une jonction qui tomberait à plus
+  de 5 % dans une pièce est écartée et listée avec sa raison plutôt que
+  dessinée de travers. Un relevé dont les ouvertures ne sont pas relevées
+  porte la mention « Ouvertures non relevées » sous le plan. Une cote qui
+  n'est pas affichée à une échelle donnée garde sa raison (côté trop court,
+  chevauchement, hors de la pièce, masquée, doublon).
+- **25/11/2026 — Tâche 6a : ouvertures, et l'orange.** Une ouverture
+  détectée, confirmée sur photo ou validée est dessinée en menuiserie : trou
+  dans le mur à l'épaisseur du mur qui la porte, tableaux, vantail et arc de
+  débattement selon le sens connu, trois traits pour une fenêtre, pointillés
+  pour une baie. Une ouverture « à vérifier » n'est PAS une menuiserie : un
+  trait orange interrompu dans l'épaisseur du mur, sans trou. Une ouverture
+  vue sur photo mais pas placée : une pastille orange avec son code et « ? »,
+  au milieu de son côté. L'orange (#ea580c) n'est employé que pour ce qui est
+  à valider ; le script le vérifie forme par forme. Couleurs des murs par
+  état : gris-noir (#2f3540), jaune (#f2c200), rouge (#d92d20). Les couleurs
+  de pièces sont celles de l'ancien éditeur (`couleurPiece`), dont le pêche
+  clair des chambres, proche de l'orange sans être le même : à revoir si
+  Loris le juge gênant.
+- **25/11/2026 — Tâche 6a : textes, échelle, doigt.** L'échelle (unités de
+  dessin par mètre) est un paramètre ; un second paramètre multiplie toutes
+  les tailles de texte et de trait : à l'écran les textes gardent leur taille
+  quand on zoome, à l'impression ils se règlent en millimètres. Les largeurs
+  de texte sont estimées par une fonction reçue en paramètre (aucune police
+  installée n'est nécessaire au calcul) ; le composant pourra passer la
+  mesure exacte du navigateur. Étiquette : nom et surface sur deux lignes, au
+  point de la pièce le plus loin des murs, réduite jusqu'à tenir ; sinon sur
+  une ligne le long du plus grand côté ; sinon sur fond clair. Cotes : le long
+  du côté, à l'intérieur, les plus longues d'abord ; chacune a un identifiant
+  stable (pièce et numéro de côté) et peut déjà être masquée ou déplacée par
+  un réglage. Une cloison qui avance dans une pièce ne donne sa longueur
+  qu'une fois. Chaque pièce est un seul polygone à toucher (son étiquette
+  laisse passer le doigt). Pour les petits objets (ouvertures, repères), la
+  mise en page fournit une zone à toucher d'au moins 44 px à l'écran, quel que
+  soit le zoom.
+- **25/11/2026 — Tâche 6a : limites connues, à reprendre dans les tâches
+  suivantes.**
+  - Tâche 6b (composant et zoom) : la mise en page dépend de l'échelle (une
+    cote masquée de loin s'affiche de près). Elle prend 12 à 19 ms sur les
+    relevés réels, la scène 60 à 110 ms : recalculer la mise en page à la fin
+    d'un geste de zoom, pas à chaque image, et garder la scène tant que le
+    plan ne change pas. Les deux relevés réels sont faits de groupes de pièces
+    éloignés d'une dizaine à une vingtaine de mètres : la vue d'ensemble est
+    surtout du blanc, il faudra pouvoir cadrer sur un groupe.
+  - Tâche 7 (points à valider) : chaque repère porte la clé du point et un
+    numéro d'ordre dans la liste reçue. Sur « Louison RDC » tout est orange :
+    les 55 ouvertures sont « à vérifier » et couvrent chacune un côté entier,
+    en plus des 16 points du redressement. C'est fidèle aux données, mais
+    lourd : prévoir de pouvoir masquer un des deux genres de repères.
+  - Tâche 14 (démolition par portion) : un mur est une bande d'un seul
+    tenant ; une portion demandera de recouper cette bande. Règle proposée
+    pour les jonctions : une jonction ne passe en jaune que si ses deux murs
+    sont démolis. Les jonctions se superposent aux rencontres en T : sans
+    gravité en aplat, à reprendre si l'on veut des hachures ou de la
+    transparence.
+  - Tâche 25 (planches) : la sortie SVG n'a ni cartouche, ni réglet, ni
+    découpage en pages ; elle sait seulement dessiner à une échelle donnée.
+  - Zones en biais : là où une petite pièce est nettement tournée par
+    rapport à ses voisines, les bandes et les jonctions se chevauchent et la
+    silhouette du mur est en dents de scie sur quelques centimètres (une zone
+    sur Louison, plusieurs sur Montillers, repérées à l'œil sur les images).
+    Le dessin de chaque mur est juste, leur réunion n'est pas lissée.
+  - Épaisseurs : un mur dessiné à 30 cm peut être lu 29 par le modèle (limite
+    connue de la tâche 1) ; le plan le dessine donc à 29.
+  - 13 jonctions écartées sur Montillers et 1 sur Louison : à ces endroits
+    l'angle peut rester ouvert de quelques centimètres.
+
+- **25/11/2026 — Réponses de Loris : « oui aux questions 1, 2 et 4 ».** Loris
+  répond à la liste numérotée du dernier message de la conversation, où le
+  point 4 était la question des métrés, numérotée 5 dans ce journal (la
+  question 4 du journal, sur la fusion, avait déjà reçu sa réponse). Donc :
+  - **Question 1 (droits d'accès) : oui.** La page « Plans (nouveau) » est
+    déclarée dans `src/access.js` pour le seul rôle admin, et la table
+    `plans_v2` reçoit les mêmes droits que l'ancienne table `plans` (tout le
+    bureau, pas les ouvriers), en plus de `profero_collaborateurs_seulement`.
+    Cet accord vaut pour ces deux points précis, pas pour d'autres
+    modifications de droits : toute autre resterait un arrêt obligatoire. Les
+    tâches 3 et 4 repassent « à faire ».
+  - **Question 2 (types de cloisons et sanitaires) : oui, on les déplace.**
+    Les types de cloisons et la bibliothèque de sanitaires sortent de
+    `Plans.jsx` vers un fichier à part que l'ancien éditeur relit, sans
+    changer son comportement, avec un script qui le prouve (tâches 10 et 20).
+  - **Question 5 (métrés) : oui.** Les métrés du nouvel éditeur suivent le
+    plan redressé : identiques à l'ancien éditeur à la création du plan, ils
+    changent quand l'utilisateur accepte de redresser un mur. La comparaison
+    de fin d'étape 1 (tâche 9) se fait à la création du plan, avant tout
+    point accepté ; un seul métré affiché différent à ce moment-là reste un
+    arrêt.
+  - La question 3 (troisième relevé réel, chantier de « Louison RDC ») reste
+    ouverte, sans urgence.
+- **25/11/2026 — Ordre des tâches après ces réponses.** Après 6a : tâche 3
+  (table), tâche 4 (page), puis 5, 6b, 7, 8, 9 comme prévu.
+
 ## Comptes rendus
 
 ### Tâche 1 — modèle de l'existant et murs partagés (24/11/2026)
@@ -622,5 +797,93 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   de 8,5 mm au plus, et 28 métrés affichés sur 42 qui changent — exemple issu
   des tests, données fictives.
 - **Journal des MAJ** : pas d'entrée (rien de visible pour les utilisateurs).
-- **Mise en ligne** : demande de fusion #271, état réel confirmé par la
+- **Mise en ligne** : en ligne depuis le 25/11/2026. Demande de fusion #271,
+  15 contrôles verts, fusionnée par la session pilote, déploiement de
+  production terminé avec succès. L'ouverture de l'application n'a pas pu
+  être testée depuis l'environnement de Claude (site de production non
+  joignable d'ici) ; la tâche n'ajoute aucun écran et aucun fichier chargé
+  par l'application.
+
+### Tâche 6a — scène du plan et sortie SVG (25/11/2026)
+
+- **Ce qui a changé** : rien de visible dans l'application. Elle sait
+  maintenant produire le dessin d'un plan à partir d'un relevé : pièces
+  colorées selon leur type avec leur nom et leur surface, murs pleins à leur
+  épaisseur avec les angles fermés, ouvertures, cotes intérieures calculées,
+  et en orange tout ce qui reste à valider. Ce dessin sort en SVG (une image
+  nette à tout zoom). Ce n'est pas encore un écran : l'affichage dans la page
+  viendra avec la tâche 6b, qui réutilisera exactement ce dessin.
+- **Rien n'est touché dans l'existant** : aucun fichier de l'ancien éditeur
+  ni des tâches 1 et 2 modifié, aucune écriture en base, aucune migration,
+  aucune page.
+- **Les images** : deux par relevé réel (le plan entier et un détail). Elles
+  sont remises dans la conversation et **ne sont pas dans le dépôt** (dépôt
+  public). Elles viennent du module de dessin, hors application.
+- **Essai sur les deux relevés réels de la base** (relevé redressé, modèle,
+  métrés calculés sur ce même relevé). Chiffres agrégés ; les relevés
+  eux-mêmes ne sont pas dans le dépôt.
+
+  | | Louison RDC | Montillers appt 1 T3 |
+  |---|---|---|
+  | Éléments à dessiner | 280 | 349 |
+  | Pièces (sol coloré, nom, surface) | 8 | 12 |
+  | Étiquettes qui tiennent dans leur pièce (à 50 pixels par mètre) | 8 sur 8 | 11 sur 12 (une pièce de 2 m² : étiquette sur fond clair) |
+  | Murs pleins (un par mur du modèle à épaisseur connue) | 70 | 125 |
+  | Jonctions d'angle, en T ou en croix | 60 (dont 18 derrière un décrochement) | 82 (dont 15 derrière un décrochement) |
+  | Limites sans mur (trait fin) | 0 | 2 (les deux pièces qui se chevauchent) |
+  | Murs d'épaisseur inconnue (trait interrompu) | 0 | 0 |
+  | Murs du modèle sans dessin propre : « raccords », leur matière est celle du mur voisin | 25 | 25 |
+  | Jonctions écartées, avec leur raison | 1 (tombait dans une pièce) | 13 (9 tombaient dans une pièce, 2 sans matière dessinée par iMapper, 2 à côté d'une limite sans mur) |
+  | Ouvertures dessinées en menuiserie | 0 | 0 |
+  | Ouvertures « à valider » (orange, dans le mur) | 55 | 0 |
+  | Ouvertures « à placer » (pastille orange « ? ») | 0 | 4 |
+  | Cotes intérieures | 71 | 101 |
+  | — affichées sur l'image (50 pixels par mètre) | 67 | 81 |
+  | — non affichées à cette échelle, et pourquoi | 2 doublons (deux faces d'une même cloison), 1 chevauchement, 1 côté trop court pour le texte | 14 chevauchements, 5 côtés trop courts, 1 hors de la pièce |
+  | Repères de points à valider (redressement) | 16 | 23 |
+  | Zones à toucher d'au moins 44 px | 71 | 27 |
+  | Emprise des murs pleins | 42,70 m² | 50,38 m² |
+  | — part qui recouvre l'intérieur des pièces | **0,01 %** | **0,13 %** |
+  | — pour comparaison, les murs dessinés par iMapper | 0,52 % | 6,47 % |
+  | Murs dessinés par iMapper retrouvés dans les murs pleins ou dans les pièces | 98,7 % | 97,5 % |
+  | Temps de calcul : scène / mise en page / écriture du SVG | 59 à 75 ms / 14 à 19 ms / 2 à 4 ms | 88 à 110 ms / 12 à 17 ms / 2 à 3 ms |
+  | Relevé, modèle, métrés non modifiés ; deux calculs identiques | oui | oui |
+
+- **Ce qui est bon sur les images** : les murs sont nets, les angles et les
+  rencontres de cloisons sont fermés, les pièces ne sont pas mordues par les
+  murs, chaque étiquette est dans sa pièce, les cotes suivent leur mur sans se
+  superposer, et l'orange n'apparaît que sur ce qui est à valider.
+- **Ce qui reste laid ou incomplet, dit franchement** :
+  - « Louison RDC » est très orange : ses 55 ouvertures sont toutes « à
+    vérifier » et couvrent chacune un côté entier, donc un trait orange court
+    dans presque tous les murs, en plus des 16 points du redressement. C'est
+    ce que disent les données, pas un défaut de dessin, mais ce n'est pas un
+    plan qu'on montrerait tel quel.
+  - Aucune vraie porte ni fenêtre n'apparaît sur ces deux relevés : ils n'en
+    contiennent aucune de validée. Le dessin des menuiseries (trou dans le
+    mur, vantail, débattement, traits de fenêtre) n'a donc été contrôlé que
+    sur le jeu de test — exemple issu des tests, données fictives.
+  - Là où une petite pièce est en biais par rapport à ses voisines (une zone
+    sur Louison, plusieurs sur Montillers), le mur a une silhouette en dents
+    de scie sur quelques centimètres.
+  - Les deux relevés sont faits de groupes de pièces très éloignés : le plan
+    entier est surtout du blanc, les textes y sont petits. Le détail est
+    lisible ; l'écran devra permettre de cadrer sur un groupe.
+  - Les murs sont dessinés à l'épaisseur lue par le modèle, qui peut valoir
+    29 cm pour un mur dessiné à 30.
+- **Vérifications automatiques** : nouveau script `verif-plan-v2-scene`,
+  15 cas, branché sur GitHub. Pour chaque cas : entrée non modifiée, deux
+  calculs identiques, surface de l'étiquette égale au texte des métrés, un
+  élément par mur du modèle ou une raison, cotes égales aux longueurs
+  réelles, orange réservé à ce qui est à valider, zones à toucher d'au moins
+  44 px, SVG bien formé. Tolérance fixée et justifiée dans le script : les
+  murs pleins recouvrent au plus 1 % de leur emprise dans les pièces. Les
+  logements dessinés pour les cas et le relevé de référence anonymisé :
+  exemple issu des tests, données fictives. Sur ce relevé de référence
+  (6 pièces) : 30 murs pleins, 27 jonctions, 10 raccords, 3 jonctions
+  écartées, 6 menuiseries, 14 ouvertures à valider, 36 cotes dont 31
+  affichées, 7 repères, 0,00 % de murs dans les pièces — exemple issu des
+  tests, données fictives.
+- **Journal des MAJ** : pas d'entrée (rien de visible pour les utilisateurs).
+- **Mise en ligne** : demande de fusion #272, état réel confirmé par la
   session pilote.
