@@ -223,7 +223,11 @@ const ligne = (prix_total, lot_id, extra = {}) => ({ id: `l${Math.random()}`, pr
   // Commandes à passer vivent dans commandesAPasserDonnees.js, importé par la
   // page (et par le bloc du jour « Commandes à saisir ») : on lit les deux.
   const lireAvecDonnees = (f) => lire(f) + (f === "src/Renovation/PagePlanningCommandes.jsx"
-    ? (ok(/from "\.\/commandesAPasserDonnees\.js"/.test(lire(f)) && /lireLignesCommandes\(\)/.test(lire(f)), "la page Commandes à passer importe commandesAPasserDonnees et lit les lignes par lui"), lire("src/Renovation/commandesAPasserDonnees.js"))
+    ? (ok(/from "\.\/commandesAPasserDonnees\.js"/.test(lire(f)) && /lireLignesCommandes\(\)/.test(lire(f)), "la page Commandes à passer importe commandesAPasserDonnees et lit les lignes par lui"), lire("src/Renovation/commandesAPasserDonnees.js")
+      // Tâche 15 (organisation-par-jour) : requêtes déplacées dans
+      // commandesAPasserLecture.mjs (client en paramètre, partagé avec le mail
+      // récap du vendredi) ; commandesAPasserDonnees.js y délègue.
+      + (ok(/lireLignesCommandesAvec\(supabase\)/.test(lire("src/Renovation/commandesAPasserDonnees.js")), "commandesAPasserDonnees délègue la lecture des lignes à commandesAPasserLecture"), lire("src/Renovation/commandesAPasserLecture.mjs")))
     : "");
   Object.keys(lectures).forEach(f => {
     const s = lireAvecDonnees(f);

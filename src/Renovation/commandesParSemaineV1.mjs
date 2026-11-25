@@ -201,3 +201,55 @@ export function etatBlocMateriauxACommanderV1({ dateIso, chargement = false, err
     chantiers, articles, autres: Math.max(0, sem.length - max),
   };
 }
+
+// ─── Partie du mail récap du vendredi (tâche 15) ─────────────────────────────
+// Décision de Loris (24/11/2026, « corrige aussi le mail ») : la partie
+// « Commandes prévisionnelles » du mail récap du vendredi
+// (api/_cron/cron-recap-commandes.js) liste les MÊMES articles que l'onglet
+// « Semaine prochaine » de la page et que le bloc du jour : elle est
+// construite sur etatBlocMateriauxACommanderV1 (même total, même « par
+// chantier », même tri des articles, mêmes messages vides / erreur), seul le
+// nombre d'articles détaillés change.
+
+/**
+ * Nombre d'articles détaillés dans le mail avant « et N autres sur la page
+ * Commandes à passer ». Assez haut pour qu'une semaine ordinaire soit listée
+ * en entier (67 articles pour la semaine 49 au 24/11/2026) : le vendredi, le
+ * mail sert à préparer les commandes. Plafonné pour qu'une semaine
+ * exceptionnelle ne produise pas un mail tronqué par la messagerie (Gmail
+ * coupe au-delà d'environ 100 Ko).
+ */
+export const ARTICLES_MAX_MAIL_MATERIAUX = 100;
+
+/**
+ * Contenu de la partie « Matériaux à commander · semaine prochaine » du mail
+ * récap du vendredi. Jamais « aucun » quand la lecture a échoué (règle
+ * « une impossibilité reste visible »).
+ * @param {object} p
+ * @param {string} p.dateIso          date du jour à Paris (« 2026-11-27 »), passée explicitement
+ * @param {string|null} [p.erreur]    première lecture en échec
+ * @param {Array<object>|null} [p.lignes]  lignesACommander(modèle) ; null = non lues
+ * @param {number} [p.max]
+ * @returns {{ etat: "liste"|"aucun"|"erreur", titre: string, numSemaine: number|null,
+ *   message: string|null, total: string|null, nbArticles: number|null,
+ *   chantiers: Array<object>, articles: Array<object>, autres: number, texteAutres: string|null }}
+ */
+export function partieMailMateriauxACommanderV1({ dateIso, erreur = null, lignes = null, max = ARTICLES_MAX_MAIL_MATERIAUX } = {}) {
+  const aujourdhui = dateLocaleV1(dateIso);
+  const semaine = aujourdhui ? semainesCommandesV1(aujourdhui)[1] : null;
+  const titre = semaine
+    ? `Matériaux à commander · semaine prochaine (S${semaine.num}, du ${jjmm(semaine.debut)} au ${jjmm(semaine.fin)})`
+    : "Matériaux à commander · semaine prochaine";
+  // Lignes absentes sans erreur : pour un mail, ce n'est pas « en cours » mais
+  // une lecture qui n'a rien rendu — jamais « aucun ».
+  const erreurMail = erreur || (Array.isArray(lignes) ? null : "aucune donnée reçue");
+  const e = etatBlocMateriauxACommanderV1({ dateIso, erreur: erreurMail, lignes: Array.isArray(lignes) ? lignes : [], max });
+  const nbArticles = e.etat === "liste" ? e.chantiers.reduce((n, c) => n + c.nb, 0) : (e.etat === "aucun" ? 0 : null);
+  return {
+    etat: e.etat, titre, numSemaine: e.numSemaine, message: e.message, total: e.total, nbArticles,
+    chantiers: e.chantiers, articles: e.articles, autres: e.autres,
+    texteAutres: e.autres > 0
+      ? `et ${e.autres} autre${s(e.autres)} sur la page Commandes à passer (bouton « Commandes de la semaine », onglet « Semaine prochaine »)`
+      : null,
+  };
+}

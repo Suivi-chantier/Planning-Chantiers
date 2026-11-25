@@ -8,6 +8,15 @@ on:
       - 'api/cron-dispatcher.js'
       - 'supabase/migrations/*_cron_notifications_push.sql'
       - 'api/_cron/cron-recap-commandes.js'
+      - 'src/Renovation/commandesAPasserLecture.mjs'
+      - 'src/Renovation/commandesAPasserV1.mjs'
+      - 'src/Renovation/commandesParSemaineV1.mjs'
+      - 'src/Renovation/chargerMateriauxLecture.mjs'
+      - 'src/Renovation/achatsLotsTerminesLecture.mjs'
+      - 'src/Renovation/lectureParTranches.mjs'
+      - 'src/lotsDefaut.mjs'
+      - 'src/Renovation/chantiersTables.mjs'
+      - 'src/Renovation/chantierActif.mjs'
       - 'api/_cron/cron-push-materiaux.js'
       - 'api/_cron/cron-push-reportes.js'
       - 'api/_lib/autorisationServeur.js'
@@ -29,5 +38,5 @@ jobs:
           cache: npm
       - name: Dépendances (supabase-js, chargé par le récap exécuté sur une base simulée)
         run: npm ci
-      - name: Matériaux à commander — même liste que l'ancien récap, récap branché sur le module, notification C3 regroupée (données fictives)
+      - name: Matériaux à commander — ancien calcul conservé, récap du vendredi branché sur l'onglet « Semaine prochaine » de la page, notification C3 regroupée (données fictives)
         run: node scripts/verif-materiaux-a-commander.mjs

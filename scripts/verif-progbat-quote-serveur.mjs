@@ -137,9 +137,12 @@ async function creer(depot, progbat, hash, { confirmed = true, appelant = BUREAU
   assert.deepEqual(composerLotsOrdre(null, ["Ancien lot"]), [...LOTS_DEFAUT_LABELS, "Ancien lot"]);
   assert.deepEqual(composerLotsOrdre([{ label: "Sol" }, { id: "x" }], []), ["Sol", "Lot 2"]);
   assert.deepEqual(composerLotsOrdre([], ["A", " ", "B"]), [...LOTS_DEFAUT_LABELS, "A", "B"], "liste vide ⇒ défaut");
-  // Les libellés par défaut doivent rester alignés sur src/constants.js → LOTS_DEFAUT
+  // Les libellés par défaut doivent rester alignés sur LOTS_DEFAUT : défini
+  // dans src/lotsDefaut.mjs depuis la tâche 15 (organisation-par-jour),
+  // réexporté tel quel par src/constants.js (vérifié aussi).
   const { readFileSync } = await import("node:fs");
-  const constantes = readFileSync(new URL("../src/constants.js", import.meta.url), "utf8");
+  assert.match(readFileSync(new URL("../src/constants.js", import.meta.url), "utf8"), /import \{ LOTS_DEFAUT, lireLotsTravaux \} from "\.\/lotsDefaut\.mjs";\s*export \{ LOTS_DEFAUT \};/, "constants.js réexporte LOTS_DEFAUT");
+  const constantes = readFileSync(new URL("../src/lotsDefaut.mjs", import.meta.url), "utf8");
   const bloc = constantes.slice(constantes.indexOf("export const LOTS_DEFAUT"), constantes.indexOf("];", constantes.indexOf("export const LOTS_DEFAUT")));
   const labels = [...bloc.matchAll(/label:\s*"([^"]+)"/g)].map(m => m[1]);
   assert.deepEqual([...LOTS_DEFAUT_LABELS], labels, "LOTS_DEFAUT_LABELS diverge de constants.js");

@@ -21,7 +21,11 @@
 //   5. impossibilités visibles : chargement, erreur, date illisible,
 //      « Aucun matériau à commander pour la semaine 49 » ;
 //   6. statique : la page et le bloc passent par les mêmes fonctions, module
-//      pur, registre branché, workflow, Journal des MAJ.
+//      pur, registre branché, workflow, Journal des MAJ ;
+//   8-10. tâche 15 : partie « Matériaux à commander » du mail récap du
+//      vendredi = bloc / onglet « Semaine prochaine » ; impossibilités
+//      visibles ; lectures partagées navigateur / serveur
+//      (commandesAPasserLecture.mjs, client en paramètre).
 //
 // Données fictives uniquement. Aucun réseau, aucune base.
 //   node scripts/verif-bloc-materiaux-a-commander.mjs
@@ -306,6 +310,74 @@ test("6. statique : page et bloc passent par les mêmes fonctions ; module pur ;
   assert.match(lire("src/Renovation/journalMaj.js"), /titre: "Tableau de bord : le bloc « Matériaux à commander » liste les articles à commander pour la semaine prochaine"/);
   // Lien du bloc : Commandes à passer (planning-commandes), filtré par rôle.
   assert.match(lire("src/Renovation/organisationJour.mjs"), /materiaux_a_commander: \["planning-commandes"\]/);
+});
+
+// ═══ Tâche 15 : partie « Matériaux à commander » du mail récap du vendredi ═
+test("8. mail récap : même liste, même total, même « par chantier », même ordre que le bloc ; tous les articles jusqu'à 100 (exemple issu des tests, données fictives)", () => {
+  const lignes = lignesFictives();
+  const bloc = W.etatBlocMateriauxACommanderV1({ dateIso: "2026-11-27", lignes, max: 1000 });
+  const p = W.partieMailMateriauxACommanderV1({ dateIso: "2026-11-27", lignes });
+  assert.equal(p.etat, "liste");
+  assert.equal(p.titre, "Matériaux à commander · semaine prochaine (S49, du 30/11 au 06/12)");
+  assert.equal(p.total, bloc.total);
+  assert.equal(p.nbArticles, 6);
+  assert.deepEqual(p.chantiers, bloc.chantiers);
+  assert.deepEqual(p.articles, bloc.articles, "même ordre que le bloc, tous les articles");
+  assert.equal(p.autres, 0); assert.equal(p.texteAutres, null);
+  // Onglet « Semaine prochaine » de la page = articles du mail, un par un.
+  const onglet = ancienneFenetre(lignes, W.dateLocaleV1("2026-11-27")).seaux.S1.map((l) => `${l.chantierNom}|${l.libelle}|${l.dateISO}`).sort();
+  assert.deepEqual(p.articles.map((a) => `${a.chantier}|${a.libelle}|${a.dateBesoin}`).sort(), onglet);
+  // Au-delà du plafond : « et N autres sur la page Commandes à passer ».
+  assert.equal(W.ARTICLES_MAX_MAIL_MATERIAUX, 100);
+  const beaucoup = Array.from({ length: 103 }, (_, i) => ({ libelle: `Article fictif ${i}`, chantierId: "x", chantierNom: "CHANTIER FICTIF X", dateISO: "2026-12-01", dateObj: new Date("2026-12-01") }));
+  const pb = W.partieMailMateriauxACommanderV1({ dateIso: "2026-11-27", lignes: beaucoup });
+  assert.equal(pb.articles.length, 100); assert.equal(pb.autres, 3); assert.equal(pb.nbArticles, 103);
+  assert.equal(pb.texteAutres, "et 3 autres sur la page Commandes à passer (bouton « Commandes de la semaine », onglet « Semaine prochaine »)");
+  assert.equal(W.partieMailMateriauxACommanderV1({ dateIso: "2026-11-27", lignes: beaucoup.slice(0, 101) }).texteAutres, "et 1 autre sur la page Commandes à passer (bouton « Commandes de la semaine », onglet « Semaine prochaine »)");
+});
+
+test("9. mail récap : impossibilités visibles — aucun article, lecture en échec, lignes absentes, date illisible (jamais « aucun » sans lecture)", () => {
+  const vide = W.partieMailMateriauxACommanderV1({ dateIso: "2026-11-27", lignes: [] });
+  assert.equal(vide.etat, "aucun"); assert.equal(vide.nbArticles, 0);
+  assert.equal(vide.message, "Aucun matériau à commander pour la semaine 49 : aucun article non commandé n'a de date de besoin du 30/11 au 06/12.");
+  const er = W.partieMailMateriauxACommanderV1({ dateIso: "2026-11-27", erreur: "phasages : délai dépassé", lignes: null });
+  assert.equal(er.etat, "erreur"); assert.equal(er.nbArticles, null);
+  assert.equal(er.message, "Les articles à commander n'ont pas pu être lus : phasages : délai dépassé");
+  assert.equal(er.titre, "Matériaux à commander · semaine prochaine (S49, du 30/11 au 06/12)");
+  // Une erreur l'emporte même si des lignes sont passées (lecture partielle).
+  assert.equal(W.partieMailMateriauxACommanderV1({ dateIso: "2026-11-27", erreur: "x", lignes: lignesFictives() }).etat, "erreur");
+  const sans = W.partieMailMateriauxACommanderV1({ dateIso: "2026-11-27" });
+  assert.equal(sans.etat, "erreur", "lignes absentes : erreur, jamais « aucun » ni « chargement »");
+  assert.match(sans.message, /n'ont pas pu être lus : aucune donnée reçue/);
+  const di = W.partieMailMateriauxACommanderV1({ dateIso: "pas une date", lignes: [] });
+  assert.equal(di.etat, "erreur"); assert.equal(di.titre, "Matériaux à commander · semaine prochaine"); assert.match(di.message, /Date du jour illisible/);
+});
+
+test("10. statique : le mail, la page et les blocs lisent la base par le MÊME module (client en paramètre) ; date de Paris passée explicitement", () => {
+  const lecture = sansCommentaires(lire("src/Renovation/commandesAPasserLecture.mjs"));
+  const donnees = sansCommentaires(lire("src/Renovation/commandesAPasserDonnees.js"));
+  const recap = sansCommentaires(lire("api/_cron/cron-recap-commandes.js"));
+  // Module de lecture : aucun client créé ni importé, aucune écriture, aucune horloge.
+  assert.ok(!/from "\.\.\/supabase"|createClient|import\.meta\.env|process\.env/.test(lecture), "client en paramètre uniquement");
+  assert.ok(!/\.(insert|update|upsert|delete)\(/.test(lecture), "lecture seule");
+  assert.ok(!/Date\.now\(|new Date\(/.test(lecture), "aucune horloge");
+  for (const dep of ["./lectureParTranches.mjs", "./chargerMateriauxLecture.mjs", "./achatsLotsTerminesLecture.mjs", "../lotsDefaut.mjs", "./chantiersTables.mjs", "./chantierActif.mjs"]) {
+    assert.ok(lecture.includes(`from "${dep}"`), `dépendance Node : ${dep}`);
+  }
+  // Navigateur : délégation avec le client du navigateur.
+  for (const f of ["lirePhasagesCommandesAvec(supabase)", "lireLignesCommandesAvec(supabase)", "lireMateriauxCommandesAvec(supabase)", "lireDonneesCommandesAPasser(supabase)"]) assert.ok(donnees.includes(f), f);
+  assert.match(lire("src/constants.js"), /export async function loadLots\(\) \{\s*return lireLotsTravaux\(_supabase\);\s*\}/);
+  assert.match(lire("src/Renovation/achatsLotsTermines.js"), /return chargerAchatsTerminesAvec\(supabase, chantierId\);/);
+  assert.match(lire("src/Renovation/chargerMateriaux.js"), /return chargerTousLesMateriauxAvec\(supabase, colonnes, options\);/);
+  assert.match(lire("src/Renovation/lectureParTranches.js"), /export \* from "\.\/lectureParTranches\.mjs";/);
+  assert.match(lire("src/Renovation/chantiersDonnees.js"), /const COLS_CHANTIER = COLONNES_LECTURE_CHANTIERS;/);
+  // Serveur : mêmes lectures, même calcul que le bloc, date de Paris.
+  assert.match(recap, /L\.lireDonneesCommandesAPasser\(supabase\), L\.lireChantiersCommandesAvec\(supabase\)/);
+  assert.match(recap, /C\.lignesACommander\(C\.modeleCommandesAPasser\(\{\s*phasages: v\.phasages, chantiers: ch\.chantiers, matById: C\.indexMateriaux\(v\.materiaux\), lotById: C\.indexLots\(v\.lots\),\s*lignesCmd: v\.lignesCmd, lots: v\.lots, achatsParCh: v\.achatsParCh,\s*\}\)\)/);
+  assert.match(recap, /partieMateriauxSemaineProchaine\(supabase, t\.dateIso\)/);
+  // Aucune fonction Vercel ajoutée : le module partagé vit dans src/.
+  assert.ok(!/require\("\.\.\/\.\.\/src/.test(recap), "modules .mjs chargés par import()");
+  assert.match(lire("src/Renovation/journalMaj.js"), /Mail récap du vendredi : les matériaux à commander de la semaine prochaine/);
 });
 
 test("7. même résultat sous le fuseau de Paris (heure d'été / d'hiver)", () => {
