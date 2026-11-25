@@ -4,6 +4,13 @@ on:
   pull_request:
     paths:
       - 'src/Renovation/encoursFournisseursV1.mjs'
+      - 'src/Renovation/encoursFournisseursPageV1.mjs'
+      - 'src/Renovation/encoursFournisseursLecture.mjs'
+      - 'src/Renovation/encoursFournisseursMailV2.mjs'
+      - 'src/Renovation/encoursFournisseursDonnees.js'
+      - 'src/Renovation/administratifFournisseursV1.mjs'
+      - 'src/Renovation/historiqueRapprochementV1.mjs'
+      - 'api/_cron/cron-recap-commandes.js'
       - 'src/Renovation/notificationsDirectionV1.mjs'
       - 'src/Renovation/bilanPeriodeV3.mjs'
       - 'src/Renovation/cycleVie.mjs'
@@ -41,5 +48,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Notifications direction — encours (même calcul que le mail, push après le mail), nouveau chantier signé (premier passage silencieux), synthèse de la semaine (chiffres du Bilan, relevé absent dit), écart du journal en boîte seule, créneaux (données fictives)
+      - name: Notifications direction — encours (mail et push = chiffres de la page Encours fournisseurs, mois de Paris, push après le mail), nouveau chantier signé (premier passage silencieux), synthèse de la semaine (chiffres du Bilan, relevé absent dit), écart du journal en boîte seule, créneaux (données fictives)
         run: node scripts/verif-notifications-direction.mjs

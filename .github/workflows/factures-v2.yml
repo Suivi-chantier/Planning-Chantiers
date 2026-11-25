@@ -7,6 +7,7 @@ on:
       - 'src/Renovation/PageEncoursFournisseurs.jsx'
       - 'src/Renovation/encoursFournisseursPageV1.mjs'
       - 'src/Renovation/encoursFournisseursDonnees.js'
+      - 'src/Renovation/encoursFournisseursLecture.mjs'
       - 'src/Renovation/historiqueRapprochementV1.mjs'
       - 'src/Renovation/rapprochementDonnees.js'
       - 'src/Renovation/VueAchatsParMois.jsx'

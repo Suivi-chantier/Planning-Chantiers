@@ -266,7 +266,12 @@ test("11. page Encours : lectures et calcul extraits, aucun recalcul local, pas 
   assert.ok(!/supabase/.test(page), "plus aucune lecture directe dans la page");
   assert.ok(!/function echeanceISO|const aPayerOf|const moisMap = new Map/.test(page), "aucun calcul resté dans la page");
   assert.ok(!/encoursFournisseursV1/.test(page), "la page n'utilise pas le calcul du mail (inchangé)");
-  const donnees = sansCommentaires(lire("src/Renovation/encoursFournisseursDonnees.js"));
+  // Depuis la tâche 14, les requêtes vivent dans encoursFournisseursLecture.mjs
+  // (partagées avec le mail du vendredi) ; encoursFournisseursDonnees.js les
+  // appelle avec le client du navigateur. Mêmes contrôles, sur le nouveau fichier.
+  assert.match(sansCommentaires(lire("src/Renovation/encoursFournisseursDonnees.js")),
+    /import \{ supabase \} from "\.\.\/supabase";\s*import \{ lireDonneesEncoursFournisseurs \} from "\.\/encoursFournisseursLecture\.mjs";[\s\S]*return lireDonneesEncoursFournisseurs\(supabase\);/);
+  const donnees = sansCommentaires(lire("src/Renovation/encoursFournisseursLecture.mjs"));
   assert.match(donnees, /from\("commandes"\)\s*\.select\("id, fournisseur_id, fournisseur_nom, doc_type, doc_numero, montant_ht, date_doc, created_at, statut_facturation, source, lignes:commande_lignes\(prix_total\)"\)\s*\.is\("facture_id", null\)\.limit\(5000\)/);
   assert.match(donnees, /from\("factures"\)\s*\.select\("id, numero, fournisseur_id, fournisseur_nom, montant_ht, date_facture, date_echeance, created_at, statut"\)\s*\.neq\("statut", "archivee"\)\.limit\(2000\)/);
   assert.match(donnees, /from\("facture_bl"\)\.select\("facture_id, commande_id, bl_numero, montant_ht, statut"\)\.limit\(10000\)/);
@@ -304,8 +309,14 @@ test("13. bloc : mêmes lectures et fonctions que les pages ; modules purs ; reg
   const registre = sansCommentaires(lire("src/Renovation/blocsDuJour/registre.jsx"));
   assert.match(registre, /administratif_fournisseurs:\s*\{[^\n]*Composant: BlocAdministratifFournisseurs \}/);
   assert.match(registre, /import BlocAdministratifFournisseurs from "\.\/BlocAdministratifFournisseurs";/);
-  // Le calcul du mail du vendredi / notification F2 n'est pas touché par cette tâche.
-  assert.match(lire("api/cron-encours-fournisseurs.js"), /import\("\.\.\/src\/Renovation\/encoursFournisseursV1\.mjs"\)/);
+  // Tâche 14 : le mail du vendredi / notification F2 utilisent désormais les
+  // lectures et le calcul de la page (remplace le contrôle « le cron importe
+  // encoursFournisseursV1.mjs », vrai jusqu'à la tâche 9).
+  const cron = lire("api/cron-encours-fournisseurs.js");
+  assert.match(cron, /import\("\.\.\/src\/Renovation\/encoursFournisseursLecture\.mjs"\)/);
+  assert.match(cron, /import\("\.\.\/src\/Renovation\/encoursFournisseursMailV2\.mjs"\)/);
+  assert.ok(!/encoursFournisseursV1/.test(sansCommentaires(cron)), "le cron n'appelle plus l'ancien calcul");
+  assert.match(sansCommentaires(lire("src/Renovation/encoursFournisseursMailV2.mjs")), /from "\.\/encoursFournisseursPageV1\.mjs"/);
   assert.match(lire("src/Renovation/journalMaj.js"), /titre: "Tableau de bord : le bloc « Administratif fournisseurs » affiche les factures à rapprocher et l'encours à payer"/);
 });
 
