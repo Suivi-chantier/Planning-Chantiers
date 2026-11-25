@@ -658,6 +658,9 @@ test("26. liens des blocs : catalogue complet, pages existantes, filtrés par r�
   }
   assert.deepEqual(O.liensDuBloc("administratif_fournisseurs", () => true), ["rapprochement", "encours-fournisseurs"]);
   assert.deepEqual(O.liensDuBloc("tournee_chantiers", (id) => id === "alertes"), ["alertes"]);
+  // Bloc du vendredi : Planning semaine + Bilan de semaine, où sont les listes complètes.
+  assert.deepEqual(O.liensDuBloc("planning_semaine_suivante", () => true), ["planning", "bilan-semaine"]);
+  assert.deepEqual(O.liensDuBloc("planning_semaine_suivante", (id) => id === "planning"), ["planning"]);
   assert.deepEqual(O.liensDuBloc("bilan_semaine_passee", () => false), [], "page non autorisée : pas de lien");
   assert.deepEqual(O.liensDuBloc("bilan_semaine_passee", null), []);
   assert.deepEqual(O.liensDuBloc("bloc_inconnu", () => true), []);

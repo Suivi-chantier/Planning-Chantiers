@@ -56,7 +56,9 @@ export default function BlocPlanningSemaineSuivante(props) {
   const nomStyle = { fontWeight: 700, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   const heuresStyle = { marginLeft: "auto", fontWeight: 800, color: T.text, whiteSpace: "nowrap" };
 
-  const liste = (titre, lignes, autres, attr, detail) => (
+  // `ou` : endroit exact de la page Bilan de semaine où la liste est complète
+  // (lien « Bilan de semaine » en pied de bloc, si la page est autorisée).
+  const liste = (titre, lignes, autres, attr, detail, ou) => (
     <div style={{ marginTop: 12 }}>
       <div style={sousTitre}>{titre}</div>
       {lignes.map((l) => (
@@ -66,7 +68,7 @@ export default function BlocPlanningSemaineSuivante(props) {
           <span style={heuresStyle}>{l.texte}</span>
         </div>
       ))}
-      {autres > 0 && <div style={{ ...petit, marginTop: 4 }}>… {etNAutres(autres)} sur la page Bilan de semaine.</div>}
+      {autres > 0 && <div style={{ ...petit, marginTop: 4 }}>… {etNAutres(autres)} sur la page Bilan de semaine, {ou}.</div>}
     </div>
   );
 
@@ -81,9 +83,9 @@ export default function BlocPlanningSemaineSuivante(props) {
         )}
         {etat.total && <div data-total-heures style={{ ...texte, color: T.text, fontWeight: 700 }}>{etat.total}</div>}
         {etat.chantiers.length > 0 && liste("Par chantier", etat.chantiers, etat.autresChantiers, "data-chantier-prevu",
-          (l) => `${l.jours} jour${l.jours > 1 ? "s" : ""}`)}
+          (l) => `${l.jours} jour${l.jours > 1 ? "s" : ""}`, "carte « La semaine qui vient »")}
         {etat.personnes.length > 0 && liste("Par personne", etat.personnes, etat.autresPersonnes, "data-personne-prevue",
-          (l) => `${l.nbChantiers} chantier${l.nbChantiers > 1 ? "s" : ""}`)}
+          (l) => `${l.nbChantiers} chantier${l.nbChantiers > 1 ? "s" : ""}`, "onglet « Détail des comptes rendus »")}
         {etat.auDelaHorizon.length > 0 && (
           <div data-au-dela-horizon style={{ ...petit, marginTop: 8 }}>
             Au-delà de l'horizon du planning : {etat.auDelaHorizon.slice(0, 6).join(", ")}{etat.auDelaHorizon.length > 6 ? ` ${etNAutres(etat.auDelaHorizon.length - 6)}` : ""}.
