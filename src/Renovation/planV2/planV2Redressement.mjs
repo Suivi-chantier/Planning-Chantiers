@@ -540,14 +540,17 @@ export function redresserReleve(releve, { tolerances = {}, tolerancesMurs = {} }
     deplacement_m: arr(u.deplacement), rotation_deg: arr(u.rotation),
   }));
   const points = [...refusees.map((r) => pointAValider(r, redresse, ctx, T)), ...pointsSuperposition(redresse, ctx, TM)];
-  const compte = (liste) => Object.fromEntries(NATURES_REDRESSEMENT.map((n) => [n, liste.filter((x) => x.nature === n).length]));
-  const { superposition, ...appliqueesParNature } = compte(corrections);
+  const compte = (liste, natures) => Object.fromEntries(natures.map((n) => [n, liste.filter((x) => x.nature === n).length]));
   return {
     releve: redresse,
     corrections,
     points_a_valider: points,
     directions: ctx.dirs.map((d) => ({ angle_deg: arr(d.angle_deg), longueur_m: arr(d.longueur_m), part: arr(d.part) })),
     tolerances: { ...T },
-    bilan: { ...bilanDeplacement(releve, redresse), corrections: appliqueesParNature, points_a_valider: compte(points) },
+    bilan: {
+      ...bilanDeplacement(releve, redresse),
+      corrections: compte(corrections, NATURES_REDRESSEMENT.filter((n) => n !== "superposition")),
+      points_a_valider: compte(points, NATURES_REDRESSEMENT),
+    },
   };
 }
