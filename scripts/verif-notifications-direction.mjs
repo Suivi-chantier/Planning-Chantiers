@@ -3,10 +3,14 @@
 // docs/projets/notifications-push.md, tâche 8). Exemples issus des tests,
 // données fictives.
 //
-//   1. F2 : le calcul de l'encours est sorti du mail dans
-//      encoursFournisseursV1.mjs SANS changer le résultat (comparaison avec
-//      une copie de l'ancien calcul) ; le mail l'importe ; le push part APRÈS
-//      le mail, avec le même total ; simulation = ni mail ni push ;
+//   1. F2 : encoursFournisseursV1.mjs rend toujours l'ancien calcul (copie de
+//      référence) ; depuis la tâche 14 du projet organisation-par-jour, le
+//      mail et le push lisent les données comme la page Encours fournisseurs
+//      (encoursFournisseursLecture.mjs) et annoncent ses chiffres
+//      (encoursFournisseursPageV1.mjs : carte « À payer · <mois en cours> »,
+//      lignes de mois), mois en cours = date de Paris ; le push part APRÈS
+//      le mail, avec le même chiffre ; simulation = ni mail ni push ; lecture
+//      en échec = rien d'envoyé ;
 //   2. D2 : « Devis signé » lu comme la fiche (table, sinon ancien cycle),
 //      premier passage silencieux, un chantier notifié une seule fois,
 //      regroupement ; le job avec un faux Supabase et un faux send-push ;
@@ -27,6 +31,9 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import Module from "node:module";
 import * as E from "../src/Renovation/encoursFournisseursV1.mjs";
+import * as P from "../src/Renovation/encoursFournisseursPageV1.mjs";
+import * as M from "../src/Renovation/encoursFournisseursMailV2.mjs";
+import { lireDonneesEncoursFournisseurs } from "../src/Renovation/encoursFournisseursLecture.mjs";
 import * as D from "../src/Renovation/notificationsDirectionV1.mjs";
 import * as B from "../src/Renovation/bilanPeriodeV3.mjs";
 import {
@@ -203,19 +210,36 @@ test("1. encours : le module rend EXACTEMENT l'ancien calcul du mail (mois, four
   assert.equal(E.moisLabel("____"), "Sans date");
 });
 
-test("2. le mail importe le module et ne garde aucune copie du calcul ; le module est pur", () => {
+test("2. le mail lit et calcule comme la page Encours fournisseurs (tâche 14) ; aucune copie du calcul ; modules purs", () => {
   const mail = sansCommentaires(lire("api/cron-encours-fournisseurs.js"));
-  assert.match(mail, /import\("\.\.\/src\/Renovation\/encoursFournisseursV1\.mjs"\)/);
-  assert.match(mail, /calculerEncoursFournisseursV1\(/);
-  for (const ancien of ["function echeanceISO", "const normNom", "moisMap", "function eur(", "MOIS_FR"]) {
-    assert.ok(!mail.includes(ancien), `copie du calcul retirée du mail : ${ancien}`);
+  // Remplace l'ancien contrôle « le mail importe encoursFournisseursV1.mjs » :
+  // le mail importe désormais les lectures et le calcul de la page.
+  assert.match(mail, /import\("\.\.\/src\/Renovation\/encoursFournisseursLecture\.mjs"\)/);
+  assert.match(mail, /import\("\.\.\/src\/Renovation\/encoursFournisseursMailV2\.mjs"\)/);
+  assert.match(mail, /E\.lireDonneesEncoursFournisseurs\(supabase\)/);
+  assert.match(mail, /E\.encoursDuMailV2\(\{ donnees, moisCourant \}\)/);
+  assert.match(mail, /const moisCourant = String\(t\.dateIso \|\| ""\)\.slice\(0, 7\);/, "mois en cours = date de Paris (parisNow)");
+  assert.match(mail, /contenuPushF2V2\(/);
+  assert.ok(!/encoursFournisseursV1|calculerEncoursFournisseursV1|contenuPushF2V1|totalAPayer/.test(mail), "plus l'ancien calcul « 6 mois »");
+  assert.ok(!/\.from\("(fournisseurs|commandes|factures|facture_bl)"\)/.test(mail), "aucune lecture propre au mail : celles de la page");
+  for (const ancien of ["function echeanceISO", "const normNom", "moisMap", "function eur(", "MOIS_FR", "new Date("]) {
+    assert.ok(!mail.includes(ancien), `aucun calcul ni horloge dans le mail : ${ancien}`);
   }
-  const mod = sansCommentaires(lire("src/Renovation/encoursFournisseursV1.mjs"));
-  assert.ok(!/supabase|Date\.now|new Date\(\)|fetch\(/.test(mod), "aucun accès Supabase, aucune horloge, aucun réseau");
-  // Mêmes sujet et destinataires qu'avant.
+  for (const f of ["encoursFournisseursV1", "encoursFournisseursMailV2"]) {
+    const mod = sansCommentaires(lire(`src/Renovation/${f}.mjs`));
+    assert.ok(!/supabase|Date\.now|new Date\(\)|fetch\(/.test(mod), `${f} : aucun accès Supabase, aucune horloge, aucun réseau`);
+  }
+  const mailV2 = sansCommentaires(lire("src/Renovation/encoursFournisseursMailV2.mjs"));
+  assert.match(mailV2, /from "\.\/encoursFournisseursPageV1\.mjs"/);
+  assert.ok(!/function echeanceISO|new Map\(|\.reduce\(/.test(mailV2), "aucun calcul réécrit : tout vient de la page");
+  const lecture = sansCommentaires(lire("src/Renovation/encoursFournisseursLecture.mjs"));
+  assert.ok(!/import |Date\.now|new Date\(|\.(insert|update|upsert|delete|rpc)\(/.test(lecture), "lecture : client en paramètre, aucune horloge, aucune écriture");
+  assert.match(lire("src/Renovation/encoursFournisseursDonnees.js"), /return lireDonneesEncoursFournisseurs\(supabase\);/, "la page lit avec la même fonction");
+  // Mêmes sujet, destinataires, déclenchement et handler qu'avant.
   assert.match(mail, /Encours fournisseurs du \$\{t\.dateFr\}/);
   assert.match(mail, /encours_mail_destinataires/);
   assert.match(mail, /\.in\("role", \["admin", "comptable"\]\)/);
+  assert.match(mail, /const \{ parisNow \} = require\("\.\/_cron\/cron-recap-commandes\.js"\);\s*const t = parisNow\(\);/);
 });
 
 function tablesEncours() {
@@ -227,31 +251,96 @@ function tablesEncours() {
 const T_VENDREDI = { dateFr: "06/11/2026", dateIso: "2026-11-06", hour: 18 };
 const reqMail = (query = {}) => ({ headers: { host: "exemple.invalid" }, query });
 const { runEncoursFournisseurs } = require("../api/cron-encours-fournisseurs.js");
+// Référence : la PAGE (mêmes fonctions, même mois en cours).
+function referencePage(tables, moisCourant) {
+  const donnees = { fournisseurs: tables.fournisseurs, commandes: tables.commandes, factures: tables.factures, facturesBl: tables.facture_bl || [] };
+  const { moisMap, moisList } = P.regrouperEncoursParMois(P.itemsEncoursFournisseurs(donnees));
+  return { moisList, ceMois: P.chiffresMoisCourant(moisMap, moisCourant) };
+}
 
-test("3. job du vendredi : le mail part (même total, mêmes mois), PUIS un seul push F2 avec le même total et le lien vers l'encours", async () => {
+test("3. job du vendredi : le mail annonce « À payer · <mois> » de la page et ses lignes de mois, PUIS un seul push F2 avec le même chiffre", async () => {
   const appels = [];
   const r = await avecFetch(async (url, o) => {
     appels.push([String(url), corpsDe(o)]);
     return reponse(String(url).includes("send-push") ? { ok: true, ecrites_en_boite: 1, envoyes: 1, resume: {} } : { ok: true });
   }, () => runEncoursFournisseurs(reqMail(), fauxSupabase(tablesEncours()), T_VENDREDI));
-  const ref = ancienCalcul({ data: fournisseursFictifs }, { data: commandesFictives }, { data: facturesFictives });
+  const ref = referencePage(tablesEncours(), "2026-11");
+  assert.ok(ref.ceMois.aPayer > 0 && ref.moisList.length > 6, "jeu de test : mois en cours non vide, plus de 6 mois");
   assert.equal(appels.length, 2);
   assert.match(appels[0][0], /\/api\/send-email$/, "le mail d'abord");
   assert.match(appels[1][0], /\/functions\/v1\/send-push$/, "le push ensuite");
   const html = appels[0][1].html;
-  assert.ok(html.includes(`${E.eurEncours(ref.totalAPayer)} € HT`), "total du mail = ancien calcul");
-  for (const g of ref.mois) assert.ok(html.includes(`${E.eurEncours(g.aPayer)} € à payer`), `mois ${g.mois} dans le mail`);
+  assert.ok(html.includes(`À payer · novembre 2026 : <strong style="color:#FFC200">${P.eur(ref.ceMois.aPayer)} € HT</strong>`), "chiffre annoncé = carte « À payer » de la page");
+  assert.ok(html.includes(`Payé comptant · novembre 2026 : ${P.eur(ref.ceMois.paye)} € HT`), "carte « Payé comptant » de la page");
+  assert.ok(!html.includes("6 derniers mois"), "plus de total « 6 mois » (absent de la page)");
+  for (const g of ref.moisList.slice(0, M.NB_MOIS_MAIL)) assert.ok(html.includes(`${P.moisLabel(g.mois)} — <span style="color:#e6ae00">${P.eur(g.aPayer)} € à payer`), `ligne de mois ${g.mois} = page`);
+  for (const g of ref.moisList.slice(M.NB_MOIS_MAIL)) assert.ok(!html.includes(`${P.moisLabel(g.mois)} — `), `mois ${g.mois} au-delà des 6 plus récents : non détaillé`);
+  assert.ok(html.includes(P.EXPLICATION_ENCOURS.replace(/'/g, "&#39;")), "même explication que la page");
+  assert.equal(appels[0][1].subject, "💰 Profero Planning · Encours fournisseurs du 06/11/2026", "même sujet");
   assert.equal(r.sent, true);
-  assert.equal(r.total_a_payer, ref.totalAPayer);
+  assert.equal(r.mois_courant, "2026-11");
+  assert.equal(r.a_payer_mois_courant, ref.ceMois.aPayer);
   const push = appels[1][1];
   assert.equal(push.mode, "serveur");
   assert.equal(push.type, "F2");
-  assert.ok(push.titre.includes(E.eurEncours(ref.totalAPayer)), "même total dans le push");
+  assert.equal(push.titre, `Encours fournisseurs : ${P.eur(ref.ceMois.aPayer)} € HT à payer · novembre 2026`, "même chiffre et même libellé dans le push");
+  assert.match(push.texte, /^À payer · novembre 2026 : .* € HT, comme la carte de la page Encours fournisseurs\./);
   assert.equal(push.lien, "/?page=encours-fournisseurs");
   assert.deepEqual(lienVersNavigation(push.lien), { page: "encours-fournisseurs", chantier: null });
   assert.equal(push.cle_regroupement, "F2-2026-11-06");
   assert.ok(validerContenu(push).ok);
   assert.equal(r.push_f2.notifications, 1);
+});
+
+test("3 bis. règles de la page appliquées par le mail : échéance saisie sur la facture, BL rapprochés exclus, « 30 j fin de mois » d'une fin de mois", async () => {
+  const tables = {
+    ...tablesEncours(),
+    commandes: [
+      ...commandesFictives,
+      { id: "c-bl", fournisseur_id: "f1", fournisseur_nom: "Négoce Fictif", montant_ht: 700, date_doc: "2026-11-02", source: null },
+      { id: "c-fdm", fournisseur_id: "f2", fournisseur_nom: "Bois Exemple", montant_ht: 333, date_doc: "2026-08-31", source: null },
+    ],
+    factures: [...facturesFictives, { id: "fa-ech", fournisseur_id: "f1", fournisseur_nom: "Négoce Fictif", montant_ht: 90, date_facture: "2026-06-01", date_echeance: "2026-11-15", statut: "a_payer" }],
+    facture_bl: [{ facture_id: "fa-ech", commande_id: "c-bl", bl_numero: "BL1", montant_ht: 700, statut: "ok" }],
+  };
+  const appels = [];
+  const r = await avecFetch(async (url, o) => { appels.push([String(url), corpsDe(o)]); return reponse({ ok: true, resume: {} }); },
+    () => runEncoursFournisseurs(reqMail(), fauxSupabase(tables), T_VENDREDI));
+  const ref = referencePage(tables, "2026-11");
+  assert.equal(r.a_payer_mois_courant, ref.ceMois.aPayer, "mail = page");
+  const ancien = E.calculerEncoursFournisseursV1({ fournisseurs: tables.fournisseurs, commandes: tables.commandes, factures: tables.factures });
+  assert.notEqual(ancien.mois.find((g) => g.mois === "2026-11")?.aPayer, ref.ceMois.aPayer, "l'ancien calcul différait sur ce jeu");
+  assert.equal(P.echeanceISO("2026-08-31", "echeance"), "2026-10-31", "règle de la page : 31/08 → 31/10");
+  assert.ok(appels[0][1].html.includes(`octobre 2026 — <span style="color:#e6ae00">${P.eur(ref.moisList.find((g) => g.mois === "2026-10").aPayer)} € à payer`));
+});
+
+test("3 ter. mois en cours = date de Paris, pas l'horloge UTC du serveur ; lecture en échec = ni mail ni push", async () => {
+  // Lundi 30/11/2026 23h30 UTC = mardi 01/12/2026 0h30 à Paris : décembre.
+  const tParis = { dateFr: "01/12/2026", dateIso: "2026-12-01", hour: 0 };
+  const sim = await avecFetch(async () => reponse({}), () => runEncoursFournisseurs(reqMail({ simulation: "1" }), fauxSupabase(tablesEncours()), tParis));
+  const ref = referencePage(tablesEncours(), "2026-12");
+  assert.equal(sim.mois_courant, "2026-12");
+  assert.equal(sim.a_payer_mois_courant, ref.ceMois.aPayer);
+  assert.match(sim.notification_f2.titre, /· décembre 2026$/);
+  const { parisNow } = require("../api/_cron/cron-recap-commandes.js");
+  assert.match(parisNow().dateIso, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(lire("api/_cron/cron-recap-commandes.js"), /timeZone: "Europe\/Paris"/);
+
+  let appels = 0;
+  const panne = fauxSupabase(tablesEncours());
+  const fromOrig = panne.from;
+  panne.from = (t) => {
+    const q = fromOrig(t);
+    if (t === "commandes") q.then = (ok, ko) => Promise.resolve({ data: null, error: { message: "lecture refusée" } }).then(ok, ko);
+    return q;
+  };
+  await assert.rejects(
+    avecFetch(async () => { appels++; return reponse({}); }, () => runEncoursFournisseurs(reqMail(), panne, T_VENDREDI)),
+    /Encours fournisseurs illisible \(lecture refusée\) : ni mail ni notification envoyés/);
+  assert.equal(appels, 0, "aucun envoi avec un montant faux");
+  assert.ok(!panne.ecritures.some(([t]) => t === "planning_config"), "état du jour non écrit : nouvel essai possible");
+  const lu = await lireDonneesEncoursFournisseurs(panne);
+  assert.equal(lu.erreur, "lecture refusée");
 });
 
 test("4. F2 : simulation = ni mail ni push ; déjà envoyé aujourd'hui = rien ; push en échec = le mail reste envoyé", async () => {
@@ -276,7 +365,18 @@ test("4. F2 : simulation = ni mail ni push ; déjà envoyé aujourd'hui = rien ;
   assert.match(r.push_f2.erreur, /panne fictive/);
   assert.ok(!("error" in r.push_f2), "clé « erreur », pas « error »");
 
-  assert.equal(D.contenuPushF2V1({ mois: [], totalAPayer: 0, dateParis: "2026-11-06" }), null, "encours vide : rien, comme le mail");
+  assert.equal(D.contenuPushF2V1({ mois: [], totalAPayer: 0, dateParis: "2026-11-06" }), null, "ancienne fonction : encours vide, rien");
+  const vide = M.encoursDuMailV2({ donnees: { fournisseurs: [], commandes: [], factures: [], facturesBl: [] }, moisCourant: "2026-11" });
+  assert.equal(D.contenuPushF2V2({ encours: vide, dateParis: "2026-11-06" }), null, "page sans aucun mois : rien, comme le mail");
+  const rien = await avecFetch(async () => { appels++; return reponse({}); },
+    () => runEncoursFournisseurs(reqMail(), fauxSupabase({ ...tablesEncours(), commandes: [], factures: [] }), T_VENDREDI));
+  assert.equal(rien.skipped, "no_content");
+  // Mois en cours à 0 mais mois suivants : le push le dit, jamais vide.
+  const seulSuivant = M.encoursDuMailV2({ donnees: { fournisseurs: fournisseursFictifs, commandes: [commandesFictives[0]], factures: [], facturesBl: [] }, moisCourant: "2026-10" });
+  const n = D.contenuPushF2V2({ encours: seulSuivant, dateParis: "2026-10-02" });
+  assert.equal(n.titre, "Encours fournisseurs : 0,00 € HT à payer · octobre 2026");
+  assert.match(n.texte, /Mois d'échéance suivants : novembre 2026 : 1\u202f200,50 € HT\./);
+  assert.throws(() => M.encoursDuMailV2({ donnees: {}, moisCourant: "" }), /Mois en cours invalide/);
 });
 
 // ═══ 2. D2 — Nouveau chantier signé ═════════════════════════════════════════
