@@ -32,6 +32,8 @@ import {
 import { chargerEtatFiches, chargerBatiment, enregistrerBatiment, creerFiche, chargerJustificatifsPastilles, dateDuJourLocale } from "./securiteDonnees.js";
 import { peutCreerFiche } from "./securiteFiche.js";
 import FicheSecuriteChantier from "./FicheSecuriteChantier.jsx";
+import { alerteChantierEnCours } from "./securiteCycleVie.js";
+import { synchroniserEtapeFicheSecurite } from "./securiteCycleVieDonnees.js";
 
 function Pastille({ p }) {
   return (
@@ -231,6 +233,7 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
       return;
     }
     setCreation({ chantierId: null, erreur: null });
+    synchroniserEtapeFicheSecurite({ chantierId: c.id, auteur: auteur || "" }); // tâche 7 : étape du cycle de vie
     setFicheOuverte(c);
   };
   const fermerFiche = () => { setFicheOuverte(null); chargerFiches(); };
@@ -290,6 +293,11 @@ export default function FicheSecuriteOperation({ T, acc, op, chantiersOp = [], p
                     <div style={{ flex: 1, minWidth: 150 }}>
                       <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nom}</div>
                       {p.detail && <div style={{ fontSize: 10.5, color: T.textMuted, marginTop: 2 }}>{p.detail}</div>}
+                      {(() => {
+                        // Tâche 7 : chantier déjà en cours sans fiche validée (pas de blocage rétroactif, écart visible).
+                        const a = alerteChantierEnCours({ chantier: c, fiche: etat.parChantier[c.id] || null, lecture: etat.lecture });
+                        return a ? <div style={{ fontSize: 10.5, color: "#e15a5a", fontWeight: 700, marginTop: 2 }}>{a}</div> : null;
+                      })()}
                     </div>
                     <Pastille p={p}/>
                     {etat.lecture === "ok" && etat.parChantier[c.id] ? (

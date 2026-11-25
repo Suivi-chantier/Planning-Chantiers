@@ -95,7 +95,7 @@ attendent l'accord de François.
 | 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | en ligne (fusion le 25/11/2026, 15 contrôles verts ; écritures essayées sur la vraie base en transaction annulée ; validation réelle à confirmer dans l'appli) | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | [#284](https://github.com/Suivi-chantier/Planning-Chantiers/pull/284) |
 | 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | en ligne (fusion le 25/11/2026, 20 contrôles verts ; génération réelle à confirmer dans l'appli) — **première livraison complète** | Auto | PDF conforme au modèle v2 avec signatures | [#285](https://github.com/Suivi-chantier/Planning-Chantiers/pull/285) |
 | 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | en ligne (fusion le 25/11/2026, contrôles verts ; question posée à François : un collègue dans un autre logement du même immeuble suffit-il à écarter le travail isolé ?) | Auto | Propositions justes sur des chantiers réels (phasage, planning) | [#286](https://github.com/Suivi-chantier/Planning-Chantiers/pull/286) |
-| 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | à faire | Auto | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | — |
+| 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en cours (demande de fusion ouverte, non fusionnée ; en attente de François : reprise des 20 chantiers en cours, alertes dans `notifications`) | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | (lien ajouté après ouverture) |
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | à faire | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | — |
 | 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire | **Arrêt** : nouvelle page, qui la voit | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
 
@@ -549,6 +549,130 @@ tâche 3 par l'enregistrement automatique).
   `verif-securite-preremplissage.mjs` + workflow. Aucune migration, aucune
   écriture en base, aucune page ajoutée à `src/access.js`.
 
+**25/11/2026 — Tâche 7 : fiche sécurité dans le cycle de vie.**
+
+- **Où `chantiers.statut` est modifié (recensement complet, code et base).**
+  Toutes les écritures du front passent par `sauverChantiers`
+  (`chantiersDonnees.js`, appelé par `saveConfig("chantiers")` d'`App.jsx`).
+  Écrans qui changent le statut :
+  1. `PageChantiers.jsx`, menu « changer le statut » de la fiche chantier
+     (tous les statuts sauf « Perdu ») — **seul écran qui peut mettre « En
+     cours » ou « Terminé »** ;
+  2. `PageChantiers.jsx`, bascule automatique à la signature du devis
+     (« À l'étude » → « Planifié », `decisionBasculeSignature`) ;
+  3. `PageChantiers.jsx` et `OperationCommercial.jsx` (page Opérations) :
+     « Marquer perdu » / « Annuler perdu » (→ « Perdu » / « À l'étude ») ;
+  4. `ParcoursChiffrage.jsx` : création d'un chantier « À l'étude ».
+  Base : `refonte_appliquer_chantiers` (appelée par le déclencheur
+  `planning_config_vers_tables` quand l'ancien bloc `planning_config`
+  « chantiers » est écrit directement — plus aucun code ne l'écrit, seules
+  des lectures subsistent) et `refonte_resynchroniser_depuis_config`
+  (manuelle, réservée au service). Aucune autre fonction SQL, aucun des 9
+  crons (`cron.job`), aucune edge function (dont `progbat-operations`, qui
+  n'écrit que les identifiants ProGBat), aucune tâche `api/` ni script ne
+  modifie le statut. La synchronisation ProGBat du statut des devis
+  (`progbat-devis-statut`) ne fait que proposer « Marquer perdu ».
+  **Aucun traitement automatique ne passe un chantier « en cours ».**
+- **Étape `fiche_securite`** (« Fiche sécurité validée ») ajoutée dans la
+  phase Préparation de `cycleVie.mjs`, avant « Finalisation de la
+  préparation », nature `auto` (jamais cochée à la main). Évaluation : la
+  fiche relue par l'écran d'abord, sinon le dernier état enregistré dans
+  `chantier_cycle_vie` (lu par le bloc « Chantiers à venir »), sinon « non
+  chargé ». L'état enregistré (`{ fait, date, auteur, fiche: { statut,
+  version, forcee } }`, rangé sous `fiche` et non `donnees` pour ne pas
+  apparaître dans l'export d'opération) est écrit par le service existant
+  `ecrireEtapeCycleVie` (écriture directe sous les règles de la table, aucune
+  fonction SECURITY DEFINER) à la création, la validation, la mise à jour,
+  le forçage et le verrouillage, et remis d'accord à l'ouverture de la fiche
+  chantier s'il a pris du retard. Conséquences : « Préparation » compte 7
+  étapes au lieu de 6 (scripts `verif-refonte-lot3` et
+  `verif-bloc-chantiers-a-venir` ajustés) ; un chantier dont les 6 autres
+  étapes sont faites n'est plus « Préparation complète » sans fiche validée.
+  **Limite** : la règle de la base réserve au chargé d'affaires les étapes
+  Étude et Contrat ; l'étape n'est donc pas écrite depuis son compte (la
+  fiche chantier ne l'essaie pas ; l'écran montre quand même l'état réel de
+  la fiche). Changer cette règle = modification de droits (non faite).
+- **Blocage** (module pur `securiteCycleVie.mjs` + façade) : sur le menu de
+  statut de la fiche chantier, la fiche est relue au moment du clic. « En
+  cours » passe seulement avec une fiche `validee` (le statut `validee` porte
+  toujours sur la version en cours) ; depuis n'importe quel statut (À l'étude,
+  Planifié, En pause, Terminé). Fiche illisible ou en cours de lecture :
+  bloqué, sans forçage. Sinon, fenêtre « Passage « En cours » bloqué » avec
+  la raison, « Ouvrir / Créer la fiche sécurité » (la fiche s'ouvre
+  directement depuis la fiche chantier) et, pour `profil.role === "admin"`
+  (même règle que le reste de l'appli et que `is_admin()`), « Forcer le
+  démarrage » avec motif obligatoire (5 caractères au moins, comme « Mettre
+  à jour »).
+- **Forçage, ordre des écritures** : fiche relue → fiche (créée en brouillon
+  avec `forcage_motif/par/le`, ou forçage ajouté si son état n'a pas changé)
+  → journal (`fiche_securite`, ancien statut du chantier → `en_cours`, motif,
+  « Démarrage forcé sans fiche sécurité validée — … ») → statut « en cours ».
+  Une erreur arrête tout avant le statut. Fiche verrouillée (chantier terminé
+  qu'on rouvre) : le motif ne peut aller qu'au journal (la base refuse toute
+  modification). Un nouveau forçage remplace le motif porté par la fiche ;
+  l'ancien reste dans le journal. Une entrée de forçage n'est jamais prise
+  pour le motif d'une nouvelle version (vérifié).
+- **Verrouillage** : statut « terminé » enregistré D'ABORD (un verrouillage
+  ne s'annule pas, même par un admin), puis fiche → `verrouillee` (si son
+  état n'a pas changé), puis journal. Échec : message rouge « Chantier
+  terminé, MAIS fiche sécurité NON verrouillée (raison) » et bouton
+  « Verrouiller la fiche » sur le bandeau tant que la fiche d'un chantier
+  terminé n'est pas verrouillée. Chantier terminé sans fiche : rien (aucune
+  fiche créée, décision du 25/11). Pour cela, `saveConfig("chantiers")`
+  renvoie maintenant le résultat de l'enregistrement (avant : rien).
+- **Pas de blocage rétroactif** : rien ne change pour un chantier déjà en
+  cours ; le bandeau de la fiche chantier et le panneau de l'opération
+  affichent en rouge « Chantier déjà en cours sans fiche sécurité validée ».
+- **Historique visible** : le journal des statuts n'était affiché nulle
+  part ; bouton « Historique » sur le bandeau (changements de statut,
+  validations, mises à jour, forçages, verrouillages).
+- **Reprise des 20 chantiers en cours (arrêt obligatoire, NON appliquée)** :
+  script `sql/20261125_securite_fiches_reprise_en_cours.sql`, uniquement des
+  ajouts : une fiche brouillon v1 par chantier en cours non archivé sans
+  fiche, une ligne de journal (motif `reprise_mise_en_service`), l'étape du
+  cycle de vie. Essayé dans une transaction annulée : 20 fiches, 20 lignes de
+  journal, 20 étapes, les 20 fiches à 0/12 dans la vue ; après annulation,
+  0 fiche, 0 étape, 0 ligne de journal. Sans ce script, les fiches se créent
+  une par une avec « Créer la fiche » (bandeau ou panneau).
+- **Alertes (`notifications`) : rien d'écrit, préparé seulement.** La table
+  n'est accessible qu'au serveur (aucun droit pour un compte connecté :
+  vérifié, « permission denied » avec l'admin et la comptable) ; les
+  notifications passent par l'edge function `send-push` en mode serveur
+  (secret) appelée par les tâches planifiées ; son type est limité par un
+  contrôle de la base à C1…D4 et `test`. L'alerte « fiche à créer » au
+  passage en planifié est donc affichée à l'écran seulement (message orange
+  sur la fiche chantier). Préparé : `alertesSecurite()` (module pur, testé)
+  calcule les 4 alertes (fiche à créer pour un chantier planifié ; non
+  validée à 7 jours de la première date prévue du phasage, date inconnue
+  signalée à part ; justificatif expiré sur un chantier en cours ; fiche à
+  mettre à jour), lien `/?page=chantiers&chantier=…`, clé de regroupement
+  par type, chantier et jour. Pour les envoyer il faudrait : (1) migration
+  modifiant le contrôle de type de `notifications` (table existante) et un
+  code « S1 » dans le catalogue `notificationsPushV1.mjs` (destinataires par
+  défaut : admin + conducteur, comme C1-C5, réglables dans Réglages ›
+  Notifications) ; (2) une tâche planifiée quotidienne (nouveau job du
+  `cron-dispatcher`, ou ajout à `cron-alertes-chantiers`) qui lit chantiers,
+  fiches, phasages et justificatifs et appelle `send-push`. À décider par
+  François.
+- **Essai sur la vraie base (transaction annulée)** avec un vrai compte admin
+  et le compte comptable (rôle `authenticated`, identifiant et e-mail dans
+  les claims), sur des chantiers planifiés réels de FOUGERAY. Admin :
+  `is_admin()` vrai ; fiche créée en brouillon avec le forçage ; journal
+  écrit ; statut « en cours » (1 ligne) ; étape du cycle de vie écrite ;
+  forçage sur fiche existante avec la condition (1 ligne) ; statut
+  « terminé » puis verrouillage (1 ligne) ; modification après verrou
+  refusée par la base (« Fiche sécurité verrouillée (chantier terminé) ») ;
+  notification refusée (« permission denied »). Comptable : `is_admin()`
+  faux ; fiche validée → « en cours » (1 ligne) ; étape écrite ;
+  verrouillage (1 ligne) + journal ; déverrouillage refusé ; notification
+  refusée. **À savoir** : la base laisse la comptable écrire un forçage
+  (`forcage_*`) — le contrôle « admin seulement » est dans l'appli, comme
+  le prévoit la v1 (pas de déclencheur bloquant). Après annulation :
+  0 fiche, 0 étape, 0 ligne de journal, statuts des 3 chantiers inchangés,
+  0 notification d'essai.
+- Aucune migration appliquée, aucune écriture réelle en base, aucune page
+  ajoutée à `src/access.js`, aucune règle de droits modifiée.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -901,3 +1025,63 @@ jours utiles et les libellés raccourcis, sans effet sur les statuts.
 navigateur (encadrés, bouton « Appliquer », encadré des divergences) — à
 faire une fois en ligne ; la compilation et les autres contrôles sont faits
 par GitHub.
+
+### 25/11/2026 — Tâche 7 : démarrage bloqué sans fiche validée, verrouillage à la fin
+
+**Ce qui change à l'écran.**
+
+- **Fiche d'un chantier (page Chantiers)** : un bandeau « Fiche sécurité »
+  sous l'en-tête montre l'état de la fiche (à créer, brouillon, validée,
+  à mettre à jour, verrouillée), avec « Ouvrir la fiche » (elle s'ouvre
+  directement, sans passer par l'opération) ou « Créer la fiche », et
+  « Historique » (changements de statut, validations, forçages).
+- **Passer un chantier « En cours »** sans fiche validée ouvre une fenêtre
+  qui explique ce qui manque, avec « Ouvrir / Créer la fiche sécurité ».
+  Un administrateur y trouve aussi « Forcer le démarrage », avec un motif
+  obligatoire ; le forçage est inscrit dans l'historique du chantier et sur
+  la fiche, qui reste à valider.
+- **Passer un chantier « Terminé »** verrouille sa fiche (plus personne ne
+  peut la modifier). Si le verrouillage échoue, le bandeau le dit en rouge
+  et propose « Verrouiller la fiche ».
+- **Chantiers déjà en cours** : rien n'est bloqué, mais le bandeau et le
+  panneau « Fiche sécurité » de la page Opérations affichent en rouge
+  « Chantier déjà en cours sans fiche sécurité validée ».
+- **Cycle de vie** : nouvelle étape « Fiche sécurité validée » dans la phase
+  Préparation (7 étapes au lieu de 6), qui suit toute seule l'état de la
+  fiche.
+- **Passer un chantier « Planifié »** sans fiche affiche « sa fiche sécurité
+  est à créer » (message à l'écran ; pas de notification, voir question 2).
+
+**Où le statut d'un chantier change dans l'appli** : seul le menu de statut
+de la fiche chantier peut mettre « En cours » ou « Terminé » ; les autres
+changements sont « Planifié » à la signature du devis, « Perdu » et son
+annulation, et « À l'étude » à la création depuis le chiffrage. Aucun
+traitement automatique (ProGBat, tâches planifiées) ne passe un chantier
+« En cours ».
+
+**Qui le voit.** Bandeau et fenêtre : tous ceux qui ont la page Chantiers
+(le menu de statut demande le droit de modifier les chantiers) ; « Forcer le
+démarrage » : administrateurs seulement. Aucune nouvelle page.
+
+**Questions pour François** (réponse en une phrase chacune) :
+
+1. Je crée en brouillon la fiche des 20 chantiers déjà en cours (script
+   prêt et essayé, uniquement des ajouts) ? (oui / non)
+2. Voulez-vous les 4 alertes sécurité en notification (nouveau type
+   d'alerte dans la base et nouvelle tâche planifiée quotidienne, vers les
+   admins et conducteurs) ? (oui / non)
+3. Le chargé d'affaires doit-il pouvoir faire avancer l'étape « Fiche
+   sécurité validée » du cycle de vie (aujourd'hui la base le lui refuse,
+   comme toutes les étapes de Préparation) ? (oui / non)
+
+**Vérifié.** Nouveau contrôle automatique (12 vérifications, exemples issus
+des tests, données fictives) lancé en local : tout passe. Essai des écritures
+sur la vraie base avec un compte admin et le compte comptable, annulé ensuite
+(rien n'est resté) : forçage, historique, verrouillage, refus de toute
+modification après verrouillage, refus d'écrire une notification depuis
+l'appli. Script de reprise essayé : 20 fiches créées puis annulées.
+**Pas vérifié** depuis l'environnement de Claude : les écrans dans un
+navigateur (bandeau, fenêtre de blocage, forçage, verrouillage sur un vrai
+chantier) — à faire une fois en ligne ; la compilation et les autres
+contrôles (dont les deux scripts du cycle de vie ajustés) sont faits par
+GitHub.

@@ -832,7 +832,9 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       const r=await sauverChantiers(value);
       // Nouveau chantier : la base lui a peut-être créé son opération → relire.
       if(r?.inserts)setChantiers(await chargerChantiers());
-      return;
+      // Résultat renvoyé (erreurs comprises) : la fiche chantier en a besoin
+      // pour ne verrouiller la fiche sécurité qu'après un statut enregistré.
+      return r;
     }
     if(key==="operations"){await sauverOperations(value?.items);return;}
     // On borne la fenêtre d'écho AVANT l'envoi (l'événement peut arriver très

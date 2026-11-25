@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
+    type: "nouveaute",
+    titre: "Fiche sécurité : un chantier ne démarre plus sans fiche validée, et sa fiche se verrouille à la fin du chantier",
+    pages: [{ id: "chantiers", label: "Chantiers" }, { id: "operations", label: "Opérations" }],
+    quoi: "Passer un chantier « En cours » demande maintenant une fiche sécurité validée. Si elle manque, l'appli l'explique et propose d'ouvrir (ou de créer) la fiche ; seul un administrateur peut forcer le démarrage, en écrivant un motif, et ce forçage reste inscrit dans l'historique du chantier. Quand un chantier passe « Terminé », sa fiche est verrouillée : plus personne ne peut la modifier, administrateurs compris, et ses justificatifs restent consultables. Les chantiers déjà en cours ne sont pas bloqués, mais l'appli signale ceux qui n'ont pas de fiche validée. Le cycle de vie du chantier gagne l'étape « Fiche sécurité validée » (phase Préparation), qui suit toute seule l'état de la fiche.",
+    comment: "Fiche d'un chantier (page Chantiers) : sous l'en-tête, le bandeau « Fiche sécurité » montre l'état de la fiche (à créer, brouillon, validée, verrouillée…), avec « Ouvrir la fiche » ou « Créer la fiche » et « Historique » (changements de statut, validations, forçages). En choisissant « En cours » dans le menu du statut sans fiche validée, une fenêtre explique ce qui manque ; un administrateur y trouve « Forcer le démarrage » (motif obligatoire). En choisissant « Terminé », la fiche est verrouillée juste après l'enregistrement du statut ; si le verrouillage échoue, le bandeau le dit en rouge et propose « Verrouiller la fiche ». Page Opérations → « Fiche sécurité » : les chantiers en cours sans fiche validée y sont signalés en rouge.",
+  },
+  {
+    date: "2026-11-25",
     type: "amelioration",
     titre: "Fiche sécurité : l'appli propose une réponse pour chaque point, à partir du phasage et du planning",
     pages: [{ id: "operations", label: "Opérations" }],
