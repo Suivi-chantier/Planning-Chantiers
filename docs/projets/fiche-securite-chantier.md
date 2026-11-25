@@ -403,6 +403,27 @@ la tâche 1 ne change aucun écran. Tâche 2 lancée.
   développement (0 fiche, 0 justificatif, 0 signature, 0 version au 25/11).
   Entrée `journalMaj.js` prévue à la tâche 5 (fin de la première livraison).
 
+**25/11/2026 — Tâche 4 : essai des écritures sur la vraie base (transaction
+annulée, demandé avant fusion).** Requêtes reproduites à l'identique de
+`securiteDonnees.js`, avec un vrai compte admin connecté (rôle simulé
+« authenticated », chantier planifié réel), puis refaites avec le compte
+comptable (rôle bureau non admin). Résultats, tous conformes :
+création de fiche ; enregistrement avec la condition `updated_at` (1 ligne) ;
+dépôt d'un fichier dans `chantier-documents` sous `securite/chantiers/…/p6/` ;
+ligne de justificatif chantier ; 2 dépôts dans `securite-preuves` sous
+`signatures/{fiche_id}/` ; 2 signatures avec l'empreinte (« établie par »
+rattachée au compte connecté par défaut, « chef d'équipe » sans compte) ;
+ligne de version ; fiche → « validée » avec `validee_le` / `validee_par`
+(1 ligne) ; journal `fiche_securite` ; archivage du justificatif (1 ligne) ;
+« Mettre à jour » : journal puis fiche en v2 brouillon (1 ligne). Après
+annulation : 0 fiche, 0 justificatif, 0 signature, 0 version, 0 entrée
+`fiche_securite` au journal, 0 fichier `securite-preuves` ou `securite/…`.
+Aucun correctif de code nécessaire. À savoir : aucun conducteur actif n'a de
+compte de connexion correspondant (essai fait avec admin et comptable) ; dans
+une seule transaction l'horloge ne bouge pas, donc la condition `updated_at`
+n'a pas été mise à l'épreuve d'un aller-retour réel (elle l'est depuis la
+tâche 3 par l'enregistrement automatique).
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
