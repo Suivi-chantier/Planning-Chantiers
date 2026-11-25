@@ -1,0 +1,26 @@
+name: Verify Plan V2 — scène du plan et sortie SVG (nouvel éditeur de plans, tâche 6a)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/planV2/**'
+      - 'src/Renovation/releveImapper.mjs'
+      - 'scripts/verif-plan-v2-scene.mjs'
+      - 'scripts/fixtures/releve-imapper-reference*'
+      - '.github/workflows/verify-plan-v2-scene.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Scène du plan (pièces et surface des métrés, murs pleins fermés aux angles et hors des pièces, ouvertures à valider en orange, cotes réelles, zones de toucher), sortie SVG bien formée et déterministe, entrée non modifiée
+        run: node scripts/verif-plan-v2-scene.mjs

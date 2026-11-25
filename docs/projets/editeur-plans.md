@@ -146,7 +146,7 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
 | 3 | Table `plans_v2` (migration additive + `profero_collaborateurs_seulement`) et couche de lecture / écriture ; script `verif-plan-v2-aucune-ecriture-plans` (aucune écriture dans `plans` depuis le nouvel éditeur) + workflow. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis migration additive vérifiée | Table créée, policy posée, migration enregistrée, l'application s'ouvre | — |
 | 4 | Page « Plans (nouveau) » : déclaration dans `src/access.js` (admin seul), navigation, route ; liste des plans par chantier ; création en **copiant** le relevé d'un ancien plan. Entrée `journalMaj.js`. | en attente de Loris | **Arrêt : droits d'accès** (question 1) ; puis contrôles verts | Page visible pour admin seulement (configuration en base relue) ; l'ancien plan est inchangé après copie (comparaison en base) | — |
 | 5 | Création par dépôt des exports iMapper (DXF + PDF), avec le parcours d'import existant, réutilisé tel quel. | à faire | Contrôles verts | Un import du DXF de référence donne le même relevé que dans l'ancien éditeur | — |
-| 6a | Module pur « scène du plan » : à partir du relevé redressé et du modèle, la liste de ce qu'il faut dessiner (pièces colorées par type avec nom et surface, murs pleins à leur épaisseur avec leurs angles, ouvertures, cotes intérieures automatiques, points à valider en orange) et sa sortie en SVG. Script de vérification. Aucun écran. | en cours | Contrôles verts | Images des 2 relevés réels produites par le module (hors application), remises dans la conversation | — |
+| 6a | Module pur « scène du plan » : à partir du relevé redressé et du modèle, la liste de ce qu'il faut dessiner (pièces colorées par type avec nom et surface, murs pleins à leur épaisseur avec leurs angles, ouvertures, cotes intérieures automatiques, points à valider en orange) et sa sortie en SVG. Script de vérification. Aucun écran. | en cours | Contrôles verts | Images des 2 relevés réels produites par le module (hors application), remises dans la conversation | [#272](https://github.com/Suivi-chantier/Planning-Chantiers/pull/272) |
 | 6b | Affichage dans la page : composant SVG qui dessine la scène ; déplacement et zoom à la souris et au doigt (pincement). | à faire | Contrôles verts (après la tâche 4) | Captures des 2 relevés réels dans l'application | — |
 | 7 | Redressement branché à la création du plan ; points à valider affichés en orange, à confirmer ou refuser un par un. | à faire | Contrôles verts | Sur les 2 relevés réels : liste des points à valider, capture avant / après | — |
 | 8 | Panneau de pièce (nom, type, hauteur sous plafond, métrés, photos de ses murs) ; sauvegarde automatique. | à faire | Contrôles verts | Métrés du panneau = ceux de l'ancien éditeur, pièce par pièce | — |
@@ -485,6 +485,123 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   liste à 13 et 17 points à 3°, 11 et 13 à 2°. À décider en voyant les
   propositions dessinées.
 
+- **25/11/2026 — Tâche 6a : une seule description, deux sorties.** Cinq
+  modules purs dans `src/Renovation/planV2/`. `planV2Scene.mjs` dresse la
+  liste de ce qu'il faut dessiner, en mètres, sans aucune taille d'écran :
+  chaque élément porte l'identifiant de son objet (pièce, mur, ouverture…),
+  son état (existant, à démolir, à créer), son corps d'état et son calque.
+  `planV2SceneDessin.mjs` (avec `planV2SceneTextes.mjs`) met cette liste en
+  page pour une échelle donnée et rend des formes simples (polygone, ligne,
+  arc, cercle, rectangle, texte). `planV2SceneSvg.mjs` ne fait qu'écrire ces
+  formes en SVG. Le composant de la tâche 6b dessinera les mêmes formes : la
+  géométrie n'existe qu'à un endroit. Les calques équipements, notes, traits
+  libres et projet existent, vides ; si le modèle en contient un jour, le plan
+  l'écrit au lieu de les passer sous silence.
+- **25/11/2026 — Tâche 6a : la surface affichée n'est pas recalculée.** La
+  scène reçoit les métrés (`calculerMetres`) en paramètre et écrit la surface
+  avec `texteMetre` : même chiffre, même service. Elle ne sait pas sur quel
+  relevé ces métrés ont été calculés : la réponse à la question 5 ne changera
+  rien ici. Sans métrés, l'étiquette dit « non calculable ». Les cotes sont
+  celles de `cotesInterieures` (un côté d'au moins 30 cm, en centimètres).
+- **25/11/2026 — Tâche 6a : comment les murs sont dessinés pleins.** Chaque
+  mur du modèle reste un objet à part (il pourra passer en jaune seul) : c'est
+  sa bande, entre ses deux faces ou entre sa face et son épaisseur. Les bandes
+  ne couvrent pas les angles. À chaque coin saillant d'une pièce, le coin vide
+  est rempli par une « jonction » : un petit quadrilatère qui va du coin de la
+  pièce jusqu'à la rencontre des deux faces extérieures. Fait depuis les coins
+  de toutes les pièces, cela ferme aussi les rencontres en T et en croix
+  (plusieurs jonctions peuvent alors couvrir le même carré ; en aplat cela ne
+  se voit pas). Chaque jonction liste les deux murs qu'elle relie. À un coin
+  rentrant entre deux murs extérieurs, les deux bandes sont recoupées sur leur
+  diagonale au lieu de se recouvrir. Derrière un décrochement (un « raccord »
+  de la tâche 1, sans épaisseur propre), la jonction reprend l'épaisseur du
+  mur voisin et longe tout le décrochement, comme iMapper le dessine ; elle
+  n'est gardée que si les murs dessinés du relevé montrent bien de la matière
+  à cet endroit (au moins la moitié).
+- **25/11/2026 — Tâche 6a : pourquoi les murs dessinés par iMapper ne sont
+  pas mis en fond.** Mesuré d'abord sur les deux relevés réels (relevé
+  redressé, grille de 1 cm, murs superposés comptés une seule fois) : les murs
+  d'iMapper recouvrent l'intérieur des pièces sur 0,52 % de leur emprise
+  (Louison) et 6,47 % (Montillers, où deux versions du plan sont superposées) ;
+  les murs calculés, 0,01 % et 0,13 %. Et 98,7 % et 97,5 % des murs d'iMapper
+  se retrouvent dans les murs calculés ou dans les pièces. Les murs d'iMapper
+  ne sont donc pas dessinés : ils servent de témoin (épaisseurs, matière
+  derrière un décrochement). Autre raison : dès l'étape 2, un mur démoli doit
+  disparaître du plan, ce qu'un fond figé empêcherait. (La tâche 1 annonçait
+  9,5 % et 0,9 % : c'était la somme mur par mur, où deux murs dessinés l'un
+  sur l'autre comptent deux fois ; recalculée ainsi, elle donne bien 9,57 % et
+  0,88 %. Les deux mesures disent la même chose.)
+- **25/11/2026 — Tâche 6a : ce qui reste visible quand on ne sait pas.** Un
+  mur dont l'épaisseur est inconnue est un trait interrompu sur sa face, avec
+  sa raison, jamais une bande d'épaisseur par défaut, et aucune jonction ne
+  s'y accroche. Une « limite » (deux pièces sans mur entre elles, ou qui se
+  chevauchent) est un trait fin pointillé. Une jonction qui tomberait à plus
+  de 5 % dans une pièce est écartée et listée avec sa raison plutôt que
+  dessinée de travers. Un relevé dont les ouvertures ne sont pas relevées
+  porte la mention « Ouvertures non relevées » sous le plan. Une cote qui
+  n'est pas affichée à une échelle donnée garde sa raison (côté trop court,
+  chevauchement, hors de la pièce, masquée, doublon).
+- **25/11/2026 — Tâche 6a : ouvertures, et l'orange.** Une ouverture
+  détectée, confirmée sur photo ou validée est dessinée en menuiserie : trou
+  dans le mur à l'épaisseur du mur qui la porte, tableaux, vantail et arc de
+  débattement selon le sens connu, trois traits pour une fenêtre, pointillés
+  pour une baie. Une ouverture « à vérifier » n'est PAS une menuiserie : un
+  trait orange interrompu dans l'épaisseur du mur, sans trou. Une ouverture
+  vue sur photo mais pas placée : une pastille orange avec son code et « ? »,
+  au milieu de son côté. L'orange (#ea580c) n'est employé que pour ce qui est
+  à valider ; le script le vérifie forme par forme. Couleurs des murs par
+  état : gris-noir (#2f3540), jaune (#f2c200), rouge (#d92d20). Les couleurs
+  de pièces sont celles de l'ancien éditeur (`couleurPiece`), dont le pêche
+  clair des chambres, proche de l'orange sans être le même : à revoir si
+  Loris le juge gênant.
+- **25/11/2026 — Tâche 6a : textes, échelle, doigt.** L'échelle (unités de
+  dessin par mètre) est un paramètre ; un second paramètre multiplie toutes
+  les tailles de texte et de trait : à l'écran les textes gardent leur taille
+  quand on zoome, à l'impression ils se règlent en millimètres. Les largeurs
+  de texte sont estimées par une fonction reçue en paramètre (aucune police
+  installée n'est nécessaire au calcul) ; le composant pourra passer la
+  mesure exacte du navigateur. Étiquette : nom et surface sur deux lignes, au
+  point de la pièce le plus loin des murs, réduite jusqu'à tenir ; sinon sur
+  une ligne le long du plus grand côté ; sinon sur fond clair. Cotes : le long
+  du côté, à l'intérieur, les plus longues d'abord ; chacune a un identifiant
+  stable (pièce et numéro de côté) et peut déjà être masquée ou déplacée par
+  un réglage. Une cloison qui avance dans une pièce ne donne sa longueur
+  qu'une fois. Chaque pièce est un seul polygone à toucher (son étiquette
+  laisse passer le doigt). Pour les petits objets (ouvertures, repères), la
+  mise en page fournit une zone à toucher d'au moins 44 px à l'écran, quel que
+  soit le zoom.
+- **25/11/2026 — Tâche 6a : limites connues, à reprendre dans les tâches
+  suivantes.**
+  - Tâche 6b (composant et zoom) : la mise en page dépend de l'échelle (une
+    cote masquée de loin s'affiche de près). Elle prend 12 à 19 ms sur les
+    relevés réels, la scène 60 à 110 ms : recalculer la mise en page à la fin
+    d'un geste de zoom, pas à chaque image, et garder la scène tant que le
+    plan ne change pas. Les deux relevés réels sont faits de groupes de pièces
+    éloignés d'une dizaine à une vingtaine de mètres : la vue d'ensemble est
+    surtout du blanc, il faudra pouvoir cadrer sur un groupe.
+  - Tâche 7 (points à valider) : chaque repère porte la clé du point et un
+    numéro d'ordre dans la liste reçue. Sur « Louison RDC » tout est orange :
+    les 55 ouvertures sont « à vérifier » et couvrent chacune un côté entier,
+    en plus des 16 points du redressement. C'est fidèle aux données, mais
+    lourd : prévoir de pouvoir masquer un des deux genres de repères.
+  - Tâche 14 (démolition par portion) : un mur est une bande d'un seul
+    tenant ; une portion demandera de recouper cette bande. Règle proposée
+    pour les jonctions : une jonction ne passe en jaune que si ses deux murs
+    sont démolis. Les jonctions se superposent aux rencontres en T : sans
+    gravité en aplat, à reprendre si l'on veut des hachures ou de la
+    transparence.
+  - Tâche 25 (planches) : la sortie SVG n'a ni cartouche, ni réglet, ni
+    découpage en pages ; elle sait seulement dessiner à une échelle donnée.
+  - Zones en biais : là où une petite pièce est nettement tournée par
+    rapport à ses voisines, les bandes et les jonctions se chevauchent et la
+    silhouette du mur est en dents de scie sur quelques centimètres (une zone
+    sur Louison, plusieurs sur Montillers, repérées à l'œil sur les images).
+    Le dessin de chaque mur est juste, leur réunion n'est pas lissée.
+  - Épaisseurs : un mur dessiné à 30 cm peut être lu 29 par le modèle (limite
+    connue de la tâche 1) ; le plan le dessine donc à 29.
+  - 13 jonctions écartées sur Montillers et 1 sur Louison : à ces endroits
+    l'angle peut rester ouvert de quelques centimètres.
+
 ## Comptes rendus
 
 ### Tâche 1 — modèle de l'existant et murs partagés (24/11/2026)
@@ -660,3 +777,87 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   être testée depuis l'environnement de Claude (site de production non
   joignable d'ici) ; la tâche n'ajoute aucun écran et aucun fichier chargé
   par l'application.
+
+### Tâche 6a — scène du plan et sortie SVG (25/11/2026)
+
+- **Ce qui a changé** : rien de visible dans l'application. Elle sait
+  maintenant produire le dessin d'un plan à partir d'un relevé : pièces
+  colorées selon leur type avec leur nom et leur surface, murs pleins à leur
+  épaisseur avec les angles fermés, ouvertures, cotes intérieures calculées,
+  et en orange tout ce qui reste à valider. Ce dessin sort en SVG (une image
+  nette à tout zoom). Ce n'est pas encore un écran : l'affichage dans la page
+  viendra avec la tâche 6b, qui réutilisera exactement ce dessin.
+- **Rien n'est touché dans l'existant** : aucun fichier de l'ancien éditeur
+  ni des tâches 1 et 2 modifié, aucune écriture en base, aucune migration,
+  aucune page.
+- **Les images** : deux par relevé réel (le plan entier et un détail). Elles
+  sont remises dans la conversation et **ne sont pas dans le dépôt** (dépôt
+  public). Elles viennent du module de dessin, hors application.
+- **Essai sur les deux relevés réels de la base** (relevé redressé, modèle,
+  métrés calculés sur ce même relevé). Chiffres agrégés ; les relevés
+  eux-mêmes ne sont pas dans le dépôt.
+
+  | | Louison RDC | Montillers appt 1 T3 |
+  |---|---|---|
+  | Éléments à dessiner | 280 | 349 |
+  | Pièces (sol coloré, nom, surface) | 8 | 12 |
+  | Étiquettes qui tiennent dans leur pièce (à 50 pixels par mètre) | 8 sur 8 | 11 sur 12 (une pièce de 2 m² : étiquette sur fond clair) |
+  | Murs pleins (un par mur du modèle à épaisseur connue) | 70 | 125 |
+  | Jonctions d'angle, en T ou en croix | 60 (dont 18 derrière un décrochement) | 82 (dont 15 derrière un décrochement) |
+  | Limites sans mur (trait fin) | 0 | 2 (les deux pièces qui se chevauchent) |
+  | Murs d'épaisseur inconnue (trait interrompu) | 0 | 0 |
+  | Murs du modèle sans dessin propre : « raccords », leur matière est celle du mur voisin | 25 | 25 |
+  | Jonctions écartées, avec leur raison | 1 (tombait dans une pièce) | 13 (9 tombaient dans une pièce, 2 sans matière dessinée par iMapper, 2 à côté d'une limite sans mur) |
+  | Ouvertures dessinées en menuiserie | 0 | 0 |
+  | Ouvertures « à valider » (orange, dans le mur) | 55 | 0 |
+  | Ouvertures « à placer » (pastille orange « ? ») | 0 | 4 |
+  | Cotes intérieures | 71 | 101 |
+  | — affichées sur l'image (50 pixels par mètre) | 67 | 81 |
+  | — non affichées à cette échelle, et pourquoi | 2 doublons (deux faces d'une même cloison), 1 chevauchement, 1 côté trop court pour le texte | 14 chevauchements, 5 côtés trop courts, 1 hors de la pièce |
+  | Repères de points à valider (redressement) | 16 | 23 |
+  | Zones à toucher d'au moins 44 px | 71 | 27 |
+  | Emprise des murs pleins | 42,70 m² | 50,38 m² |
+  | — part qui recouvre l'intérieur des pièces | **0,01 %** | **0,13 %** |
+  | — pour comparaison, les murs dessinés par iMapper | 0,52 % | 6,47 % |
+  | Murs dessinés par iMapper retrouvés dans les murs pleins ou dans les pièces | 98,7 % | 97,5 % |
+  | Temps de calcul : scène / mise en page / écriture du SVG | 59 à 75 ms / 14 à 19 ms / 2 à 4 ms | 88 à 110 ms / 12 à 17 ms / 2 à 3 ms |
+  | Relevé, modèle, métrés non modifiés ; deux calculs identiques | oui | oui |
+
+- **Ce qui est bon sur les images** : les murs sont nets, les angles et les
+  rencontres de cloisons sont fermés, les pièces ne sont pas mordues par les
+  murs, chaque étiquette est dans sa pièce, les cotes suivent leur mur sans se
+  superposer, et l'orange n'apparaît que sur ce qui est à valider.
+- **Ce qui reste laid ou incomplet, dit franchement** :
+  - « Louison RDC » est très orange : ses 55 ouvertures sont toutes « à
+    vérifier » et couvrent chacune un côté entier, donc un trait orange court
+    dans presque tous les murs, en plus des 16 points du redressement. C'est
+    ce que disent les données, pas un défaut de dessin, mais ce n'est pas un
+    plan qu'on montrerait tel quel.
+  - Aucune vraie porte ni fenêtre n'apparaît sur ces deux relevés : ils n'en
+    contiennent aucune de validée. Le dessin des menuiseries (trou dans le
+    mur, vantail, débattement, traits de fenêtre) n'a donc été contrôlé que
+    sur le jeu de test — exemple issu des tests, données fictives.
+  - Là où une petite pièce est en biais par rapport à ses voisines (une zone
+    sur Louison, plusieurs sur Montillers), le mur a une silhouette en dents
+    de scie sur quelques centimètres.
+  - Les deux relevés sont faits de groupes de pièces très éloignés : le plan
+    entier est surtout du blanc, les textes y sont petits. Le détail est
+    lisible ; l'écran devra permettre de cadrer sur un groupe.
+  - Les murs sont dessinés à l'épaisseur lue par le modèle, qui peut valoir
+    29 cm pour un mur dessiné à 30.
+- **Vérifications automatiques** : nouveau script `verif-plan-v2-scene`,
+  15 cas, branché sur GitHub. Pour chaque cas : entrée non modifiée, deux
+  calculs identiques, surface de l'étiquette égale au texte des métrés, un
+  élément par mur du modèle ou une raison, cotes égales aux longueurs
+  réelles, orange réservé à ce qui est à valider, zones à toucher d'au moins
+  44 px, SVG bien formé. Tolérance fixée et justifiée dans le script : les
+  murs pleins recouvrent au plus 1 % de leur emprise dans les pièces. Les
+  logements dessinés pour les cas et le relevé de référence anonymisé :
+  exemple issu des tests, données fictives. Sur ce relevé de référence
+  (6 pièces) : 30 murs pleins, 27 jonctions, 10 raccords, 3 jonctions
+  écartées, 6 menuiseries, 14 ouvertures à valider, 36 cotes dont 31
+  affichées, 7 repères, 0,00 % de murs dans les pièces — exemple issu des
+  tests, données fictives.
+- **Journal des MAJ** : pas d'entrée (rien de visible pour les utilisateurs).
+- **Mise en ligne** : demande de fusion #272, état réel confirmé par la
+  session pilote.
