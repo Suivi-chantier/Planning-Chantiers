@@ -259,7 +259,13 @@ test("11. page Encours : lectures et calcul extraits, aucun recalcul local, pas 
   const page = sansCommentaires(lire("src/Renovation/PageEncoursFournisseurs.jsx"));
   assert.match(page, /import \{ chargerDonneesEncoursFournisseurs \} from "\.\/encoursFournisseursDonnees";/);
   assert.match(page, /from "\.\/encoursFournisseursPageV1\.js";/);
-  assert.match(page, /const donnees = await chargerDonneesEncoursFournisseurs\(\);\s*const arr = itemsEncoursFournisseurs\(donnees\);/);
+  // Même chargement et même calcul que le bloc ; depuis le 25/11/2026, une
+  // lecture en échec est affichée comme telle (plus de liste vide trompeuse).
+  assert.match(page, /donnees = await chargerDonneesEncoursFournisseurs\(\);/);
+  assert.match(page, /setItems\(itemsEncoursFournisseurs\(donnees\)\)/);
+  assert.match(page, /if \(donnees\?\.erreur\) \{\s*setItems\(\[\]\);\s*setErreur\(donnees\.erreur\);/, "page Encours : l'erreur de lecture est retenue");
+  assert.match(page, /if \(!loading && erreur\) \{\s*return \(/, "page Encours : rendu dédié en cas d'erreur (ni cartes ni « Aucune dépense »)");
+  assert.match(page, /L'encours fournisseurs n'a pas pu être lu\./);
   assert.match(page, /const \{ moisMap, moisList \} = regrouperEncoursParMois\(filtered\);/);
   assert.match(page, /chiffresMoisCourant\(moisMap, cleMoisCourant\(new Date\(\)\)\)/);
   assert.match(page, /sousTitre: EXPLICATION_ENCOURS/);

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
     type: "correctif",
+    titre: "Encours fournisseurs : une lecture impossible est signalée au lieu d'afficher 0 €",
+    pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
+    quoi: "Quand les données ne pouvaient pas être lues (connexion coupée, base indisponible), la page Encours fournisseurs affichait « 0,00 € » à payer et « Aucune dépense enregistrée. », comme s'il n'y avait vraiment rien à payer. Elle affiche désormais « L'encours fournisseurs n'a pas pu être lu. », sans aucun montant ni bouton PDF, avec un bouton « Réessayer ».",
+    comment: "Rien à faire. Quand la lecture réussit, la page ne change pas.",
+  },
+  {
+    date: "2026-11-25",
+    type: "correctif",
     titre: "Bloc « Planning de la semaine suivante » : le lien vers la liste complète est proposé",
     pages: [{ id: "dashboard", label: "Tableau de bord" }],
     quoi: "Le bloc du vendredi renvoyait à « la page Bilan de semaine » pour les chantiers et personnes non affichés, mais ne proposait qu'un bouton vers Planning semaine. Il propose désormais aussi un bouton « Bilan de semaine », et précise où se trouve chaque liste complète : la carte « La semaine qui vient » pour les chantiers, l'onglet « Détail des comptes rendus » pour les personnes.",
