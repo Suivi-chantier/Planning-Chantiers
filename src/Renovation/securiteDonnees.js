@@ -10,13 +10,14 @@
 // confondue avec « aucune donnée » (l'écran affiche « état illisible »).
 // ─────────────────────────────────────────────────────────────────────────────
 import { supabase } from "../supabase";
-import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, deposerPreuveSecurite, urlPreuveSecurite } from "./storageChantier.js";
+import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, deposerPreuveSecurite, urlPreuveSecurite, lirePreuveSecurite } from "./storageChantier.js";
 import { journaliserStatut } from "./chantiersDonnees.js";
 import {
   serialisationCanonique, contenuVersion, motifDepuisJournal, entreeJournalValidation, entreeJournalMiseAJour,
   preparerMiseAJour, dossierJustificatifs, cheminSignature, EVENEMENT_JOURNAL,
 } from "./securiteVersion.js";
 import { etatValidation, justificatifsPourPastille } from "./securiteValidation.js";
+import { cheminPdfVersion } from "./securitePdf.js";
 
 const COLS_ETAT = "fiche_id, chantier_id, version, statut, points_completes, signe_etablie_par, signe_chef_equipe, nb_signatures_accueil, nb_justificatifs_chantier, demarrage_force";
 const COLS_BATIMENT = "operation_id, date_permis_construire, avant_1997, avant_1949, copropriete, etage, ascenseur_utilisable, reperage_amiante_statut, notes, maj_par, updated_at";
@@ -422,4 +423,81 @@ export async function chargerJustificatifsPastilles(chantierIds, aujourdhui) {
   } catch (e) {
     return { parChantier: {}, erreur: msg(e) };
   }
+}
+
+// ─── Tâche 5 : PDF de chaque version validée ─────────────────────────────────
+// Le PDF est construit à partir du CONTENU FIGÉ de la version (jamais de la
+// fiche courante), déposé dans securite-preuves sous versions/{fiche_id}/
+// (nom nouveau à chaque fois : le bucket refuse tout remplacement), puis
+// rattaché à la version par pdf_path — une seule fois (déclencheur en base).
+// Mise en page : securitePdf.mjs ; rendu navigateur : securitePdfRendu.js.
+
+const COLS_VERSION_CONTENU = `${COLS_VERSION}, contenu`;
+
+/**
+ * Tout ce qu'il faut pour le PDF d'une version figée. Le contenu est
+ * contrôlé contre son empreinte : un contenu qui ne correspond plus à
+ * l'empreinte signée ne donne pas de PDF (impossibilité visible).
+ * → { version (ligne avec contenu), versions, signatures, erreur }
+ */
+export async function chargerDonneesPdfVersion(ficheId, numero) {
+  if (!ficheId || !Number.isInteger(numero)) return { erreur: "version inconnue" };
+  try {
+    const [v, vs, s] = await Promise.all([
+      supabase.from("securite_fiches_versions").select(COLS_VERSION_CONTENU).eq("fiche_id", ficheId).eq("version", numero).maybeSingle(),
+      chargerVersions(ficheId),
+      chargerSignatures(ficheId),
+    ]);
+    if (v.error) return { erreur: `version illisible (${v.error.message})` };
+    if (!v.data) return { erreur: `v${numero} introuvable` };
+    if (vs.erreur) return { erreur: `historique des versions illisible (${vs.erreur})` };
+    if (s.erreur) return { erreur: `signatures illisibles (${s.erreur})` };
+    const h = await empreinteContenu(v.data.contenu);
+    if (h !== v.data.empreinte) return { erreur: "le contenu figé ne correspond pas à son empreinte" };
+    return { version: v.data, versions: vs.liste, signatures: s.liste, erreur: null };
+  } catch (e) {
+    return { erreur: msg(e) };
+  }
+}
+
+/** Image d'une signature (securite-preuves) → { blob, erreur }. */
+export async function lireImageSignature(path) {
+  const blob = await lirePreuveSecurite(path);
+  return { blob, erreur: blob ? null : (derniereErreurDocument() || "lecture impossible") };
+}
+
+/**
+ * Dépose le PDF d'une version et le rattache (pdf_path, une seule fois).
+ * Si un autre poste l'a rattaché entre-temps, c'est le sien qui fait foi :
+ * le fichier déposé ici reste stocké, sans effet (rien ne s'efface).
+ * → { path, erreur, avertissement }
+ */
+export async function enregistrerPdfVersion({ ligne, blob }) {
+  try {
+    if (!ligne?.id) return { path: null, erreur: "version inconnue" };
+    if (ligne.pdf_path) return { path: ligne.pdf_path, erreur: null, avertissement: null };
+    if (!blob) return { path: null, erreur: "PDF vide" };
+    const alea = (() => { try { return crypto.randomUUID().slice(0, 8); } catch { return Math.random().toString(36).slice(2, 10); } })();
+    const chemin = cheminPdfVersion({ ficheId: ligne.fiche_id, version: ligne.version, horodatage: Date.now(), alea });
+    const depot = await deposerPreuveSecurite(blob, chemin, "application/pdf");
+    if (!depot) return { path: null, erreur: derniereErreurDocument() || "PDF non déposé" };
+    const { data, error } = await supabase.from("securite_fiches_versions")
+      .update({ pdf_path: chemin }).eq("id", ligne.id).is("pdf_path", null)
+      .select("id, pdf_path");
+    if (error) return { path: null, erreur: `PDF déposé mais non rattaché à la version (${error.message})` };
+    if (data && data.length === 1) return { path: chemin, erreur: null, avertissement: null };
+    const { data: ex, error: eX } = await supabase.from("securite_fiches_versions").select("pdf_path").eq("id", ligne.id).maybeSingle();
+    if (!eX && ex?.pdf_path) {
+      return { path: ex.pdf_path, erreur: null, avertissement: "Un PDF avait déjà été enregistré pour cette version par un autre poste : c'est celui-là qui fait foi." };
+    }
+    return { path: null, erreur: `PDF déposé mais non rattaché à la version (${eX?.message || "version introuvable"})` };
+  } catch (e) {
+    return { path: null, erreur: msg(e) };
+  }
+}
+
+/** Lien signé (10 min) de téléchargement du PDF d'une version. → { url, erreur } */
+export async function urlPdfVersion(path, nomFichier) {
+  const url = await urlPreuveSecurite(path, 600, { download: nomFichier || true });
+  return { url, erreur: url ? null : (derniereErreurDocument() || "lecture impossible") };
 }

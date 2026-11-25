@@ -22,7 +22,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FONT, RADIUS, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
-import { ArrowLeft, ShieldCheck, Plus, Trash2, Building2, Paperclip, Camera, PenLine, CheckCircle2, History } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Plus, Trash2, Building2, Paperclip, Camera, PenLine, CheckCircle2, History, FileDown } from "lucide-react";
 import {
   POINTS_CARTES, STATUTS_POINT, pointParNumero, libelleJustificatif, libelleStatutPoint,
 } from "./securite/points.js";
@@ -46,6 +46,7 @@ import {
 import { contenuVersion, empreinteCourte, MOTIF_MIN } from "./securiteVersion.js";
 import { ACCEPT_DOCS } from "./storageChantier.js";
 import SignatureFicheSecurite from "./SignatureFicheSecurite.jsx";
+import { genererPdfVersion, apercuPdfBrouillon, telechargerPdfVersion } from "./securitePdfRendu.js";
 import { chargerClients, libelleClient } from "./clientsDonnees.js";
 import { clientEffectifId } from "./progbatAutomatisation.js";
 
@@ -273,6 +274,8 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   const [validation, setValidation] = useState({ enCours: false, erreur: null, manquants: null, avertissement: null, versionDejaFigee: false });
   const [miseAJour, setMiseAJour] = useState(null); // { motif, enCours, erreur, versionDejaFigee }
   const [messageDoc, setMessageDoc] = useState(null);
+  // Tâche 5 : PDF des versions (génération en cours, erreurs par version, aperçu)
+  const [pdfEtat, setPdfEtat] = useState({ enCours: null, erreurs: {}, message: null, apercu: false });
   const aujourdhui = dateDuJourLocale();
 
   const formRef = useRef(null);
@@ -499,8 +502,53 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
       return;
     }
     setValidation({ enCours: false, erreur: null, manquants: null, avertissement: r.avertissement || null, versionDejaFigee: false });
+    const numero = lecture.ligne.version;
     await rechargerSignatures();
     charger();
+    // Tâche 5 : PDF généré et stocké automatiquement. S'il échoue, la
+    // validation reste acquise : la version s'affiche « PDF non généré ».
+    await genererPdf(numero);
+  };
+
+  const genererPdf = async (numero) => {
+    if (!ficheId) return;
+    setPdfEtat((p) => ({ ...p, enCours: numero, message: null, erreurs: { ...p.erreurs, [numero]: null } }));
+    const r = await genererPdfVersion({ ficheId, version: numero });
+    setPdfEtat((p) => ({ ...p, enCours: null, message: r.avertissement || null, erreurs: { ...p.erreurs, [numero]: r.erreur || null } }));
+    await rechargerSignatures();
+  };
+
+  const telechargerPdf = async (v) => {
+    const r = await telechargerPdfVersion({ path: v.pdf_path, chantierNom: chantier.nom, version: v.version });
+    setMessageDoc(r.erreur ? `Téléchargement impossible : ${r.erreur}.` : null);
+  };
+
+  // Aperçu d'un brouillon : même contenu que celui qui serait figé (et haché).
+  const apercuPossible = !!ligneEnregistree && batiment.charge && !batiment.erreur && justifs.charge && !justifs.erreur && motif.charge && !motif.erreur && sigs.charge && !sigs.erreur;
+  const apercu = async () => {
+    setPdfEtat((p) => ({ ...p, apercu: true, message: null }));
+    let r;
+    try {
+      const contenu = contenuVersion({ fiche: ligneEnregistree, chantier, operation: op, clientLibelle, batiment: batiment.ligne, justificatifs: justifs.liste, motif: motif.motif });
+      r = await apercuPdfBrouillon({ contenu, empreinte: empreinte.valeur, signatures: sigs.liste, versions: versions.liste || [], chantierNom: chantier.nom, apercuLe: new Date().toISOString() });
+    } catch (e) {
+      r = { erreur: e?.message || String(e) };
+    }
+    setPdfEtat((p) => ({ ...p, apercu: false, message: r.erreur ? `Aperçu impossible : ${r.erreur}.` : null }));
+  };
+
+  // État du PDF d'une version : lien de téléchargement, génération en cours,
+  // ou « PDF non généré » avec le bouton pour le générer (impossibilité visible).
+  const pdfVersion = (v) => {
+    const lien = { border: "none", background: "transparent", color: acc.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline", fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 4 };
+    if (v.pdf_path) return <button onClick={() => telechargerPdf(v)} style={lien}><Icon as={FileDown} size={13}/> Télécharger le PDF</button>;
+    if (pdfEtat.enCours === v.version) return <span style={{ color: ORANGE, fontWeight: 700 }}>Génération du PDF…</span>;
+    return (
+      <span style={{ color: ROUGE, fontWeight: 700 }}>
+        PDF non généré{pdfEtat.erreurs[v.version] ? ` (${pdfEtat.erreurs[v.version]})` : ""} ·{" "}
+        <button onClick={() => genererPdf(v.version)} disabled={pdfEtat.enCours != null} style={lien}>Générer le PDF</button>
+      </span>
+    );
   };
 
   const lancerMiseAJour = async () => {
@@ -805,6 +853,9 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                     {versions.charge && !versions.erreur && statutFiche === "validee" && !empreintesVersions[lecture.ligne.version] && (
                       <div style={{ marginTop: 4, color: ROUGE, fontWeight: 600 }}>Version figée introuvable pour la v{lecture.ligne.version}.</div>
                     )}
+                    {(versions.liste || []).filter((v) => v.version === lecture.ligne.version).map((v) => (
+                      <div key={v.id} style={{ marginTop: 6, fontSize: 12.5 }}>{pdfVersion(v)}</div>
+                    ))}
                   </div>
                 )}
 
@@ -868,8 +919,18 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                   </div>
                 )}
                 {validation.avertissement && <div style={{ marginBottom: 10, fontSize: 12.5, color: ORANGE, fontWeight: 600 }}>{validation.avertissement}</div>}
+                {pdfEtat.message && <div style={{ marginBottom: 10, fontSize: 12.5, color: ORANGE, fontWeight: 600 }}>{pdfEtat.message}</div>}
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+                  {statutFiche === "brouillon" && (
+                    <button onClick={apercu} disabled={!apercuPossible || pdfEtat.apercu || !enregistrementAJour}
+                      title="Aperçu non stocké, marqué « BROUILLON — non validé » : à ne pas présenter lors d'un contrôle"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "11px 18px", minHeight: 44, borderRadius: RADIUS.md,
+                        border: `1px solid ${T.border}`, background: "transparent", color: apercuPossible && enregistrementAJour ? T.textSub : T.textMuted,
+                        fontWeight: 700, fontSize: 13.5, cursor: apercuPossible && enregistrementAJour ? "pointer" : "default", fontFamily: "inherit" }}>
+                      <Icon as={FileDown} size={16}/> {pdfEtat.apercu ? "Préparation de l'aperçu…" : "Aperçu PDF (brouillon)"}
+                    </button>
+                  )}
                   {statutFiche === "brouillon" && modifiable && (
                     <button onClick={valider} disabled={!etat.peutValider || !enregistrementAJour || validation.enCours}
                       style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "11px 18px", minHeight: 44, borderRadius: RADIUS.md,
@@ -915,6 +976,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
                       <span style={{ color: T.textSub }}>validée le {dateHeureFr(v.cree_le)}{v.cree_par ? ` par ${v.cree_par}` : ""}</span>
                       {v.motif_changement && <span style={{ color: T.textSub }}>— motif : {v.motif_changement}</span>}
                       <span style={{ color: T.textMuted }}>empreinte {empreinteCourte(v.empreinte)}…</span>
+                      <span style={{ marginLeft: "auto" }}>{pdfVersion(v)}</span>
                     </div>
                   ))}
                   {(sigs.liste || []).filter((x) => x.type !== "accueil").length > 0 && (

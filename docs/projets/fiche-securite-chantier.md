@@ -92,8 +92,8 @@ attendent l'accord de François.
 | 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | en ligne (migration appliquée et fusion le 25/11/2026) | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | [#281](https://github.com/Suivi-chantier/Planning-Chantiers/pull/281) |
 | 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | en ligne (fusion le 25/11/2026, 13 contrôles verts ; enregistrement du bloc Bâtiment à confirmer par François dans l'appli) | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | [#282](https://github.com/Suivi-chantier/Planning-Chantiers/pull/282) |
 | 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | en ligne (fusion le 25/11/2026 ; libellés des cases à faire relire par François — PDF v2 demandé ; rechargement d'une vraie fiche à confirmer dans l'appli) | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | [#283](https://github.com/Suivi-chantier/Planning-Chantiers/pull/283) |
-| 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | en cours (demande de fusion ouverte le 25/11/2026, contrôles GitHub à attendre ; pas de migration) | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | [#284](https://github.com/Suivi-chantier/Planning-Chantiers/pull/284) |
-| 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | à faire | Auto | PDF conforme au modèle v2 avec signatures | — |
+| 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | en ligne (fusion le 25/11/2026, 15 contrôles verts ; écritures essayées sur la vraie base en transaction annulée ; validation réelle à confirmer dans l'appli) | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | [#284](https://github.com/Suivi-chantier/Planning-Chantiers/pull/284) |
+| 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; écritures essayées sur la vraie base en transaction annulée ; génération réelle à confirmer dans l'appli) | Auto | PDF conforme au modèle v2 avec signatures | [#285](https://github.com/Suivi-chantier/Planning-Chantiers/pull/285) |
 | 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | à faire | Auto | Propositions justes sur des chantiers réels (phasage, planning) | — |
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | à faire | Auto | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | — |
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | à faire | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | — |
@@ -424,6 +424,63 @@ une seule transaction l'horloge ne bouge pas, donc la condition `updated_at`
 n'a pas été mise à l'épreuve d'un aller-retour réel (elle l'est depuis la
 tâche 3 par l'enregistrement automatique).
 
+**25/11/2026 — Tâche 5 : PDF de la fiche (fin de la première livraison).**
+
+- **Technique** : la même que le PDF du Bilan (`html2pdf`, déjà dans le
+  projet, chargé à la demande ; aucune nouvelle dépendance). Mise en page
+  dans un module pur `securitePdf.mjs` (+ façade) en deux étapes :
+  `modelePdfFiche()` (données → modèle ordonné : sections, lignes, cases,
+  signatures) puis `htmlFicheSecuritePdf()` (modèle → HTML à la charte, mêmes
+  couleurs et décor que `charteDocProfero.mjs`). Rendu navigateur et
+  orchestration : `securitePdfRendu.js` ; lectures / écritures :
+  `securiteDonnees.js`.
+- **Source du PDF** : le contenu figé de la version
+  (`securite_fiches_versions.contenu`), jamais la fiche courante. Avant de
+  fabriquer le PDF, l'appli recalcule l'empreinte de ce contenu : s'il ne
+  correspond plus à l'empreinte signée, pas de PDF (« PDF non généré » avec
+  la raison). Historique : seulement les versions jusqu'à celle du PDF (une
+  v3 ne change pas le PDF de la v2). Signatures : seulement celles de la
+  version portant son empreinte (une signature « à refaire » n'y figure pas) ;
+  signature requise absente = « non signée » ; pour un PDF stocké, une image
+  de signature illisible fait échouer la génération (on ne stocke pas un PDF
+  incomplet), pour un aperçu elle est marquée « image de signature
+  illisible ». Images intégrées au document (lues dans `securite-preuves`,
+  pas d'URL externe au moment du rendu).
+- **Stockage** : `securite-preuves` sous
+  `versions/{fiche_id}/v{N}-fiche-securite-{horodatage}-{aléa}.pdf` (nom
+  toujours nouveau, dépôt sans remplacement), puis `pdf_path` renseigné avec
+  la condition « encore vide ». Si un autre poste l'a renseigné entre-temps,
+  c'est le sien qui fait foi (le fichier en trop reste stocké, rien ne
+  s'efface) et l'écran le dit.
+- **Écran** : PDF généré automatiquement juste après « Valider la fiche » ; en
+  cas d'échec la validation reste acquise et la version affiche « PDF non
+  généré (raison) · Générer le PDF » (bandeau de la fiche validée et
+  historique des versions, pour toute version sans PDF) ; sinon
+  « Télécharger le PDF » (lien signé 10 min, nom de fichier proposé). Fiche
+  en brouillon : « Aperçu PDF (brouillon) », marqué « BROUILLON — non
+  validé » en haut, dans le héros, l'historique et le pied, téléchargé sans
+  être stocké.
+- Ajout dans `storageChantier.js` : lecture d'une preuve (`download`) et
+  option « télécharger sous ce nom » du lien signé. Script existant ajusté :
+  `verif-securite-validation.mjs` exigeait « pdf_path jamais écrit » (état de
+  la tâche 4) ; il exige maintenant « écrit à un seul endroit, seulement s'il
+  est vide ». Nouveau : `verif-securite-pdf.mjs` + workflow.
+- **Essai sur la vraie base (transaction annulée)** avec le compte comptable
+  (rôle bureau non admin ; rôle « authenticated », identifiant et e-mail dans
+  les claims), sur un chantier planifié réel : fiche et version créées ;
+  dépôt d'un PDF dans `securite-preuves` sous `versions/{fiche_id}/` accepté ;
+  redépôt du même nom refusé ; modification du fichier : 0 ligne ;
+  `pdf_path` renseigné (1 ligne) ; second changement refusé par le
+  déclencheur (« Une version de fiche sécurité ne peut pas être
+  modifiée ») ; second changement avec la condition de l'appli : 0 ligne ;
+  modification d'une autre colonne refusée (droits). Après annulation :
+  0 fiche, 0 version, 0 fichier `securite-preuves`.
+- Pas de migration, aucune page ajoutée à `src/access.js`, aucune écriture
+  réelle en base.
+- Entrée `journalMaj.js` : première livraison de la fiche sécurité (bouton
+  sur la page Opérations, bloc Bâtiment, 12 points, justificatifs,
+  signatures, validation, PDF).
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -655,3 +712,44 @@ possible dans `securite-preuves`).
 navigateur (photo depuis la tablette, tracé au doigt, ouverture d'un
 document, validation d'une vraie fiche) — à faire une fois en ligne ; la
 compilation et les autres contrôles sont faits par GitHub.
+
+### 25/11/2026 — Tâche 5 : le PDF de la fiche sécurité
+
+**Ce qui change à l'écran** (fiche d'un chantier, ouverte depuis le bouton
+« Fiche sécurité » de la page Opérations) :
+
+- **À la validation**, le PDF de la version est fabriqué et rangé
+  automatiquement dans l'espace de stockage protégé (personne, admin compris,
+  ne peut l'effacer ni le remplacer). Il reproduit exactement la version
+  validée : identification et intervenants, données de base et bâtiment,
+  synthèse des risques, points 4 à 12 (statut, cases cochées, mesures,
+  justificatifs joints avec leur date), historique des versions, puis les
+  signatures en image. Charte Profero : bandeau bleu nuit arrondi avec le
+  logo, accents jaunes, cartes blanches, pied « Profero — Rénovation &
+  réhabilitation ».
+- **« Télécharger le PDF »** sur la fiche validée et sur chaque ligne de
+  l'historique des versions.
+- **Si le PDF n'a pas pu être fabriqué** (connexion coupée, image de
+  signature illisible…), la fiche reste validée et la version affiche « PDF
+  non généré » avec la raison et un bouton **« Générer le PDF »**.
+- **Fiche en brouillon** : bouton « Aperçu PDF (brouillon) ». Le document
+  porte « BROUILLON — non validé » en haut, dans le bandeau et en pied de
+  page ; il n'est pas conservé et ne doit pas être présenté à un contrôle.
+
+**Qui le voit.** Les mêmes personnes que la page Opérations (admin, direction,
+conducteurs, comptable, commercial, chargés d'affaires). Pas les ouvriers.
+Aucune nouvelle page, aucune migration.
+
+**Vérifié.** Nouveau contrôle automatique de la mise en page (11
+vérifications, exemples issus des tests, données fictives) lancé en local :
+tout passe. Essai des écritures sur la vraie base avec le compte comptable,
+annulé ensuite (rien n'est resté) : le PDF se dépose au bon endroit, se
+rattache à sa version une seule fois, et ne peut ensuite ni être remplacé ni
+rattaché une seconde fois. Un PDF d'exemple a été fabriqué à partir de
+données inventées (exemple issu des tests, données fictives).
+**Pas vérifié** depuis l'environnement de Claude : la fabrication du PDF dans
+un vrai navigateur à partir d'une vraie fiche (l'exemple a été imprimé par
+Chrome, l'appli passe par `html2pdf` : rendu très proche mais pas identique,
+notamment les coupures de page) — à faire une fois en ligne, sur la première
+fiche validée ; la compilation et les autres contrôles sont faits par GitHub.
+
