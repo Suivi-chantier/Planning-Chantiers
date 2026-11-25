@@ -163,6 +163,17 @@ dossier). Écarts avec le SQL de la spécification, et pourquoi :
   signature et les PDF de version prévus dans ce bucket pourraient donc être
   effacés, même si la ligne en base reste intacte.
 
+**25/11/2026 — Statuts des 24 chantiers complétés (réponse de François).**
+Briollay, Fourmond, Kathleen, Metois, Montilliers, Tourbouton : en cours ;
+Fougeray, Louison : planifié ; Lamartine : terminé. Appliqué sur la base :
+24 chantiers mis à jour (14 en cours, 9 planifiés, 1 terminé), chacun tracé
+dans `chantiers_statut_journal` (événement `statut_complete`, ancien statut
+vide : retour arrière possible). Après : 0 chantier sans statut, dans la table
+comme dans la configuration (16 à l'étude, 10 planifiés, 20 en cours,
+16 terminés). Conséquence pour le projet : ces 14 chantiers en cours sont
+« déjà en cours à la mise en service » (fiche brouillon + alerte, pas de
+blocage).
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
