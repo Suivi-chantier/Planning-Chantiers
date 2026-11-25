@@ -204,7 +204,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 10 | Bloc `tournee_chantiers` (`alertesV1`, `retoursTerrainV1`, phasages) | en ligne | Contrôles verts | Mêmes niveaux d'alerte que la page Alertes | [#265](https://github.com/Suivi-chantier/Planning-Chantiers/pull/265) |
 | 11 | Bloc `planning_semaine_suivante` (+ ligne « montant prévisionnel : fonctionnalité à venir ») | en ligne | Contrôles verts | Mêmes heures que `bilanSemaineProchaineV1` sur la base | [#266](https://github.com/Suivi-chantier/Planning-Chantiers/pull/266) |
 | 12 | Bloc `materiaux_a_commander` | en ligne | Contrôles verts | Mêmes matériaux que la page Commandes à passer pour S+1 | [#267](https://github.com/Suivi-chantier/Planning-Chantiers/pull/267) |
-| 13 | Captures des 5 jours (date simulée) sur le compte de Loris + synthèse de fin de projet | en attente de Loris | — | Captures jointes au compte rendu | — |
+| 13 | Captures des 5 jours (date simulée) sur le compte de Loris + synthèse de fin de projet | en cours | — | Captures jointes au compte rendu | — |
 | 14 | Aligner le mail du vendredi et la notification « X € HT à payer » (`encoursFournisseursV1`, `api/cron-encours-fournisseurs.js`) sur le calcul de la page Encours fournisseurs (`encoursFournisseursPageV1.mjs`) | en ligne | Contrôles verts + tableau avant / après par fournisseur et par mois sur la base réelle (écart attendu : celui de la page) | Le montant du mail = la somme des mois correspondants de la page | [#268](https://github.com/Suivi-chantier/Planning-Chantiers/pull/268) |
 | 15 | Mail récap du vendredi, partie « Commandes prévisionnelles » : remplacer l'ancien calcul `materiauxACommanderV1` (sans données) par les articles de la page Commandes à passer dont la date de besoin tombe la semaine suivante (même règle que le bloc de la tâche 12) | en ligne | Contrôles verts + comparaison sur la base réelle : liste du mail = onglet « Semaine prochaine » de la page | Le mail d'un vendredi simulé liste les mêmes articles que le bloc et la page | [#270](https://github.com/Suivi-chantier/Planning-Chantiers/pull/270) |
 
@@ -458,6 +458,18 @@ Règle par défaut de `CLAUDE.md`. En plus :
   le tableau de bord de Loris avec les vraies données » supposent qu'il ait
   appliqué et enregistré le modèle. Par ailleurs, 1 seul chantier est au
   statut « Planifié » à ce jour (bloc du mardi).
+
+- **25/11/2026 — Réponse de Loris (tâche 13)** : « c'est fait, organisation
+  enregistrée ». Vérifié en base (lecture seule) : un profil (rôle admin)
+  porte les 5 jours du modèle (accueil du lundi « Bilan de semaine », bloc du
+  jeudi « Tournée des chantiers ») et son ordre habituel des onglets est
+  conservé à l'identique.
+- **25/11/2026 — Méthode des captures.** L'adresse de production n'est pas
+  joignable depuis l'environnement de Claude et Claude ne se connecte pas au
+  compte de Loris : captures faites avec le code de l'application en ligne,
+  lancé localement, alimenté par les vraies données lues en base (SELECT
+  uniquement) le 25/11/2026, dates simulées. Mention portée sur chaque
+  capture.
 
 ## Comptes rendus
 
