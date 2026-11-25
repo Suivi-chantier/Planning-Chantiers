@@ -48,6 +48,7 @@ import {
 import {
   etatFactureProgbat, referenceAnnulationProgbat, grouperReglements, ETAT as ETAT_FACTURE,
 } from "./facturesProgbatAffichage.mjs";
+import { evaluerEtapeFicheSecurite } from "./securiteCycleVie.mjs";
 
 export const CV_NATURES = ["auto", "document", "coche"];
 
@@ -98,6 +99,12 @@ export const CYCLE_VIE_PHASES = [
       { id: "visite_conducteur_chef", nom: "Visite conducteur + chef de chantier", nature: "coche",
         agenda: { titre: "Visite conducteur + chef de chantier" },
         hint: "Case « Fait » une fois la visite faite. Le bouton Google Agenda prépare le rendez-vous." },
+      // Fiche sécurité (projet fiche-securite-chantier, tâche 7) : reflète
+      // l'état de la fiche (securiteCycleVie.mjs). Jamais cochée à la main ;
+      // l'appli enregistre son état dans chantier_cycle_vie à chaque
+      // changement de la fiche (dernier état connu pour les autres écrans).
+      { id: "fiche_securite", nom: "Fiche sécurité validée", nature: "auto", signal: "fiche_securite",
+        hint: "Automatique : validée quand la fiche sécurité du chantier est validée (bouton « Fiche sécurité » de la page Opération). Le passage du chantier « En cours » l'exige (forçage motivé réservé aux administrateurs)." },
       { id: "preparation_finalisee", nom: "Finalisation de la préparation", nature: "coche",
         hint: "Case à cocher quand la préparation est terminée." },
     ],
@@ -386,6 +393,7 @@ export function autorisationPartagee({ chantierId, etatPropre = null, autres = [
 //  - facturation  : facturationParLigne(etatFacturation(…)) (signal facture_client)
 //  - relances     : { devis: decisionRelance(…), acompte: decisionRelance(…) }
 //  - autorisation : autorisationPartagee(…)
+//  - ficheSecurite: { fiche, lecture } — fiche sécurité lue par l'écran
 // Renvoie { fait, auto, raison } — la raison est toujours affichable telle
 // quelle. Un contexte absent n'est JAMAIS présenté comme un résultat : la
 // raison dit « non chargé » / « inconnu ».
@@ -447,6 +455,10 @@ export function evaluerEtape(etape, ctx = {}) {
       }
       return { fait: ligne.statut === "emise" || ligne.statut === "encaissee", auto: true, raison: ligne.raison };
     }
+    case "fiche_securite":
+      // Fiche lue par l'écran (ctx.ficheSecurite = { fiche, lecture }) en
+      // priorité ; sinon dernier état enregistré dans chantier_cycle_vie.
+      return evaluerEtapeFicheSecurite({ ficheSecurite: ctx.ficheSecurite || null, etatEnregistre: etat || null });
     case "groupe_controle": {
       const ctrl = controleGroupe(etape.groupeId, ctx.controles);
       if (ctrl.controle) return { fait: true, auto: true, raison: `Groupe ${ctrl.raison}.` };

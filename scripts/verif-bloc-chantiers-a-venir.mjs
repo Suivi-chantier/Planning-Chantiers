@@ -80,7 +80,7 @@ test("2. repérage : phasage trouvé comme la fiche (identifiant puis nom), ordr
 
 test("3. Préparation : mêmes étapes, même évaluation que la fiche chantier", () => {
   assert.deepEqual(PREPA.etapes.map((e) => e.id),
-    ["visite_conducteur_ca", "plans_techniques", "phasage_cree", "planning_previsionnel", "visite_conducteur_chef", "preparation_finalisee"]);
+    ["visite_conducteur_ca", "plans_techniques", "phasage_cree", "planning_previsionnel", "visite_conducteur_chef", "fiche_securite", "preparation_finalisee"]);
   const phasage = { id: "p", ouvrages: [OUV_MAT, OUV_SANS], plan_travaux: { meta: { cycle_vie_etapes: { plans_execution: fait("2026-10-01") } } } };
   const lignes = [ligne("c", "visite_conducteur_ca", fait()), ligne("c", "planning_previsionnel", { fait: false })];
   const p = V.preparationChantierV1({ phasage, lignes });
@@ -90,13 +90,13 @@ test("3. Préparation : mêmes étapes, même évaluation que la fiche chantier"
   const ctxFiche = { etatsEtapes: etats, chiffrage: true, acompte: etatAcompteChantier({}), phasage: etatPhasageMateriaux(phasage),
     phasageExiste: true, groupes: [], controles: [], facturation: null, relances: null, autorisation: null, todayISO: "2026-11-24" };
   assert.deepEqual(p.etapes.map((e) => [e.id, e.fait]), PREPA.etapes.map((e) => [e.id, !!evaluerEtape(e, ctxFiche).fait]));
-  assert.deepEqual(p.etapes.map((e) => e.fait), [true, true, true, false, false, false], "table, reprise de l'ancien cycle, phasage avec matériaux");
+  assert.deepEqual(p.etapes.map((e) => e.fait), [true, true, true, false, false, false, false], "table, reprise de l'ancien cycle, phasage avec matériaux");
   assert.match(p.etapes[1].raison, /reprise de l'ancienne étape « Plans d'exécution »/);
-  assert.equal(p.total, 6);
+  assert.equal(p.total, 7);
   assert.equal(p.faits, 3);
   assert.equal(p.renseignee, true);
-  assert.equal(p.texte, "3/6 étapes faites");
-  assert.deepEqual(p.manquantes.map((e) => e.nom), ["Planning prévisionnel", "Visite conducteur + chef de chantier", "Finalisation de la préparation"]);
+  assert.equal(p.texte, "3/7 étapes faites");
+  assert.deepEqual(p.manquantes.map((e) => e.nom), ["Planning prévisionnel", "Visite conducteur + chef de chantier", "Fiche sécurité validée", "Finalisation de la préparation"]);
 });
 
 test("4. Préparation non renseignée : jamais « 0 % »", () => {
@@ -105,19 +105,19 @@ test("4. Préparation non renseignée : jamais « 0 % »", () => {
     assert.equal(p.renseignee, false);
     assert.equal(p.texte, "Préparation non renseignée");
     assert.equal(p.faits, 0);
-    assert.equal(p.manquantes.length, 6);
-    assert.ok(!/0\s*%|0\/6/.test(p.texte));
+    assert.equal(p.manquantes.length, 7);
+    assert.ok(!/0\s*%|0\/7/.test(p.texte));
   }
   const phasageSansMat = V.preparationChantierV1({ phasage: { id: "p", ouvrages: [OUV_SANS] } });
   assert.match(phasageSansMat.manquantes.find((e) => e.id === "phasage_cree").raison, /aucun matériau prévu/);
   // Un état enregistré mais dé-validé : la Préparation est renseignée, 0 étape faite.
   const devalide = V.preparationChantierV1({ lignes: [ligne("c", "plans_techniques", { fait: false, pieces_jointes: [] })] });
   assert.equal(devalide.renseignee, true);
-  assert.equal(devalide.texte, "0/6 étapes faites");
+  assert.equal(devalide.texte, "0/7 étapes faites");
   // Tout fait.
   const toutes = PREPA.etapes.filter((e) => e.id !== "phasage_cree").map((e) => ligne("c", e.id, fait()));
   const complete = V.preparationChantierV1({ phasage: { id: "p", ouvrages: [OUV_MAT] }, lignes: toutes });
-  assert.equal(complete.texte, "Préparation complète (6/6 étapes)");
+  assert.equal(complete.texte, "Préparation complète (7/7 étapes)");
   assert.equal(complete.manquantes.length, 0);
 });
 
@@ -133,9 +133,9 @@ test("5. liste : lignes du cycle de vie par chantier, phasage illisible signalé
   const lignesCycleVie = [ligne("c1", "visite_conducteur_ca", fait()), ligne("c2", "plans_techniques", fait()), ligne("c3", "plans_techniques", fait())];
   const l = V.chantiersAVenirV1({ chantiers, phasagesReperage, phasagesComplets, lignesCycleVie });
   assert.deepEqual(l.map((c) => c.id), ["c1", "c2", "c4"]);
-  assert.equal(l[0].preparation.texte, "2/6 étapes faites", "visite + phasage avec matériaux");
+  assert.equal(l[0].preparation.texte, "2/7 étapes faites", "visite + phasage avec matériaux");
   assert.equal(l[0].couleur, "#123456");
-  assert.equal(l[1].preparation.texte, "1/6 étapes faites", "seulement ses propres lignes");
+  assert.equal(l[1].preparation.texte, "1/7 étapes faites", "seulement ses propres lignes");
   assert.equal(l[1].phasageId, null);
   assert.equal(l[2].preparation, null, "phasage repéré mais non lu : jamais « sans phasage »");
   assert.equal(l[2].erreur, "phasage du chantier illisible");
@@ -162,9 +162,9 @@ test("6. états du bloc (règle 10)", () => {
   const e = V.etatBlocChantiersAVenirV1({ liste });
   assert.equal(e.etat, "liste"); assert.equal(e.metrique, "3 à venir"); assert.equal(e.libelleNombre, "3 chantiers à venir");
   assert.deepEqual(e.chantiers[0], { id: "a", nom: "FICTIF A", couleur: null, avancement: "Préparation non renseignée", renseignee: false, complete: false,
-    manquantes: ["Visite conducteur + chargé d'affaires", "Plans techniques", "Phasage créé"], reste: 3, erreur: null });
-  assert.equal(e.chantiers[1].avancement, "4/6 étapes faites");
-  assert.deepEqual(e.chantiers[1].manquantes, ["Phasage créé", "Finalisation de la préparation"]);
+    manquantes: ["Visite conducteur + chargé d'affaires", "Plans techniques", "Phasage créé"], reste: 4, erreur: null });
+  assert.equal(e.chantiers[1].avancement, "4/7 étapes faites");
+  assert.deepEqual(e.chantiers[1].manquantes, ["Phasage créé", "Fiche sécurité validée", "Finalisation de la préparation"]);
   assert.equal(e.chantiers[1].reste, 0);
   assert.equal(e.chantiers[2].avancement, "Préparation illisible (phasage du chantier illisible)");
   assert.equal(V.etatBlocChantiersAVenirV1({ liste: liste.slice(0, 1) }).metrique, "1 à venir");
@@ -195,8 +195,11 @@ test("8. la fiche chantier applique toujours les mêmes fonctions", () => {
   m(/phasage: etatPhasageMateriaux\(selectedPhasage \|\| null\),/);
   m(/evaluerEtape\(e, cvCtx\)/);
   m(/statutChantier: getStatut\(selectedChantier, selectedPhasage\)/);
-  // Préparation : aucune étape partagée ni dépendante d'un autre signal que le phasage.
-  for (const e of PREPA.etapes) assert.ok(!e.partagee && (e.nature !== "auto" || e.signal === "phasage_materiaux"), e.id);
+  // Préparation : aucune étape partagée ni dépendante d'un autre signal que le
+  // phasage — sauf la fiche sécurité (tâche 7 du projet fiche-securite-chantier),
+  // dont le dernier état est ENREGISTRÉ dans chantier_cycle_vie : le bloc le
+  // lit comme la fiche quand elle n'a pas relu la fiche elle-même.
+  for (const e of PREPA.etapes) assert.ok(!e.partagee && (e.nature !== "auto" || ["phasage_materiaux", "fiche_securite"].includes(e.signal)), e.id);
 });
 
 test("9. module pur, façade, bloc, registre, lien vers la fiche", () => {

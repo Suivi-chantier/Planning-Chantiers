@@ -1,0 +1,41 @@
+name: Verify Fiche sécurité (cycle de vie, démarrage, verrouillage)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/securite/**'
+      - 'src/Renovation/securiteCycleVie.mjs'
+      - 'src/Renovation/securiteCycleVie.js'
+      - 'src/Renovation/securiteCycleVieDonnees.js'
+      - 'src/Renovation/securiteVersion.mjs'
+      - 'src/Renovation/securiteDonnees.js'
+      - 'src/Renovation/cycleVie.mjs'
+      - 'src/Renovation/cycleVieDonnees.js'
+      - 'src/Renovation/statutsChantier.mjs'
+      - 'src/Renovation/chantierActif.mjs'
+      - 'src/Renovation/chantiersDonnees.js'
+      - 'src/Renovation/PageChantiers.jsx'
+      - 'src/Renovation/FicheSecuriteStatut.jsx'
+      - 'src/Renovation/FicheSecuriteChantier.jsx'
+      - 'src/Renovation/FicheSecuriteOperation.jsx'
+      - 'src/App.jsx'
+      - 'src/access.js'
+      - 'sql/*securite*'
+      - 'scripts/verif-securite-cycle-vie.mjs'
+      - '.github/workflows/verify-securite-cycle-vie.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fiche sécurité — cycle de vie (blocage du démarrage, forçage admin, verrouillage, alertes ; module pur, exemples fictifs)
+        run: node scripts/verif-securite-cycle-vie.mjs

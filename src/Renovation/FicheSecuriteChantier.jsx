@@ -44,6 +44,7 @@ import {
   chargerSignatures, chargerVersions, chargerMotifVersion, empreinteContenu,
   signerFiche, validerFicheSecurite, mettreAJourFiche, dateDuJourLocale, chargerDonneesPreRemplissage,
 } from "./securiteDonnees.js";
+import { synchroniserEtapeFicheSecurite } from "./securiteCycleVieDonnees.js";
 import {
   SIGNATURES_REQUISES, etatValidation, justificatifsDuPoint, justificatifsRequisManquants, typesJustificatifPoint,
   preparerJustificatif, estExpire, libelleSignature,
@@ -596,6 +597,8 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
       return;
     }
     setValidation({ enCours: false, erreur: null, manquants: null, avertissement: r.avertissement || null, versionDejaFigee: false });
+    // Tâche 7 : étape « Fiche sécurité validée » du cycle de vie (relue en base).
+    synchroniserEtapeFicheSecurite({ chantierId: chantier.id, auteur });
     const numero = lecture.ligne.version;
     await rechargerSignatures();
     charger();
@@ -651,6 +654,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
     if (r.erreur) { setMiseAJour((m) => ({ ...m, enCours: false, erreur: `Mise à jour impossible : ${r.erreur}.` })); return; }
     setMiseAJour(null);
     setValidation({ enCours: false, erreur: null, manquants: null, avertissement: null, versionDejaFigee: false });
+    synchroniserEtapeFicheSecurite({ chantierId: chantier.id, auteur }); // tâche 7 : étape du cycle de vie
     charger();
   };
 

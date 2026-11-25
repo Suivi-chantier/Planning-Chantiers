@@ -49,6 +49,16 @@ import {
   peutMarquerPerdu, estChantierPerdu, estChantierAEtude, chargeAffairesEffectif,
 } from "./statutsChantier";
 import { journaliserStatut } from "./chantiersDonnees";
+// Tâche 7 du projet fiche-securite-chantier : la fiche sécurité dans le cycle
+// de vie (blocage du passage « En cours », forçage admin, verrouillage).
+import {
+  decisionChangementStatut, etatEtapePourEcriture, etapeADesynchroniser, ETAPE_FICHE_SECURITE,
+} from "./securiteCycleVie.js";
+import { chargerFicheStatut, synchroniserEtapeFicheSecurite, forcerDemarrage, verrouillerFicheSecurite } from "./securiteCycleVieDonnees.js";
+import { creerFiche } from "./securiteDonnees.js";
+import { peutCreerFiche } from "./securiteFiche.js";
+import { BandeauFicheSecurite, ModaleDemarrageBloque } from "./FicheSecuriteStatut.jsx";
+import FicheSecuriteChantier from "./FicheSecuriteChantier.jsx";
 import { MarquerPerduModal, AnnulerPerteModal, ResumePerte } from "./ComposantsCommerciaux.jsx";
 // Facturation client : échéancier contractuel (acompte 50 %, démarrage 20 %,
 // situations, solde), registre des factures émises/encaissées et pont vers la
@@ -1823,12 +1833,16 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // présent, "planifie" sinon.
   const getStatut = statutChantier; // factureAEmettre.mjs (partagé avec le job serveur)
 
-  // Met à jour le statut d'un chantier dans la config globale.
-  const updateChantierStatut = (chantierId, nouveauStatut) => {
-    if (!setChantiers || !saveConfig) return;
+  // Met à jour le statut d'un chantier (une seule ligne écrite en base).
+  // Appelée UNIQUEMENT par changerStatutChantier (règle de la fiche sécurité,
+  // tâche 7) ; renvoie { ok, erreur } pour enchaîner le verrouillage.
+  const updateChantierStatut = async (chantierId, nouveauStatut) => {
+    if (!setChantiers || !saveConfig) return { ok: false, erreur: "Modification non autorisée sur cet écran" };
     const u = chantiers.map(c => c.id === chantierId ? { ...c, statut: nouveauStatut } : c);
     setChantiers(u);
-    saveConfig("chantiers", u);
+    const r = await saveConfig("chantiers", u);
+    const erreurs = Array.isArray(r?.erreurs) ? r.erreurs : [];
+    return erreurs.length ? { ok: false, erreur: erreurs.join(" ; ") } : { ok: true, erreur: null };
   };
   // Si un nouvel ID est demandé en prop (ex : navigation depuis le dashboard),
   // on l'applique et on signale au parent qu'il peut le reset.
@@ -2446,6 +2460,18 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const cvCleChantier = selectedChantier?.id || null;
   const [cvDonnees, setCvDonnees] = useState({ chantierId: null, charge: false });
   const [rechargeCV, setRechargeCV] = useState(0);
+  // ── Fiche sécurité du chantier (tâche 7) : relue à l'ouverture, après
+  // chaque action, et de nouveau au moment d'un changement de statut.
+  const [ficheSec, setFicheSec] = useState({ chantierId: null, lecture: "chargement", ligne: null, erreur: null });
+  const [rechargeFicheSec, setRechargeFicheSec] = useState(0);
+  useEffect(() => {
+    if (!selected) return undefined;
+    let actif = true;
+    setFicheSec({ chantierId: selected, lecture: "chargement", ligne: null, erreur: null });
+    chargerFicheStatut(selected).then(r => { if (actif) setFicheSec({ chantierId: selected, ...r }); });
+    return () => { actif = false; };
+  }, [selected, rechargeFicheSec]);
+  const ficheSecSel = ficheSec.chantierId === selected ? ficheSec : { lecture: "chargement", ligne: null, erreur: null };
   const operationIdSel = selectedChantier?.operation_id || null;
   const freresIdsSel = chantiers
     .filter(c => operationIdSel && c.operation_id === operationIdSel && c.id !== cvCleChantier && !c.archive_le)
@@ -2538,6 +2564,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     relances: relancesCV,
     autorisation: autorisationCV,
     todayISO: todayCV,
+    ficheSecurite: { fiche: ficheSecSel.ligne, lecture: ficheSecSel.lecture }, // étape fiche_securite (tâche 7)
   };
   const cv = selectedChantier ? computeCycleVie({
     statutChantier: getStatut(selectedChantier, selectedPhasage),
@@ -2815,6 +2842,99 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decisionBascule.basculer, selectedChantier?.id]);
+
+  // ── Fiche sécurité et statut (tâche 7 du projet fiche-securite-chantier) ──
+  // Règles : securiteCycleVie.mjs (module pur). Écritures, dans l'ordre :
+  //   en cours  : fiche relue → validée : statut ; sinon bloqué (forçage admin :
+  //               fiche + journal PUIS statut) ;
+  //   terminé   : statut PUIS verrouillage de la fiche (un verrouillage ne
+  //               s'annule pas) ; un échec reste affiché.
+  const estAdminSec = profil?.role === "admin";
+  const auteurSec = profil?.nom || profil?.email || "";
+  const [modaleDemarrage, setModaleDemarrage] = useState(null); // { ancien, decision }
+  const [messageSec, setMessageSec] = useState(null);           // { ton, texte }
+  const [ficheSecOuverte, setFicheSecOuverte] = useState(false);
+  const [rechargeHistoSec, setRechargeHistoSec] = useState(0);
+  useEffect(() => { setMessageSec(null); setModaleDemarrage(null); setFicheSecOuverte(false); }, [selected]);
+  const apresActionSec = () => { setRechargeFicheSec(n => n + 1); setRechargeCV(n => n + 1); setRechargeHistoSec(n => n + 1); };
+
+  const changerStatutChantier = async (nouveauStatut) => {
+    setStatutMenuOpen(false);
+    if (!selectedChantier) return;
+    const ancien = getStatut(selectedChantier, selectedPhasage);
+    if (nouveauStatut === ancien) return;
+    setMessageSec(null);
+    // Fiche RELUE au moment du clic (jamais l'état affiché, qui peut dater).
+    const f = await chargerFicheStatut(selectedChantier.id);
+    setFicheSec({ chantierId: selectedChantier.id, ...f });
+    const d = decisionChangementStatut({ chantier: selectedChantier, ancienStatut: ancien, nouveauStatut, fiche: f.ligne, lecture: f.lecture, estAdmin: estAdminSec });
+    if (d.action === "bloque") { setModaleDemarrage({ ancien, decision: d }); return; }
+    const r = await updateChantierStatut(selectedChantier.id, nouveauStatut);
+    if (!r.ok) { setMessageSec({ ton: "erreur", texte: `Statut non enregistré : ${r.erreur}. La fiche sécurité n'a pas été touchée.` }); return; }
+    if (d.action === "verrouiller") {
+      const v = await verrouillerFicheSecurite({ chantier: selectedChantier, auteur: auteurSec });
+      setMessageSec(!v.ok
+        ? { ton: "erreur", texte: `Chantier terminé, MAIS ${v.erreur}. Utilisez « Verrouiller la fiche » ci-dessus pour recommencer.` }
+        : v.rien ? null
+        : { ton: v.avertissement ? "attention" : "ok", texte: `Chantier terminé : fiche sécurité v${v.ficheVersion} verrouillée.${v.avertissement ? ` ${v.avertissement}` : ""}` });
+      apresActionSec();
+    } else if (d.verrouillageInconnu) {
+      setMessageSec({ ton: "erreur", texte: `Chantier terminé, mais ${d.raison.charAt(0).toLowerCase()}${d.raison.slice(1)}` });
+    } else if (d.alerteFicheACreer) {
+      setMessageSec({ ton: "attention", texte: d.raison });
+    }
+  };
+
+  const forcerDemarrageChantier = async (motif) => {
+    if (!selectedChantier || !modaleDemarrage) return "Chantier inconnu.";
+    const f = await forcerDemarrage({ chantier: selectedChantier, ancienStatut: modaleDemarrage.ancien, estAdmin: estAdminSec, motif, auteur: auteurSec });
+    if (!f.ok) return `Forçage impossible : ${f.erreur}.`;
+    const r = await updateChantierStatut(selectedChantier.id, "en_cours");
+    setModaleDemarrage(null);
+    setMessageSec(!r.ok
+      ? { ton: "erreur", texte: `Forçage inscrit (fiche et historique), mais le statut « En cours » n'a pas été enregistré : ${r.erreur}. Recommencez.` }
+      : f.dejaValidee ? { ton: "ok", texte: "La fiche a été validée entre-temps : chantier passé « En cours » sans forçage." }
+      : { ton: "attention", texte: "Démarrage forcé : chantier « En cours ». Le motif est inscrit dans l'historique du chantier ; la fiche sécurité reste à valider." });
+    apresActionSec();
+    return null;
+  };
+
+  const creerFicheSec = async () => {
+    if (!selectedChantier) return;
+    const r = await creerFiche(selectedChantier.id, auteurSec || null);
+    if (r.erreur || !r.ligne) { setMessageSec({ ton: "erreur", texte: `Création de la fiche impossible : ${r.erreur || "fiche non relue"}. Aucune fiche n'a été créée.` }); return; }
+    await synchroniserEtapeFicheSecurite({ chantierId: selectedChantier.id, auteur: auteurSec });
+    apresActionSec();
+    setFicheSecOuverte(true);
+  };
+  const verrouillerFicheSec = async () => {
+    if (!selectedChantier) return;
+    const v = await verrouillerFicheSecurite({ chantier: selectedChantier, auteur: auteurSec });
+    setMessageSec(v.ok
+      ? (v.rien ? null : { ton: v.avertissement ? "attention" : "ok", texte: `Fiche sécurité v${v.ficheVersion} verrouillée.${v.avertissement ? ` ${v.avertissement}` : ""}` })
+      : { ton: "erreur", texte: `Verrouillage impossible : ${v.erreur}.` });
+    apresActionSec();
+  };
+
+  // Étape « Fiche sécurité validée » enregistrée dans chantier_cycle_vie :
+  // remise d'accord avec la fiche si elle a changé ailleurs (ou si une
+  // écriture précédente a échoué). Rien n'est écrit sans fiche ni état
+  // enregistré, ni pour un rôle que la base refuserait (chargé d'affaires).
+  const syncEtapeFaite = useRef("");
+  useEffect(() => {
+    if (!selectedChantier || !setChantiers || !cvD.charge || cvD.erreur || ficheSecSel.lecture !== "ok") return;
+    if (!peutValiderPhase({ role: profil?.role || "commercial", phaseId: "cv_preparation" })) return;
+    const enregistre = cvEtats[ETAPE_FICHE_SECURITE] || null;
+    if (!ficheSecSel.ligne && !enregistre) return;
+    const aEcrire = etatEtapePourEcriture({ fiche: ficheSecSel.ligne, lecture: "ok" });
+    if (!etapeADesynchroniser(enregistre, aEcrire)) return;
+    const cle = `${selectedChantier.id}:${aEcrire?.fiche?.statut}:${aEcrire?.fiche?.version}:${aEcrire?.fiche?.forcee}`;
+    if (syncEtapeFaite.current === cle) return;
+    syncEtapeFaite.current = cle;
+    synchroniserEtapeFicheSecurite({ chantierId: selectedChantier.id, auteur: auteurSec })
+      .then(r => { if (r.ok) setRechargeCV(n => n + 1); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChantier?.id, cvD.charge, ficheSecSel.lecture, ficheSecSel.ligne?.statut, ficheSecSel.ligne?.version, ficheSecSel.ligne?.forcage_le, cvEtats[ETAPE_FICHE_SECURITE]?.fiche?.statut]);
 
   // ── Styles communs (cohérent avec autres pages) ──
   const sectionTitle = {
@@ -3137,10 +3257,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                       const def = STATUTS[s];
                       const isCur = getStatut(selectedChantier, selectedPhasage) === s;
                       return (
-                        <button key={s} onClick={() => {
-                          updateChantierStatut(selectedChantier.id, s);
-                          setStatutMenuOpen(false);
-                        }} style={{
+                        <button key={s} onClick={() => changerStatutChantier(s)} style={{
                           display: "flex", alignItems: "center", gap: 8,
                           padding: "7px 10px", borderRadius: RADIUS.sm, border: "none",
                           background: isCur ? def.bg : "transparent",
@@ -3213,6 +3330,26 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       </div>
 
       <div className="pchan-detail-body" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1200, margin: "0 auto" }}>
+        {/* ── Fiche sécurité (tâche 7) : état, alerte, historique ── */}
+        {selectedChantier && (
+          <BandeauFicheSecurite T={T} acc={acc} chantier={selectedChantier}
+            fiche={ficheSecSel.ligne} lecture={ficheSecSel.lecture} message={messageSec}
+            peutCreer={!!setChantiers && peutCreerFiche({ chantier: selectedChantier, fiche: ficheSecSel.ligne, lecture: ficheSecSel.lecture })}
+            operationChargee={!!operationSel}
+            onOuvrir={() => setFicheSecOuverte(true)} onCreer={creerFicheSec}
+            onVerrouiller={setChantiers ? verrouillerFicheSec : null}
+            onRecharger={() => setRechargeFicheSec(n => n + 1)} rechargeHistorique={rechargeHistoSec}/>
+        )}
+        {modaleDemarrage && selectedChantier && (
+          <ModaleDemarrageBloque T={T} acc={acc} chantier={selectedChantier} decision={modaleDemarrage.decision}
+            estAdmin={estAdminSec} operationChargee={!!operationSel}
+            onOuvrirFiche={async () => { const d = modaleDemarrage.decision; setModaleDemarrage(null); if (d.creerFiche) await creerFicheSec(); else setFicheSecOuverte(true); }}
+            onForcer={forcerDemarrageChantier} onClose={() => setModaleDemarrage(null)}/>
+        )}
+        {ficheSecOuverte && selectedChantier && operationSel && (
+          <FicheSecuriteChantier T={T} acc={acc} op={operationSel} chantier={selectedChantier} profil={profil}
+            onClose={() => { setFicheSecOuverte(false); apresActionSec(); }}/>
+        )}
 
         {/* ── Bandeau QCD (Point 2a) : santé du chantier, toujours visible
             (hors onglets mobiles), avant tous les blocs existants ── */}

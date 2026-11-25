@@ -57,7 +57,7 @@ await test("2. cinq phases, étapes et modes de validation du cahier des charges
   const ids = (phaseId) => CYCLE_VIE_PHASES.find((p) => p.id === phaseId).etapes.map((e) => `${e.id}:${e.nature}`);
   assert.deepEqual(ids("cv_etude"), ["visite_chiffrage:coche", "chiffrage_realise:auto", "devis_envoye:document", "relance_devis:auto"]);
   assert.deepEqual(ids("cv_contrat"), ["devis_signe:document", "acompte_encaisse:auto", "relance_acompte:auto", "autorisation_recue:coche"]);
-  assert.deepEqual(ids("cv_preparation"), ["visite_conducteur_ca:coche", "plans_techniques:document", "phasage_cree:auto", "planning_previsionnel:document", "visite_conducteur_chef:coche", "preparation_finalisee:coche"]);
+  assert.deepEqual(ids("cv_preparation"), ["visite_conducteur_ca:coche", "plans_techniques:document", "phasage_cree:auto", "planning_previsionnel:document", "visite_conducteur_chef:coche", "fiche_securite:auto", "preparation_finalisee:coche"]);
   assert.equal(CYCLE_VIE_PHASES.find((p) => p.id === "cv_travaux").dynamique, true, "Travaux : une étape par groupe");
   assert.deepEqual(ids("cv_reception"), ["pre_reception:auto", "reception_pv:document", "levee_reserves:coche", "facture_solde:auto"]);
   // Boutons et signaux
