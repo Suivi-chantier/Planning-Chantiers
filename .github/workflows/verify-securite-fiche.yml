@@ -1,0 +1,34 @@
+name: Verify Fiche sécurité chantier (écran de la fiche, 12 points)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/securite/**'
+      - 'src/Renovation/securiteFiche.mjs'
+      - 'src/Renovation/securiteFiche.js'
+      - 'src/Renovation/securitePastilles.mjs'
+      - 'src/Renovation/securiteDonnees.js'
+      - 'src/Renovation/FicheSecuriteChantier.jsx'
+      - 'src/Renovation/FicheSecuriteOperation.jsx'
+      - 'src/Renovation/chantierActif.mjs'
+      - 'src/Renovation/statutsChantier.mjs'
+      - 'src/access.js'
+      - 'supabase/migrations/*securite_fiches*'
+      - 'scripts/verif-securite-fiche.mjs'
+      - '.github/workflows/verify-securite-fiche.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fiche sécurité — 12 points, « n/12 » identique à la vue, enregistrement (module pur, exemples fictifs)
+        run: node scripts/verif-securite-fiche.mjs
