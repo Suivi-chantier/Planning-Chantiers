@@ -92,7 +92,7 @@ attendent l'accord de François.
 | 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | en ligne (migration appliquée et fusion le 25/11/2026) | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | [#281](https://github.com/Suivi-chantier/Planning-Chantiers/pull/281) |
 | 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | en ligne (fusion le 25/11/2026, 13 contrôles verts ; enregistrement du bloc Bâtiment à confirmer par François dans l'appli) | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | [#282](https://github.com/Suivi-chantier/Planning-Chantiers/pull/282) |
 | 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | en ligne (fusion le 25/11/2026 ; libellés des cases à faire relire par François — PDF v2 demandé ; rechargement d'une vraie fiche à confirmer dans l'appli) | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | [#283](https://github.com/Suivi-chantier/Planning-Chantiers/pull/283) |
-| 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | à faire | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | — |
+| 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | en cours (demande de fusion ouverte le 25/11/2026, contrôles GitHub à attendre ; pas de migration) | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | à compléter (lien dans le compte rendu de la tâche 4) |
 | 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | à faire | Auto | PDF conforme au modèle v2 avec signatures | — |
 | 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | à faire | Auto | Propositions justes sur des chantiers réels (phasage, planning) | — |
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | à faire | Auto | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | — |
@@ -326,6 +326,83 @@ la tâche 1 ne change aucun écran. Tâche 2 lancée.
 - Aucune page ajoutée dans `src/access.js`, aucune migration, aucune écriture
   en base pendant le développement (0 fiche en base au 25/11).
 
+**25/11/2026 — Tâche 4 : justificatifs, signatures, validation, versions.**
+
+- Livrée en une seule demande de fusion (pas de découpage 4a / 4b : les
+  justificatifs requis font partie de la règle de validation, les séparer
+  aurait livré un bouton « Valider » incomplet).
+- **Flux signature / empreinte choisi.** La base exige (règle ouvrier, tâche
+  8) que l'empreinte d'une signature d'accueil soit celle de la ligne de
+  version figée ; la spécification veut que « établie par » et « chef
+  d'équipe » soient faites AVANT la validation. Donc :
+  1. la fiche doit être complète (règle stricte ci-dessous) et enregistrée ;
+  2. l'appli calcule l'empreinte du contenu qui sera figé : sérialisation
+     canonique (clés triées, module pur `securiteVersion.mjs`) puis sha256
+     (Web Crypto, `securiteDonnees.js`) ;
+  3. chaque signature relit d'abord tout en base, recalcule l'empreinte,
+     refuse si elle diffère de celle affichée, dépose l'image PNG dans
+     `securite-preuves` sous `signatures/{fiche_id}/v{N}-{type}-{horodatage}-{aléa}.png`
+     (nom toujours nouveau : le bucket refuse tout remplacement), puis
+     insère `securite_signatures` (version N, `empreinte_version`) ;
+  4. « Valider » relit tout, recalcule, exige les deux signatures avec CETTE
+     empreinte sur la version N, insère `securite_fiches_versions` (contenu
+     complet, même empreinte, motif), puis passe la fiche en « validée »
+     (seulement si toujours brouillon, même version, même `updated_at`), puis
+     écrit le journal du chantier (`fiche_securite`).
+  Une modification après signature change l'empreinte : la signature reste
+  en base (rien ne s'efface), s'affiche « signée sur un contenu antérieur —
+  à refaire », et il faut re-signer. Si la validation s'interrompt entre la
+  version et la fiche : relancer réussit si le contenu n'a pas bougé (même
+  empreinte) ; sinon l'écran propose de passer en version N+1 (motif).
+- **Contenu figé** (`contenuVersion`) : fiche (4 colonnes), version, motif,
+  chantier, opération et adresse, libellé du client, bâtiment (8 champs),
+  justificatifs actifs (9 champs). Rien de volatil (pas de `updated_at`, pas
+  de date de validation : elle est dans `cree_le` de la version).
+- **Règle stricte de validation** (`securiteValidation.mjs`), distincte du
+  « n/12 » de la vue qui reste l'indicateur d'avancement. L'écran affiche les
+  deux (« 12/12 renseignés, 3 éléments manquants pour valider ») et la liste.
+  Point 1 : responsable avec nom ET téléphone, au moins une entreprise
+  nommée, aucune entreprise sans nom, adresse de l'opération. Point 2 : au
+  moins un lot, début et fin (fin ≥ début), effectif, logement occupé
+  oui / non. Point 3 : au moins 2 risques. Points 4 à 12 : statut choisi et,
+  si « Concerné », au moins une case ou une mesure. Justificatifs `requis`
+  des points concernés (points 1 à 3 toujours concernés) joints au point,
+  non retirés, non expirés.
+- **Amiante** : bloquant si permis avant le 1/7/1997 sans repérage reçu
+  (critère d'acceptation) ; bloquant aussi si la date du permis est inconnue
+  sans repérage reçu (on ne peut pas savoir : impossibilité visible).
+- **« Mettre à jour »** : motif obligatoire (5 caractères au moins), version
+  + 1, retour en brouillon. Le motif est écrit d'abord au journal du chantier
+  (« Ouverture de la vN+1… »), relu à la validation suivante et figé dans
+  `motif_changement` de la nouvelle version (pas de colonne de motif sur la
+  fiche, aucune migration). Motif introuvable = validation bloquée.
+- **Justificatifs** : `chantier-documents` sous
+  `securite/chantiers/{chantier_id}/p{point}/` via le service d'envoi
+  existant (`storageChantier.js`) ; ouverture par URL signée (10 min) ;
+  retrait = `archive_le`, jamais de suppression. Types proposés : ceux du
+  point + photo + autre, sans aptitude médicale (tâche 9). Ajout et retrait
+  seulement sur une fiche en brouillon. Si la ligne en base est refusée, le
+  fichier tout juste envoyé est retiré (rattaché à rien).
+- **Signature au bureau** : « Je signe moi-même » (coché par défaut pour
+  « établie par ») rattache le compte connecté ; décoché, le compte reste
+  vide (la base refuse de signer au nom d'un autre compte). Canvas maison
+  (Pointer Events), pas de nouvelle dépendance : `signature_pad` n'est pas
+  dans le projet.
+- **Pastille rouge** : le panneau lit les réponses des fiches et les
+  justificatifs actifs, et applique la même fonction que la fiche
+  (`justificatifsPourPastille`). « Expiré » = date d'expiration avant
+  aujourd'hui, même règle que la vue `securite_justificatifs_expiration`
+  (date du jour de l'appareil). Justificatifs illisibles : pas de rouge, un
+  message le dit.
+- Scripts existants ajustés (2 assertions qui figeaient l'état de la tâche
+  3) : `verif-securite-fiche.mjs` (l'écran n'appelle toujours pas le stockage
+  directement) et `verif-securite-pastilles.mjs` (la pastille reçoit les
+  justificatifs). Nouveau : `verif-securite-validation.mjs` + workflow.
+- Pas de PDF (`pdf_path` jamais écrit, tâche 5), pas de migration, aucune
+  page ajoutée à `src/access.js`, aucune écriture en base pendant le
+  développement (0 fiche, 0 justificatif, 0 signature, 0 version au 25/11).
+  Entrée `journalMaj.js` prévue à la tâche 5 (fin de la première livraison).
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -505,3 +582,55 @@ vérifié depuis l'environnement de Claude : l'ouverture de la fiche dans un
 navigateur, la création d'une vraie fiche et son rechargement (« réponses
 intactes ») — à faire une fois en ligne ; la compilation est faite par les
 contrôles GitHub.
+
+### 25/11/2026 — Tâche 4 : justificatifs, signatures et validation de la fiche
+
+**Ce qui change à l'écran** (fiche d'un chantier, ouverte depuis le panneau
+« Fiche sécurité » de la page Opération) :
+
+- **Justificatifs sur chaque point (1 à 12)** : bouton « Ajouter un
+  justificatif » → type de document, date, date d'expiration facultative,
+  personne et entreprise, puis « Prendre une photo » (tablette) ou « Choisir
+  un fichier ». Les documents joints sont listés sous le point ; un clic les
+  ouvre. « Retirer » ne supprime rien : le document est archivé. Un
+  justificatif requis absent ou expiré est marqué en rouge sur le point.
+  L'aptitude médicale n'est pas proposée ici (espace entreprise, plus tard).
+- **Signatures et validation**, en bas de la fiche : une ligne du type
+  « 12/12 renseignés, 3 éléments manquants pour valider », puis la liste de
+  ce qui manque (champ par champ, justificatif par justificatif, amiante,
+  signatures). Le « 12/12 » est l'avancement (un point compte dès qu'il a
+  quelque chose) ; pour valider, la règle est plus stricte.
+- Quand la fiche est complète, les boutons « Signer » s'ouvrent pour
+  « Établie par » et « Chef d'équipe » : la personne voit les risques
+  principaux, la phrase « Je reconnais avoir été informé des risques et des
+  consignes de ce chantier. », son nom (pré-rempli pour soi-même) et son
+  entreprise, et signe au doigt. **La signature se fait en dernier** : si la
+  fiche change ensuite, la signature est marquée « à refaire ».
+- **« Valider la fiche »** ne s'active que quand tout est en ordre. La fiche
+  est alors figée (copie complète + empreinte numérique), passe « validée »
+  et en lecture seule ; l'historique du chantier le note.
+- **« Mettre à jour »** (fiche validée) : motif obligatoire, la fiche passe en
+  version suivante, en brouillon, à re-signer et re-valider. Les anciennes
+  signatures restent visibles, « signée sur la v1 ».
+- Panneau de l'opération : la pastille devient **rouge** « justificatifs
+  manquants » (fiche en brouillon) ou « expiré ».
+- Amiante : un bâtiment dont le permis date d'avant le 1er juillet 1997 sans
+  repérage reçu empêche la validation ; une date de permis non renseignée
+  aussi, tant que le repérage n'est pas reçu (on ne peut pas savoir).
+
+**Qui le voit.** Les mêmes personnes que la page Opérations (admin, direction,
+conducteurs, comptable, commercial, chargés d'affaires). Pas les ouvriers.
+Aucune nouvelle page, aucune migration.
+
+**Vérifié.** Nouveau contrôle automatique (14 vérifications, exemples issus
+des tests, données fictives) lancé en local : tout passe — règles de
+validation, cas amiante, empreinte identique quel que soit l'ordre des
+données, même empreinte côté navigateur et côté serveur, « Mettre à jour »,
+pastille rouge. Relu sur la vraie base (lecture) : colonnes du journal du
+chantier et règles de stockage (dépôt et lecture autorisés aux
+collaborateurs dans `chantier-documents`, aucune suppression ni remplacement
+possible dans `securite-preuves`).
+**Pas vérifié** depuis l'environnement de Claude : l'écran dans un
+navigateur (photo depuis la tablette, tracé au doigt, ouverture d'un
+document, validation d'une vraie fiche) — à faire une fois en ligne ; la
+compilation et les autres contrôles sont faits par GitHub.

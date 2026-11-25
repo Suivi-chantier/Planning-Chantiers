@@ -135,3 +135,55 @@ export async function supprimerDocumentChantier(path) {
   }
   return true;
 }
+
+// ─── Fiche sécurité : preuves (tâche 4 du projet fiche-securite-chantier) ────
+// Bucket privé "securite-preuves" : images de signature (et, tâche 5, PDF de
+// version). Rien ne s'y efface ni ne s'y remplace (aucune règle de
+// modification ni de suppression) : chaque dépôt prend un chemin NOUVEAU,
+// fourni par l'appelant (securiteVersion.mjs, cheminSignature). Même
+// épinglage du jeton que pour chantier-documents.
+export const BUCKET_PREUVES_SECURITE = "securite-preuves";
+
+// Envoi → { path } ou null (raison : derniereErreurDocument()).
+export async function deposerPreuveSecurite(blob, path, contentType = "image/png") {
+  derniereErreur = "";
+  if (!blob || !path) { derniereErreur = "Rien à enregistrer."; return null; }
+  const envoyer = (token) => supabase.storage.from(BUCKET_PREUVES_SECURITE)
+    .upload(path, blob, {
+      upsert: false,
+      contentType,
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+    });
+  let token = await jetonSession();
+  if (!token) { derniereErreur = MSG_SESSION; return null; }
+  let { error } = await envoyer(token);
+  if (error && erreurDeJeton(error) && !/exists|duplicate/i.test(String(error.message || ""))) {
+    const frais = await jetonSession(true);
+    if (!frais) { derniereErreur = MSG_SESSION; return null; }
+    ({ error } = await envoyer(frais));
+  }
+  if (error) {
+    console.error("dépôt preuve sécurité:", error);
+    derniereErreur = `Envoi refusé : ${error.message}`;
+    return null;
+  }
+  return { path };
+}
+
+// URL signée temporaire d'une preuve (image de signature).
+export async function urlPreuveSecurite(path, expiresIn = 600) {
+  derniereErreur = "";
+  if (!path) { derniereErreur = "Fichier introuvable."; return null; }
+  const signer = () => supabase.storage.from(BUCKET_PREUVES_SECURITE).createSignedUrl(path, expiresIn);
+  let { data, error } = await signer();
+  if (error && erreurDeJeton(error)) {
+    const frais = await jetonSession(true);
+    if (!frais) { derniereErreur = MSG_SESSION; return null; }
+    ({ data, error } = await signer());
+  }
+  if (error) {
+    derniereErreur = erreurDeJeton(error) ? MSG_SESSION : `Lecture refusée : ${error.message}`;
+    return null;
+  }
+  return data?.signedUrl || null;
+}

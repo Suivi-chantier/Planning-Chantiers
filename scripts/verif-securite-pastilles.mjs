@@ -176,7 +176,8 @@ test("14. page Opération : bouton « Fiche sécurité », panneau branché sur 
   assert.match(page, /<Icon as=\{ShieldCheck\} size=\{15\}\/> Fiche sécurité/);
   assert.match(page, /<FicheSecuriteOperation [^>]*op=\{op\} chantiersOp=\{chantiersOp\}/);
   const panneau = lire("src/Renovation/FicheSecuriteOperation.jsx");
-  assert.match(panneau, /pastilleFicheSecurite\(\{ chantier: c, fiche: etat\.parChantier\[c\.id\] \|\| null, lecture: etat\.lecture \}\)/);
+  // Tâche 4 : la pastille reçoit aussi les justificatifs (même règle que la fiche).
+  assert.match(panneau, /pastilleFicheSecurite\(\{ chantier: c, fiche: etat\.parChantier\[c\.id\] \|\| null, lecture: etat\.lecture, justificatifs: justifs\.parChantier\[c\.id\] \|\| null \}\)/);
   assert.match(panneau, /chantiersOp\.filter\(\(c\) => !estChantierArchive\(c\)\)/, "chantiers non archivés");
   assert.match(panneau, /preparerEnregistrementBatiment\(op\.id, form\)/);
   assert.match(panneau, /lecture\.erreur \?/, "bâtiment illisible : pas de formulaire");
