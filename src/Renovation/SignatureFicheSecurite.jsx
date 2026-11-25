@@ -77,11 +77,15 @@ function ZoneTrace({ T, onChange, canvasRef }) {
  * @param {string?} p.nomConnecte   nom de l'utilisateur connecté (pré-rempli)
  * @param {boolean} p.pourMoiParDefaut
  * @param {(v) => Promise<string|null>} p.onSigner  renvoie un message d'erreur ou null
+ * @param {boolean} p.nomFige       tâche 8 : ouvrier connecté, nom et entreprise
+ *                                  non modifiables, pas de case « je signe moi-même »
+ * @param {React.ReactNode} p.consignes tâche 8 : consignes affichées sous les risques
+ * @param {string?} p.note          remplace la note sous le tracé
  */
-export default function SignatureFicheSecurite({ T, acc, libelle, version, empreinte, synthese = [], nomConnecte = "", pourMoiParDefaut = false, entrepriseParDefaut = "", onSigner, onAnnuler }) {
+export default function SignatureFicheSecurite({ T, acc, libelle, version, empreinte, synthese = [], nomConnecte = "", pourMoiParDefaut = false, entrepriseParDefaut = "", onSigner, onAnnuler, nomFige = false, consignes = null, note = null }) {
   const canvasRef = useRef(null);
-  const [pourMoi, setPourMoi] = useState(!!(pourMoiParDefaut && nomConnecte));
-  const [nom, setNom] = useState(pourMoiParDefaut && nomConnecte ? nomConnecte : "");
+  const [pourMoi, setPourMoi] = useState(!!((pourMoiParDefaut || nomFige) && nomConnecte));
+  const [nom, setNom] = useState((pourMoiParDefaut || nomFige) && nomConnecte ? nomConnecte : "");
   const [entreprise, setEntreprise] = useState(entrepriseParDefaut);
   const [aTrace, setATrace] = useState(false);
   const [envoi, setEnvoi] = useState({ enCours: false, erreur: null });
@@ -122,19 +126,20 @@ export default function SignatureFicheSecurite({ T, acc, libelle, version, empre
           {lignes.length ? (
             <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13.5, color: T.text }}>{lignes.map((l, i) => <li key={i}>{l}</li>)}</ol>
           ) : <div style={{ fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>Aucun risque saisi.</div>}
+          {consignes}
         </div>
 
         <div className="sfs-grille" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
           <div>
             <label style={label}>Nom du signataire</label>
-            <input value={nom} disabled={pourMoi || envoi.enCours} onChange={(e) => setNom(e.target.value)} style={input} placeholder="Prénom Nom"/>
+            <input value={nom} disabled={pourMoi || nomFige || envoi.enCours} onChange={(e) => setNom(e.target.value)} style={input} placeholder="Prénom Nom"/>
           </div>
           <div>
             <label style={label}>Entreprise</label>
-            <input value={entreprise} disabled={envoi.enCours} onChange={(e) => setEntreprise(e.target.value)} style={input} placeholder="Entreprise"/>
+            <input value={entreprise} disabled={nomFige || envoi.enCours} onChange={(e) => setEntreprise(e.target.value)} style={input} placeholder="Entreprise"/>
           </div>
         </div>
-        {nomConnecte ? (
+        {nomConnecte && !nomFige ? (
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.textSub, marginBottom: 10, cursor: "pointer" }}>
             <input type="checkbox" checked={pourMoi} disabled={envoi.enCours} style={{ width: 18, height: 18, accentColor: acc.accent }}
               onChange={(e) => { const v = e.target.checked; setPourMoi(v); setNom(v ? nomConnecte : ""); }}/>
@@ -149,7 +154,7 @@ export default function SignatureFicheSecurite({ T, acc, libelle, version, empre
             <Icon as={Eraser} size={14}/> Effacer
           </button>
           <span style={{ flex: 1, fontSize: 11.5, color: T.textMuted }}>
-            Signature sur la v{version}, contenu d'empreinte {empreinteCourte(empreinte)}… Toute modification de la fiche après la signature demandera de signer à nouveau.
+            {note || `Signature sur la v${version}, contenu d'empreinte ${empreinteCourte(empreinte)}… Toute modification de la fiche après la signature demandera de signer à nouveau.`}
           </span>
         </div>
 

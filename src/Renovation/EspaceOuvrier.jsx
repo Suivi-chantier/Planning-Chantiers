@@ -262,7 +262,7 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
             <MobileHero accent={ACCENT} logo={LOGO_RENO_H} eyebrow={dateLong} title={heroTitle} right={heroRight}/>
           )}
 
-          {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} accent={ACCENT}/>}
+          {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} nomComplet={profil?.nom || prenom} preview={preview} T={T} accent={ACCENT}/>}
           {tab === "planning"         && (
             <OuvrierPlanning prenom={prenom} T={T} accent={ACCENT}
               estResponsable={profilEspace.est_responsable}

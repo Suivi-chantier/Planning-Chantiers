@@ -95,8 +95,8 @@ attendent l'accord de François.
 | 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | en ligne (fusion le 25/11/2026, 15 contrôles verts ; écritures essayées sur la vraie base en transaction annulée ; validation réelle à confirmer dans l'appli) | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | [#284](https://github.com/Suivi-chantier/Planning-Chantiers/pull/284) |
 | 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | en ligne (fusion le 25/11/2026, 20 contrôles verts ; génération réelle à confirmer dans l'appli) — **première livraison complète** | Auto | PDF conforme au modèle v2 avec signatures | [#285](https://github.com/Suivi-chantier/Planning-Chantiers/pull/285) |
 | 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | en ligne (fusion le 25/11/2026, contrôles verts ; question posée à François : un collègue dans un autre logement du même immeuble suffit-il à écarter le travail isolé ?) | Auto | Propositions justes sur des chantiers réels (phasage, planning) | [#286](https://github.com/Suivi-chantier/Planning-Chantiers/pull/286) |
-| 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en cours (demande de fusion ouverte, non fusionnée ; en attente de François : reprise des 20 chantiers en cours, alertes dans `notifications`) | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | [#287](https://github.com/Suivi-chantier/Planning-Chantiers/pull/287) |
-| 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | à faire | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | — |
+| 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | en ligne (fusion le 25/11/2026, 24 contrôles verts) ; **en attente de François** : reprise des 20 chantiers en cours, alertes dans `notifications`, droit du chargé d'affaires sur l'étape | Auto, sauf reprise de données et droits (arrêt) | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | [#287](https://github.com/Suivi-chantier/Planning-Chantiers/pull/287) |
+| 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; essai sur la vraie base en transaction annulée conforme) | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | [#288](https://github.com/Suivi-chantier/Planning-Chantiers/pull/288) |
 | 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire | **Arrêt** : nouvelle page, qui la voit | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
 
 ## Journal des décisions
@@ -673,6 +673,93 @@ tâche 3 par l'enregistrement automatique).
 - Aucune migration appliquée, aucune écriture réelle en base, aucune page
   ajoutée à `src/access.js`, aucune règle de droits modifiée.
 
+**25/11/2026 — Tâche 8 : accueil de l'équipe, nouvelles versions.**
+
+- **Où côté ouvrier.** Intégré à l'onglet « Accueil » existant de l'espace
+  ouvrier (`OuvrierDashboard.jsx`), dans la carte de chaque chantier du jour,
+  par un nouveau composant `FicheSecuriteOuvrier.jsx`. Les chantiers du jour
+  sont ceux que l'écran lisait déjà (`planning_cells` de la semaine et du jour
+  courants ; la base ne renvoie à l'ouvrier que ses cases, reliées par
+  `planning_resources.auth_user_id`). **Aucune page ajoutée, `src/access.js`
+  non touché** (l'espace ouvrier ne lit aucun droit d'onglet pour cela).
+- **Ce que lit l'ouvrier** : le contenu FIGÉ de la version validée en cours
+  (ce qu'il signe), pas la fiche courante ; risques principaux (point 3) puis,
+  pour chaque point concerné, les cases cochées (libellés de
+  `securite/points.mjs`) et les mesures ; liste des points non concernés.
+  Le contenu est contrôlé contre son empreinte avant d'afficher le bouton.
+- **Signature** : nom = `profil.nom` (ex. prénom + nom du compte), non
+  modifiable ; entreprise « Profero », non modifiable ; texte d'engagement
+  existant (`TEXTE_ENGAGEMENT`). Juste avant l'écriture, la fiche et la
+  version sont relues (même version, toujours validée, même empreinte), puis
+  image PNG dans `securite-preuves` sous `signatures/{fiche_id}/v{N}-accueil-…`
+  et ligne `securite_signatures` (compte = défaut de la base, `auth.uid()`).
+  Composant de tracé réutilisé (`SignatureFicheSecurite.jsx`), avec deux
+  options ajoutées : nom figé, consignes affichées sous les risques.
+- **Aperçu Admin de l'espace ouvrier** : lecture seule, signature désactivée
+  (elle serait prise au nom du compte bureau).
+- **Règle « qui doit re-signer »** (module pur `securiteAccueil.mjs` + façade) :
+  établie par + chef d'équipe à chaque version (inchangé, règle de la tâche
+  4) ; accueil seulement si les points 3 à 12 diffèrent entre les contenus
+  figés de la version signée et de la version en cours. Comparés : lignes de
+  la synthèse (point 3), et pour 4 à 12 statut, cases cochées (ordre
+  indifférent), mesures. **Choix faits (spécification muette)** : ne comptent
+  pas les traces de proposition et de saisie (`statut_propose`,
+  `raison_proposition`, `maj_par`, `maj_le`), les points 1 et 2, le bâtiment
+  ni les justificatifs (preuves au dossier, pas des consignes données à
+  l'équipe). Contenu illisible = « à refaire » (jamais « valable » par défaut).
+- **Bureau** : carte « Accueil de l'équipe » dans la fiche (signatures
+  d'accueil par version, la plus récente d'abord : « signée sur la v2 (version
+  en cours) », « signée sur la v1 — reste valable pour la v2 », « signée sur
+  la v1 — à refaire : point 7 modifié depuis », compte connecté ou non,
+  image) ; ligne « v2 par rapport à la v1 : … » ; bouton « Faire signer
+  l'accueil (sous-traitant sans compte) » sur une fiche validée ou à mettre à
+  jour : nom et entreprise libres, `auth_user_id` vide. Vérifié que la règle
+  bureau le permet (`auth_user_id is null or = auth.uid()`, pas de condition
+  sur l'empreinte : l'appli met celle de la version figée en cours).
+- **Mise à jour proposée** (fiche validée ou à mettre à jour ; pour un
+  brouillon, les divergences de la tâche 6 s'en chargent) : nouveau
+  prestataire au planning absent du point 1 ; lot ajouté au phasage qui
+  change un statut proposé des points 4 à 12 (on recalcule les propositions
+  de `securitePreRemplissage` avec et sans les nouveaux lots, et on ne
+  signale que si la fiche ne dit pas déjà ce statut) ; justificatif requis
+  expiré (même règle que la validation). Source illisible = « Non vérifié :
+  … », jamais « rien à signaler ». Affichée en haut de la fiche et sous le
+  chantier dans le panneau de l'opération ; « Mettre à jour » ouvre le
+  formulaire existant avec le motif pré-rempli (modifiable). Le panneau ne
+  calcule que pour les fiches validées / à mettre à jour.
+- **Statut `a_mettre_a_jour`** : **seulement par un clic au bureau**
+  (« Marquer « à mettre à jour » », chantier en cours, fiche validée, une
+  mise à jour proposée), avec confirmation ; écriture conditionnée à « encore
+  validée, même version », puis journal du chantier (`fiche_securite`,
+  validée → à mettre à jour, motif) et étape du cycle de vie. **Aucune
+  écriture automatique en arrière-plan.**
+- **Conséquence à connaître** : la règle ouvrier de la base n'accepte une
+  signature d'accueil que sur une fiche `validee`. Une fiche « à mettre à
+  jour » bloque donc la signature des ouvriers depuis leur téléphone jusqu'à
+  la validation de la version suivante (le bureau peut encore faire signer un
+  sous-traitant). L'écran de confirmation et l'espace ouvrier le disent.
+  L'élargir à `a_mettre_a_jour` serait une modification de droits (non faite).
+- Script existant ajusté : `verif-securite-cycle-vie.mjs` comptait 2 appels
+  à la synchronisation de l'étape dans la fiche ; il en compte 3 (ajout
+  après « Marquer « à mettre à jour » »). Nouveau :
+  `verif-securite-accueil.mjs` (18 vérifications, exemples fictifs) +
+  workflow `verify-securite-accueil.yml`.
+- **Essai sur la vraie base (transaction annulée)** avec le vrai compte
+  ouvrier de Steven (rôle `authenticated`, identifiant ET e-mail dans les
+  claims) sur MONTILLERS APPT 1 (T3), où il est planifié aujourd'hui, et une
+  fiche d'essai validée v1 : `est_ouvrier()` vrai ; sa case du jour lue
+  (1) ; fiche lue (1) ; versions lues (1) ; image déposée sous
+  `signatures/{fiche_id}/` ; dépôt sous `versions/` refusé ; signature
+  d'accueil à son nom acceptée ; il ne lit que la sienne ; refusées : au nom
+  d'un autre ouvrier, mauvaise empreinte, type `chef_equipe` ; modification
+  de la fiche : 0 ligne. Compte comptable (bureau) : image + accueil d'un
+  sous-traitant sans compte acceptés ; lit les 2 accueils ; passage
+  « à mettre à jour » (1 ligne) + journal ; ensuite la signature de l'ouvrier
+  est refusée. Après annulation : 0 fiche, 0 version, 0 signature, 0 fichier
+  `securite-preuves`, 0 entrée `fiche_securite` au journal, chantier toujours
+  « en cours ».
+- Aucune migration, aucune règle de droits modifiée, aucune page ajoutée.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -1084,4 +1171,59 @@ l'appli. Script de reprise essayé : 20 fiches créées puis annulées.
 navigateur (bandeau, fenêtre de blocage, forçage, verrouillage sur un vrai
 chantier) — à faire une fois en ligne ; la compilation et les autres
 contrôles (dont les deux scripts du cycle de vie ajustés) sont faits par
+GitHub.
+
+### 25/11/2026 — Tâche 8 : les ouvriers signent l'accueil, la fiche propose ses mises à jour
+
+**Ce qui change pour les ouvriers** (téléphone, onglet « Accueil ») : sous
+chaque chantier du jour, un encadré « Fiche sécurité » :
+
+- fiche validée et pas encore signée : « Lire » montre les risques
+  principaux et les consignes de chaque point concerné, puis **« Signer
+  l'accueil »** : la phrase « Je reconnais avoir été informé des risques et
+  des consignes de ce chantier. », son nom déjà écrit (il ne peut pas le
+  changer), Profero, signature au doigt ;
+- déjà signé : « Accueil signé sur la v1 », ou « Votre signature de la v1
+  reste valable : les risques et consignes n'ont pas changé dans la v2 » ;
+  si les risques ont changé, le bouton revient ;
+- fiche pas encore validée : « Fiche sécurité pas encore validée », pas de
+  bouton.
+
+**Ce qui change au bureau** (fiche d'un chantier) :
+
+- carte **« Accueil de l'équipe »** : toutes les signatures d'accueil, par
+  version, avec « reste valable » ou « à refaire » ; bouton **« Faire signer
+  l'accueil (sous-traitant sans compte) »** sur la tablette (nom et
+  entreprise libres) ;
+- en haut d'une fiche validée, **« Mise à jour proposée : … »** quand un
+  nouveau prestataire apparaît au planning, quand un lot ajouté au phasage
+  change un point, ou quand un justificatif requis a expiré ; « Mettre à
+  jour » ouvre le formulaire avec ce motif déjà écrit. La même ligne
+  s'affiche sous le chantier dans le panneau « Fiche sécurité » de
+  l'opération ;
+- pour un chantier en cours : **« Marquer « à mettre à jour » »**, seulement
+  si vous cliquez (rien ne se fait tout seul).
+
+**Qui le voit.** Espace ouvrier : tous les ouvriers connectés, pour leurs
+chantiers du jour (aucune nouvelle page, `src/access.js` inchangé). Fiche et
+panneau : les mêmes personnes qu'avant (page Opérations ; bandeau de la page
+Chantiers).
+
+**À savoir.** Tant qu'une fiche est « à mettre à jour », les ouvriers ne
+peuvent plus signer l'accueil depuis leur téléphone (la base ne l'accepte
+que sur une fiche validée) ; le bureau peut encore faire signer un
+sous-traitant. Aujourd'hui, aucune fiche n'existe encore en base : l'encadré
+des ouvriers affichera « pas encore validée » partout tant qu'aucune fiche
+n'est validée.
+
+**Vérifié.** Nouveau contrôle automatique (18 vérifications, exemples issus
+des tests, données fictives) lancé en local : tout passe. Essai sur la vraie
+base avec le vrai compte d'un ouvrier et le compte comptable, annulé
+ensuite (rien n'est resté, vérifié) : l'ouvrier lit sa fiche et signe
+l'accueil à son nom ; il ne peut ni signer pour un autre, ni signer avec une
+mauvaise empreinte, ni signer « chef d'équipe », ni modifier la fiche ; le
+bureau fait signer un sous-traitant sans compte. **Pas vérifié** depuis
+l'environnement de Claude : les écrans dans un navigateur ou un téléphone
+(tracé au doigt, ouverture repliée, panneau) — à faire sur la première
+fiche validée ; la compilation et les autres contrôles sont faits par
 GitHub.

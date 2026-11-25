@@ -584,3 +584,125 @@ export async function chargerDonneesPreRemplissage({ chantier, op }) {
   const [phasage, pl, ressources, commandes] = await Promise.all([lirePhasage(), lirePlanning(), lireRessources(), lireCommandes()]);
   return { phasage, planning: pl.planning, planningOperation: pl.planningOperation, ressources, commandes };
 }
+
+// ─── Tâche 8 : accueil de l'équipe, mise à jour proposée ─────────────────────
+// Règles (module pur) : securiteAccueil.mjs. Ici : lectures et écritures.
+//   - l'ouvrier lit la fiche et les versions figées des chantiers non archivés,
+//     et seulement SES signatures (règles de la base, migration 20261125121322) ;
+//   - signature d'accueil : image dans securite-preuves sous
+//     signatures/{fiche_id}/ (nom toujours nouveau), puis ligne
+//     securite_signatures (type accueil, version en cours, empreinte de la
+//     version figée). Ouvrier : son compte (défaut de la base = auth.uid()) ;
+//     bureau (tablette) : sous-traitant sans compte, auth_user_id vide.
+//   - « à mettre à jour » : seulement sur clic au bureau, jamais en arrière-plan.
+
+/**
+ * Versions figées d'une fiche AVEC leur contenu ; chaque contenu est contrôlé
+ * contre son empreinte (empreinteVerifiee). → { liste, erreur }
+ */
+export async function chargerVersionsAvecContenu(ficheId) {
+  if (!ficheId) return { liste: null, erreur: "fiche inconnue" };
+  try {
+    const { data, error } = await supabase.from("securite_fiches_versions").select(COLS_VERSION_CONTENU)
+      .eq("fiche_id", ficheId).order("version", { ascending: true });
+    if (error) return { liste: null, erreur: error.message };
+    const liste = [];
+    for (const v of data || []) {
+      let ok = false;
+      try { ok = (await empreinteContenu(v.contenu)) === v.empreinte; } catch { ok = false; }
+      liste.push({ ...v, empreinteVerifiee: ok });
+    }
+    return { liste, erreur: null };
+  } catch (e) {
+    return { liste: null, erreur: msg(e) };
+  }
+}
+
+/**
+ * Tout ce que l'ouvrier connecté doit voir pour un chantier : fiche, versions
+ * (avec contenu) et ses propres signatures. → { fiche, versions, signatures, erreur }
+ */
+export async function chargerAccueilChantier(chantierId) {
+  const f = await chargerFiche(chantierId);
+  if (f.erreur) return { fiche: null, versions: [], signatures: [], erreur: f.erreur };
+  if (!f.ligne) return { fiche: null, versions: [], signatures: [], erreur: null };
+  const [v, s] = await Promise.all([chargerVersionsAvecContenu(f.ligne.id), chargerSignatures(f.ligne.id)]);
+  if (v.erreur) return { fiche: f.ligne, versions: [], signatures: [], erreur: `versions illisibles (${v.erreur})` };
+  if (s.erreur) return { fiche: f.ligne, versions: v.liste, signatures: [], erreur: `signatures illisibles (${s.erreur})` };
+  return { fiche: f.ligne, versions: v.liste, signatures: s.liste, erreur: null };
+}
+
+/**
+ * Signature d'accueil sur la version validée en cours.
+ * `sansCompte` : signature prise au bureau pour une personne sans compte
+ * (sous-traitant) : auth_user_id vide. Sinon : compte connecté (ouvrier).
+ * Relit la fiche et la version juste avant : refus si la fiche a changé
+ * (version, statut) depuis l'affichage. → { signature, erreur }
+ */
+export async function signerAccueil({ ficheId, chantierId, version, empreinte, nom, entreprise, png, sansCompte = false, statutsPermis = ["validee"] }) {
+  try {
+    if (!String(nom || "").trim()) return { signature: null, erreur: "nom du signataire obligatoire" };
+    if (!png) return { signature: null, erreur: "signature vide" };
+    const f = await chargerFiche(chantierId);
+    if (f.erreur || !f.ligne) return { signature: null, erreur: `fiche illisible (${f.erreur || "absente"})` };
+    if (f.ligne.id !== ficheId || f.ligne.version !== version) return { signature: null, erreur: "la fiche a changé depuis son affichage : rechargez-la avant de signer" };
+    if (!statutsPermis.includes(f.ligne.statut)) return { signature: null, erreur: "la fiche n'est plus validée : signature impossible pour l'instant" };
+    const { data: v, error: eV } = await supabase.from("securite_fiches_versions").select("empreinte")
+      .eq("fiche_id", ficheId).eq("version", version).maybeSingle();
+    if (eV || !v) return { signature: null, erreur: `version figée illisible (${eV?.message || "introuvable"})` };
+    if (v.empreinte !== empreinte) return { signature: null, erreur: "le contenu de la version ne correspond plus à celui affiché : rechargez" };
+    const alea = (() => { try { return crypto.randomUUID().slice(0, 8); } catch { return Math.random().toString(36).slice(2, 10); } })();
+    const chemin = cheminSignature({ ficheId, version, type: "accueil", horodatage: Date.now(), alea });
+    const depot = await deposerPreuveSecurite(png, chemin, "image/png");
+    if (!depot) return { signature: null, erreur: derniereErreurDocument() || "image de signature non enregistrée" };
+    const ligne = {
+      fiche_id: ficheId, version, type: "accueil",
+      signataire_nom: String(nom).trim(), signataire_entreprise: String(entreprise || "").trim() || null,
+      image_path: depot.path, empreinte_version: empreinte,
+      ...(sansCompte ? { auth_user_id: null } : {}), // sinon : défaut de la base = compte connecté
+    };
+    const { data, error } = await supabase.from("securite_signatures").insert(ligne).select(COLS_SIGNATURE).single();
+    if (error) return { signature: null, erreur: `${error.message} (l'image déposée reste conservée, sans effet)` };
+    return { signature: data, erreur: null };
+  } catch (e) {
+    return { signature: null, erreur: msg(e) };
+  }
+}
+
+/**
+ * Passe une fiche validée en « à mettre à jour » (clic au bureau). Écriture
+ * seulement si la fiche est toujours validée, à la même version ; puis
+ * entrée au journal du chantier. `prep` : preparerAMettreAJour (module pur).
+ * → { ligne, erreur, avertissement }
+ */
+export async function marquerAMettreAJour({ fiche, prep }) {
+  try {
+    if (!prep?.ok) return { ligne: null, erreur: prep?.raison || "passage impossible" };
+    const { data, error } = await supabase.from("securite_fiches").update(prep.patch)
+      .eq("id", fiche.id).eq("statut", "validee").eq("version", fiche.version).select(COLS_FICHE);
+    if (error) return { ligne: null, erreur: error.message };
+    if (!data || data.length !== 1) return { ligne: null, erreur: "la fiche a changé entre-temps : rechargez-la" };
+    const j = await journaliserStatut(prep.journal);
+    return { ligne: data[0], erreur: null, avertissement: j.ok ? null : `Fiche marquée, mais l'historique du chantier n'a pas été complété (${j.erreur}).` };
+  } catch (e) {
+    return { ligne: null, erreur: msg(e) };
+  }
+}
+
+/**
+ * Tout ce qu'il faut pour savoir si une mise à jour est proposée pour la fiche
+ * validée d'un chantier (panneau de l'opération) : fiche, sources du
+ * pré-remplissage, bâtiment, justificatifs. Lecture seule.
+ * → { fiche, sources, justificatifs, erreur }
+ */
+export async function chargerDonneesMiseAJourProposee({ chantier, op }) {
+  const f = await chargerFiche(chantier.id);
+  if (f.erreur || !f.ligne) return { fiche: null, erreur: f.erreur || "fiche absente" };
+  const [d, b, j] = await Promise.all([chargerDonneesPreRemplissage({ chantier, op }), chargerBatiment(op.id), chargerJustificatifs(chantier.id)]);
+  return {
+    fiche: f.ligne,
+    sources: { ...d, batiment: { ligne: b.ligne, erreur: b.erreur } },
+    justificatifs: j.erreur ? null : j.liste,
+    erreur: null,
+  };
+}
