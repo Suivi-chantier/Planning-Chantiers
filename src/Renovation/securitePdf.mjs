@@ -27,7 +27,7 @@
 // brouillon porte « BROUILLON — non validé » en haut, dans le héros et au pied.
 // ─────────────────────────────────────────────────────────────────────────────
 import { POINTS_CARTES, CLES_REPONSES, libelleJustificatif, libelleStatutPoint } from "./securite/points.mjs";
-import { FORMAT_CONTENU_VERSION, empreinteCourte } from "./securiteVersion.mjs";
+import { FORMATS_CONTENU_LISIBLES, empreinteCourte } from "./securiteVersion.mjs";
 import { NON_RENSEIGNE, texteOuiNon, texteEtage, texteAvantDate, libelleReperageAmiante } from "./securitePastilles.mjs";
 import { SIGNATURES_REQUISES } from "./securiteValidation.mjs";
 import {
@@ -100,18 +100,24 @@ export function nomFichierPdf({ chantierNom, version, brouillon = false }) {
 
 // ─── Modèle ──────────────────────────────────────────────────────────────────
 
+// Justificatifs d'un point : ceux du chantier, puis (contenu v2, tâche 9)
+// ceux de l'espace entreprise rattachés automatiquement, avec leur origine.
 function justificatifsDuPointModele(contenu, numero) {
-  return liste(contenu.justificatifs)
-    .filter((j) => estObjet(j) && Number(j.point) === numero)
-    .map((j) => ({
-      libelle: libelleJustificatif(j.type_code),
-      fichier: texte(j.fichier_nom) || null,
-      date: texte(j.date_document) ? dateFr(j.date_document) : "date non renseignée",
-      expire: texte(j.expire_le) ? dateFr(j.expire_le) : null,
-      personne: texte(j.personne) || null,
-      entreprise: texte(j.entreprise_nom) || null,
-    }))
-    .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
+  const modele = (j, origine) => ({
+    libelle: libelleJustificatif(j.type_code),
+    fichier: texte(j.fichier_nom) || null,
+    date: texte(j.date_document) ? dateFr(j.date_document) : "date non renseignée",
+    expire: texte(j.expire_le) ? dateFr(j.expire_le) : null,
+    personne: texte(j.personne) || null,
+    entreprise: texte(j.entreprise_nom) || null,
+    origine,
+  });
+  const duPoint = (l) => liste(l).filter((j) => estObjet(j) && Number(j.point) === numero);
+  const tri = (a, b) => a.libelle.localeCompare(b.libelle, "fr");
+  return [
+    ...duPoint(contenu.justificatifs).map((j) => modele(j, "chantier")).sort(tri),
+    ...duPoint(contenu.justificatifs_entreprise).map((j) => modele(j, "entreprise")).sort(tri),
+  ];
 }
 
 const CHAMPS_DONNEES = Object.freeze([
@@ -183,7 +189,7 @@ function signaturesModele({ signatures, version, empreinte }) {
  */
 export function modelePdfFiche({ contenu, version = null, versions = [], signatures = [], brouillon = false, empreinte = null, apercuLe = null }) {
   if (!estObjet(contenu)) return { ok: false, erreur: "contenu de la version absent" };
-  if (contenu.format !== FORMAT_CONTENU_VERSION) return { ok: false, erreur: `format du contenu inconnu (${contenu.format ?? "absent"})` };
+  if (!FORMATS_CONTENU_LISIBLES.includes(contenu.format)) return { ok: false, erreur: `format du contenu inconnu (${contenu.format ?? "absent"})` };
   const n = contenu.version;
   if (!Number.isInteger(n) || n < 1) return { ok: false, erreur: "numéro de version illisible dans le contenu" };
   if (!brouillon) {
@@ -394,7 +400,9 @@ const titreSection = (t, numero = null, id = "") => `<div class="sh" data-sectio
 
 function justificatifsHtml(js) {
   if (!js.length) return `<h4>Justificatifs joints</h4><div class="nr">aucun justificatif joint</div>`;
-  return `<h4>Justificatifs joints</h4><ul class="puces">${js.map((j) => `<li class="justificatif"><b>${e(j.libelle)}</b>${j.fichier ? ` — ${e(j.fichier)}` : ""} · du ${valeurHtml(j.date)}${j.expire ? ` · expire le ${e(j.expire)}` : ""}${j.personne ? ` · ${e(j.personne)}` : ""}${j.entreprise ? ` (${e(j.entreprise)})` : ""}</li>`).join("")}</ul>`;
+  return `<h4>Justificatifs joints</h4><ul class="puces">${js.map((j) => `<li class="justificatif"><b>${e(j.libelle)}</b>${j.fichier ? ` — ${e(j.fichier)}` : ""} · du ${valeurHtml(j.date)}${j.origine === "entreprise"
+    ? ` · depuis l'espace entreprise, ${j.expire ? `valable jusqu'au ${e(j.expire)}` : "sans date d'expiration"}`
+    : (j.expire ? ` · expire le ${e(j.expire)}` : "")}${j.personne ? ` · ${e(j.personne)}` : ""}${j.entreprise ? ` (${e(j.entreprise)})` : ""}</li>`).join("")}</ul>`;
 }
 
 function heroHtml(t, logoUrl) {

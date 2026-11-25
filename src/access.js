@@ -45,6 +45,9 @@ export const PAGES_RENOVATION = [
   { id: "plans",              label: "Plans"                       },
   { id: "phasage-v2",         label: "Phasage"                     },
   { id: "operations",         label: "Opérations"                  },
+  // Fiche sécurité, tâche 9 : justificatifs permanents de l'entreprise
+  // (admin + conducteur, accord de François du 25/11/2026).
+  { id: "justificatifs-entreprise", label: "Justificatifs entreprise" },
   { id: "bibliotheque",       label: "Biblio. ouvrages"            },
   { id: "biblio-materiaux",   label: "Biblio. matériaux"           },
   { id: "suggestions-mat",    label: "Suggestions de matériaux"    },
@@ -118,6 +121,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "plans",
     "phasage-v2",
     "operations",
+    "justificatifs-entreprise",
     "bibliotheque",
     "biblio-materiaux",
     "suggestions-mat",
@@ -151,6 +155,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "plans",
     "phasage-v2",
     "operations",
+    "justificatifs-entreprise",
     "bibliotheque",
     "biblio-materiaux",
     "suggestions-mat",

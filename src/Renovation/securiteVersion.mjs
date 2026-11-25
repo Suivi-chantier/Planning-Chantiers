@@ -30,8 +30,19 @@
 // reste en base (rien ne s'efface) mais ne compte plus, il faut re-signer.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Identifiant de la forme du contenu figé (à changer si la forme change). */
-export const FORMAT_CONTENU_VERSION = "fiche-securite-v1";
+/**
+ * Identifiant de la forme du contenu figé (à changer si la forme change).
+ * v2 (tâche 9) : ajout de `justificatifs_entreprise` (justificatifs
+ * permanents de l'espace entreprise rattachés à la fiche).
+ */
+export const FORMAT_CONTENU_VERSION = "fiche-securite-v2";
+
+/**
+ * Formes de contenu figé lisibles (PDF, accueil de l'équipe). Une version
+ * figée avant la tâche 9 garde sa forme v1 (rien n'est réécrit) : elle n'a
+ * simplement aucun justificatif de l'espace entreprise.
+ */
+export const FORMATS_CONTENU_LISIBLES = Object.freeze(["fiche-securite-v1", "fiche-securite-v2"]);
 
 /** Événement écrit dans chantiers_statut_journal. */
 export const EVENEMENT_JOURNAL = "fiche_securite";
@@ -80,6 +91,11 @@ export const CHAMPS_JUSTIFICATIF_VERSION = Object.freeze([
   "id", "point", "type_code", "fichier_nom", "fichier_path", "date_document", "expire_le", "personne", "entreprise_nom",
 ]);
 
+/** Champs d'un justificatif de l'espace entreprise repris dans la version figée (+ point, origine). */
+export const CHAMPS_JUSTIFICATIF_ENTREPRISE_VERSION = Object.freeze([
+  "id", "type_code", "fichier_nom", "fichier_path", "date_document", "expire_le", "personne", "entreprise_nom",
+]);
+
 /**
  * Contenu complet figé d'une version. Ne contient rien qui change sans que la
  * fiche change (pas de updated_at, pas de date de validation : elle est dans
@@ -93,12 +109,24 @@ export const CHAMPS_JUSTIFICATIF_VERSION = Object.freeze([
  * @param {string?} p.clientLibelle libellé du client (null = aucun client renseigné)
  * @param {object?} p.batiment      ligne securite_operations (null = jamais saisie)
  * @param {object[]} p.justificatifs justificatifs ACTIFS du chantier
+ * @param {object[]} p.rattachesEntreprise justificatifs permanents rattachés,
+ *                   tels que renvoyés par justificatifsEntrepriseRattaches()
+ *                   (securiteValidation.mjs) : [{ numero, justificatif }]
  * @param {string?} p.motif         motif de la mise à jour (null pour la v1)
  */
-export function contenuVersion({ fiche, chantier, operation, clientLibelle = null, batiment = null, justificatifs = [], motif = null }) {
+export function contenuVersion({ fiche, chantier, operation, clientLibelle = null, batiment = null, justificatifs = [], rattachesEntreprise = [], motif = null }) {
   if (!fiche || !fiche.id) throw new Error("Fiche absente.");
   if (!Number.isInteger(fiche.version) || fiche.version < 1) throw new Error("Version de fiche inconnue.");
   if (!Array.isArray(justificatifs)) throw new Error("Liste des justificatifs illisible.");
+  if (!Array.isArray(rattachesEntreprise)) throw new Error("Justificatifs de l'espace entreprise illisibles.");
+  const entreprise = rattachesEntreprise
+    .filter((r) => r && r.justificatif && r.justificatif.confidentiel !== true)
+    .map((r) => ({
+      point: Number(r.numero),
+      origine: "entreprise",
+      ...Object.fromEntries(CHAMPS_JUSTIFICATIF_ENTREPRISE_VERSION.map((k) => [k, nul(r.justificatif[k])])),
+    }))
+    .sort((a, b) => a.point - b.point || String(a.id).localeCompare(String(b.id)));
   const bat = batiment ? Object.fromEntries(CHAMPS_BATIMENT_VERSION.map((k) => [k, nul(batiment[k])])) : null;
   const justifs = justificatifs
     .filter((j) => j && !j.archive_le)
@@ -118,6 +146,7 @@ export function contenuVersion({ fiche, chantier, operation, clientLibelle = nul
     reponses: estObjet(fiche.reponses) ? fiche.reponses : {},
     synthese_risques: Array.isArray(fiche.synthese_risques) ? fiche.synthese_risques : [],
     justificatifs: justifs,
+    justificatifs_entreprise: entreprise,
   };
 }
 

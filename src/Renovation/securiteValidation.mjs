@@ -24,14 +24,18 @@
 //      une case cochée ou une mesure retenue.
 // Justificatifs : chaque justificatif `requis` (securite/points.mjs) d'un
 // point concerné (points 1 à 3 : toujours concernés) doit être joint au point,
-// non retiré et non expiré.
+// non retiré et non expiré — OU couvert par un justificatif permanent de
+// l'espace entreprise (tâche 9) : même type, type rattachable
+// (TYPES_RATTACHABLES_ENTREPRISE), non retiré, non confidentiel, non expiré.
 // Amiante (point 4) : bloquant si le permis est antérieur au 1er juillet 1997
 // sans repérage reçu ; bloquant aussi si la date du permis est inconnue sans
 // repérage reçu (on ne peut pas savoir : l'impossibilité reste visible).
 // Signatures : « établie par » et « chef d'équipe » sur la version en cours
 // ET avec l'empreinte du contenu qui sera figé (securiteVersion.mjs).
 // ─────────────────────────────────────────────────────────────────────────────
-import { POINTS_FICHE, STATUTS_POINT, STATUTS_POINT_COMPLETE, libelleJustificatif } from "./securite/points.mjs";
+import {
+  POINTS_FICHE, STATUTS_POINT, STATUTS_POINT_COMPLETE, libelleJustificatif, TYPES_RATTACHABLES_ENTREPRISE,
+} from "./securite/points.mjs";
 import { compterPointsCompletes, NB_POINTS_FICHE } from "./securiteFiche.mjs";
 import { libelleReperageAmiante } from "./securitePastilles.mjs";
 
@@ -97,14 +101,54 @@ export function pointEstConcerne(reponses, point) {
   return estObjet(r) && r.statut === "concerne";
 }
 
+// ─── Espace entreprise (tâche 9) ─────────────────────────────────────────────
+
+/**
+ * Justificatif permanent de l'espace entreprise pouvant entrer dans une fiche
+ * pour le type `typeCode` (expiré compris : l'appelant teste l'expiration).
+ * Jamais confidentiel : le contenu figé et la règle doivent donner le même
+ * résultat pour un admin et pour un non-admin.
+ */
+export function estEntrepriseRattachable(j, typeCode) {
+  return !!j && j.portee === "entreprise" && estJustificatifActif(j) && j.confidentiel !== true
+    && j.type_code === typeCode && TYPES_RATTACHABLES_ENTREPRISE.includes(typeCode);
+}
+
+/**
+ * Justificatifs permanents VALIDES (non expirés) rattachés à un point :
+ * points concernés seulement, types attendus sur le point et rattachables.
+ * @returns {Array<{ numero, type_code, justificatif }>|null} null = espace
+ *   entreprise illisible. Tri : point, type, expiration la plus lointaine
+ *   d'abord (sans expiration en tête), puis id — ordre stable.
+ */
+export function justificatifsEntrepriseRattaches({ reponses, justificatifsEntreprise, aujourdhui }) {
+  if (!Array.isArray(justificatifsEntreprise)) return null;
+  const out = [];
+  for (const p of POINTS_FICHE) {
+    if (!pointEstConcerne(reponses, p)) continue;
+    for (const t of new Set(p.justificatifs.map((x) => x.type_code))) {
+      justificatifsEntreprise
+        .filter((x) => estEntrepriseRattachable(x, t) && !estExpire(x, aujourdhui))
+        .forEach((x) => out.push({ numero: p.numero, type_code: t, justificatif: x }));
+    }
+  }
+  const cleExp = (j) => (j.expire_le ? String(j.expire_le) : "9999-99-99");
+  return out.sort((a, b) => a.numero - b.numero || a.type_code.localeCompare(b.type_code)
+    || cleExp(b.justificatif).localeCompare(cleExp(a.justificatif)) || String(a.justificatif.id).localeCompare(String(b.justificatif.id)));
+}
+
 /**
  * Justificatifs requis manquants (absents ou tous expirés) sur les points
- * concernés. MÊME fonction pour la fiche et pour la pastille du panneau.
+ * concernés. MÊME fonction pour la fiche, la pastille du panneau, la mise à
+ * jour proposée et les alertes S1.
+ * `justificatifsEntreprise` : justificatifs de portée entreprise (tâche 9) ;
+ * un requis est satisfait par un justificatif du chantier joint au point OU
+ * par un justificatif permanent valide du même type (estEntrepriseRattachable).
  * @returns {Array<{numero, type_code, libelle, raison: "absent"|"expire"}>|null}
- *   null = justificatifs illisibles (on ne sait pas).
+ *   null = justificatifs (du chantier ou de l'entreprise) illisibles.
  */
-export function justificatifsRequisManquants({ reponses, justificatifs, aujourdhui }) {
-  if (!Array.isArray(justificatifs)) return null;
+export function justificatifsRequisManquants({ reponses, justificatifs, aujourdhui, justificatifsEntreprise = [] }) {
+  if (!Array.isArray(justificatifs) || !Array.isArray(justificatifsEntreprise)) return null;
   const out = [];
   for (const p of POINTS_FICHE) {
     if (!pointEstConcerne(reponses, p)) continue;
@@ -112,7 +156,9 @@ export function justificatifsRequisManquants({ reponses, justificatifs, aujourdh
       if (!j.requis) continue;
       const joints = justificatifsDuPoint(justificatifs, p.numero).filter((x) => x.type_code === j.type_code);
       if (joints.some((x) => !estExpire(x, aujourdhui))) continue;
-      out.push({ numero: p.numero, type_code: j.type_code, libelle: libelleJustificatif(j.type_code), raison: joints.length ? "expire" : "absent" });
+      const entreprise = justificatifsEntreprise.filter((x) => estEntrepriseRattachable(x, j.type_code));
+      if (entreprise.some((x) => !estExpire(x, aujourdhui))) continue;
+      out.push({ numero: p.numero, type_code: j.type_code, libelle: libelleJustificatif(j.type_code), raison: joints.length || entreprise.length ? "expire" : "absent" });
     }
   }
   return out;
@@ -129,8 +175,8 @@ export function nbJustificatifsExpires(justificatifs, aujourdhui) {
  * null quand on ne sait pas (fiche ou justificatifs illisibles) — la pastille
  * n'invente alors aucun rouge.
  */
-export function justificatifsPourPastille({ reponses, justificatifs, aujourdhui }) {
-  const m = justificatifsRequisManquants({ reponses, justificatifs, aujourdhui });
+export function justificatifsPourPastille({ reponses, justificatifs, aujourdhui, justificatifsEntreprise = [] }) {
+  const m = justificatifsRequisManquants({ reponses, justificatifs, aujourdhui, justificatifsEntreprise });
   const e = nbJustificatifsExpires(justificatifs, aujourdhui);
   if (m === null || e === null) return null;
   return { manquants: m.length, expires: e };
@@ -275,8 +321,10 @@ export function libelleSignature(sig, { fiche, empreinteCourante = null, emprein
  * @param {Array?}  p.signatures     signatures de la fiche (null = illisibles)
  * @param {string?} p.empreinte      empreinte du contenu actuel (null = non calculée)
  * @param {string}  p.aujourdhui     AAAA-MM-JJ
+ * @param {Array?}  p.justificatifsEntreprise justificatifs de portée entreprise
+ *                  non confidentiels (null = illisibles)
  */
-export function etatValidation({ fiche, contexte = {}, justificatifs = null, signatures = null, empreinte = null, aujourdhui = null }) {
+export function etatValidation({ fiche, contexte = {}, justificatifs = null, signatures = null, empreinte = null, aujourdhui = null, justificatifsEntreprise = [] }) {
   const nbPoints = compterPointsCompletes(fiche);
   const pointsIncomplets = [];
   for (const p of POINTS_FICHE) {
@@ -290,8 +338,10 @@ export function etatValidation({ fiche, contexte = {}, justificatifs = null, sig
   if (amiante) bloquants.push(amiante);
   if (contexte.clientErreur) bloquants.push(`Client illisible (${contexte.clientErreur}) : il ne peut pas être figé dans la version.`);
   if (contexte.motifTrouve === false) bloquants.push(`Motif de la mise à jour de la v${fiche?.version} introuvable dans l'historique du chantier.`);
-  const justifs = justificatifsRequisManquants({ reponses: fiche?.reponses, justificatifs, aujourdhui });
-  if (justifs === null) bloquants.push("Justificatifs illisibles : impossible de vérifier ceux qui sont requis.");
+  const justifs = justificatifsRequisManquants({ reponses: fiche?.reponses, justificatifs, aujourdhui, justificatifsEntreprise });
+  if (justifs === null) bloquants.push(Array.isArray(justificatifs)
+    ? "Justificatifs de l'espace entreprise illisibles : impossible de vérifier ceux qui sont requis."
+    : "Justificatifs illisibles : impossible de vérifier ceux qui sont requis.");
 
   const elementsContenu = pointsIncomplets.reduce((s, p) => s + p.manquants.length, 0) + (justifs?.length || 0) + bloquants.length;
   const contenuComplet = elementsContenu === 0;

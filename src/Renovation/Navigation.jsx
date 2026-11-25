@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   Calculator, CheckCircle2, Camera, Receipt, Wallet,
   Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb, Bell, NotebookPen,
-  MessageSquare, ClipboardCheck, Smartphone, CalendarCheck, CalendarX,
+  MessageSquare, ClipboardCheck, Smartphone, CalendarCheck, CalendarX, ShieldCheck,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -136,12 +136,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
+    "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","justificatifs-entreprise","bibliotheque","biblio-materiaux","suggestions-mat",
     "info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
+    "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","justificatifs-entreprise","bibliotheque","biblio-materiaux","suggestions-mat",
     "info-client","journal-maj"
   ],
   commercial: [
@@ -163,6 +163,7 @@ const ALL_NAV_ITEMS = [
   // Lot 5 : Opérations est la porte d'entrée (2e position) ; « chantiers »
   // (la fiche) reste dans la liste pour son libellé, filtré hors du menu.
   { id:"operations",       icon:Building2,       label:"Opérations", longLabel:"Opérations" },
+  { id:"justificatifs-entreprise", icon:ShieldCheck, label:"Justif.",  longLabel:"Justificatifs entreprise" },
   { id:"chantiers",        icon:HardHat,         label:"Chantiers",  longLabel:"Fiche chantier"      },
   { id:"planning",         icon:Calendar,        label:"Planning",   longLabel:"Planning semaine"    },
   { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan",      longLabel:"Bilan de semaine"    },
@@ -387,6 +388,7 @@ const allNav = [
   // Lot 5 : Opérations est la porte d'entrée (2e position) ; « chantiers »
   // reste ici pour le libellé de l'onglet de la fiche, filtré hors du menu.
   { id:"operations",       icon:Building2,       label:"Opérations"       },
+  { id:"justificatifs-entreprise", icon:ShieldCheck, label:"Justificatifs entreprise" },
   { id:"chantiers",        icon:HardHat,         label:"Fiche chantier"   },
   { id:"planning",         icon:Calendar,        label:"Planning semaine" },
   { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan de semaine" },

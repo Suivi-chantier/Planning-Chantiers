@@ -32,7 +32,7 @@
 //     requis expiré. Rien n'est écrit : l'écran propose, la personne décide.
 // ─────────────────────────────────────────────────────────────────────────────
 import { POINTS_FICHE, DECLENCHEURS_PRE_REMPLISSAGE as D, STATUTS_POINT_COMPLETE, libelleStatutPoint } from "./securite/points.mjs";
-import { serialisationCanonique, FORMAT_CONTENU_VERSION, MOTIF_MIN } from "./securiteVersion.mjs";
+import { serialisationCanonique, FORMATS_CONTENU_LISIBLES, MOTIF_MIN } from "./securiteVersion.mjs";
 import { proposerPreRemplissage, normaliser } from "./securitePreRemplissage.mjs";
 import { justificatifsRequisManquants } from "./securiteValidation.mjs";
 
@@ -63,7 +63,7 @@ const listeNumeros = (ns) => {
  */
 export function partieRisques(contenu) {
   if (!estObjet(contenu)) return { ok: false, raison: "contenu figé illisible" };
-  if (contenu.format !== FORMAT_CONTENU_VERSION) return { ok: false, raison: `contenu figé de forme inconnue (${txt(contenu.format) || "sans format"})` };
+  if (!FORMATS_CONTENU_LISIBLES.includes(contenu.format)) return { ok: false, raison: `contenu figé de forme inconnue (${txt(contenu.format) || "sans format"})` };
   if (contenu.synthese_risques !== undefined && !Array.isArray(contenu.synthese_risques)) return { ok: false, raison: "synthèse des risques illisible" };
   if (contenu.reponses !== undefined && !estObjet(contenu.reponses)) return { ok: false, raison: "réponses illisibles" };
   const valeur = {
@@ -279,7 +279,7 @@ const libelleLot = (id, lots) => (lots || []).find((l) => l.id === id)?.label ||
  * @param {string}  p.aujourdhui   AAAA-MM-JJ
  * @returns {{ applicable: boolean, raisons: Array<{ code, message }>, impossibles: string[], motif: string }}
  */
-export function propositionsMiseAJour({ fiche = null, sources = {}, lots = [], justificatifs = null, aujourdhui = null } = {}) {
+export function propositionsMiseAJour({ fiche = null, sources = {}, lots = [], justificatifs = null, aujourdhui = null, justificatifsEntreprise = [] } = {}) {
   const vide = { applicable: false, raisons: [], impossibles: [], motif: "" };
   if (!fiche || !["validee", "a_mettre_a_jour"].includes(fiche.statut)) return vide;
   const raisons = [];
@@ -323,8 +323,8 @@ export function propositionsMiseAJour({ fiche = null, sources = {}, lots = [], j
   }
 
   // 3. Justificatif requis expiré.
-  const m = justificatifsRequisManquants({ reponses: fiche.reponses, justificatifs, aujourdhui });
-  if (m === null) impossibles.push("justificatifs illisibles : expirations non vérifiées");
+  const m = justificatifsRequisManquants({ reponses: fiche.reponses, justificatifs, aujourdhui, justificatifsEntreprise });
+  if (m === null) impossibles.push("justificatifs illisibles (chantier ou espace entreprise) : expirations non vérifiées");
   else m.filter((j) => j.raison === "expire").forEach((j) => raisons.push({ code: "justificatif", message: `justificatif requis expiré : ${j.libelle} (point ${j.numero})` }));
 
   const motif = raisons.length ? `Mise à jour proposée : ${raisons.map((r) => r.message).join(" ; ")}.` : "";

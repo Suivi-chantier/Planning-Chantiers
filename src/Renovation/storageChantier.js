@@ -209,3 +209,56 @@ export async function lirePreuveSecurite(path) {
   }
   return data;
 }
+
+// ─── Fiche sécurité, tâche 9 : documents confidentiels ──────────────────────
+// Bucket privé "securite-confidentiel" (aptitudes médicales) : lecture et
+// dépôt réservés aux administrateurs (is_admin()), aucune règle de
+// modification ni de suppression. Un dépôt prend un chemin nouveau
+// (horodatage), jamais de remplacement. Même épinglage du jeton.
+export const BUCKET_CONFIDENTIEL_SECURITE = "securite-confidentiel";
+
+// Envoi → { path, nom, taille, type } ou null (raison : derniereErreurDocument()).
+export async function deposerDocumentConfidentiel(file, pathPrefix) {
+  derniereErreur = "";
+  if (!file || !pathPrefix) { derniereErreur = "Aucun fichier sélectionné."; return null; }
+  if (file.size > MAX_OCTETS) { derniereErreur = "Fichier trop volumineux (maximum 50 Mo)."; return null; }
+  const path = `${pathPrefix}/${Date.now()}_${safeName(file.name)}`;
+  const envoyer = (token) => supabase.storage.from(BUCKET_CONFIDENTIEL_SECURITE)
+    .upload(path, file, {
+      upsert: false,
+      contentType: file.type || undefined,
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+    });
+  let token = await jetonSession();
+  if (!token) { derniereErreur = MSG_SESSION; return null; }
+  let { error } = await envoyer(token);
+  if (error && erreurDeJeton(error) && !/exists|duplicate/i.test(String(error.message || ""))) {
+    const frais = await jetonSession(true);
+    if (!frais) { derniereErreur = MSG_SESSION; return null; }
+    ({ error } = await envoyer(frais));
+  }
+  if (error) {
+    console.error("dépôt document confidentiel:", error);
+    derniereErreur = `Envoi refusé : ${error.message}`;
+    return null;
+  }
+  return { path, nom: file.name, taille: file.size, type: file.type || "" };
+}
+
+// URL signée temporaire d'un document confidentiel (admins seulement).
+export async function urlDocumentConfidentiel(path, expiresIn = 600) {
+  derniereErreur = "";
+  if (!path) { derniereErreur = "Document introuvable."; return null; }
+  const signer = () => supabase.storage.from(BUCKET_CONFIDENTIEL_SECURITE).createSignedUrl(path, expiresIn);
+  let { data, error } = await signer();
+  if (error && erreurDeJeton(error)) {
+    const frais = await jetonSession(true);
+    if (!frais) { derniereErreur = MSG_SESSION; return null; }
+    ({ data, error } = await signer());
+  }
+  if (error) {
+    derniereErreur = erreurDeJeton(error) ? MSG_SESSION : `Lecture refusée : ${error.message}`;
+    return null;
+  }
+  return data?.signedUrl || null;
+}

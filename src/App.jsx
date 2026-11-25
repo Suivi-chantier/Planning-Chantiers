@@ -61,6 +61,7 @@ import PageCommandes          from "./Renovation/Commandes";
 import PageCaptureCommandeMobile from "./Renovation/CaptureCommandeMobile";
 import PageRapprochementFactures from "./Renovation/RapprochementFactures";
 import PageEncoursFournisseurs from "./Renovation/PageEncoursFournisseurs";
+import PageJustificatifsEntreprise from "./Renovation/PageJustificatifsEntreprise";
 import PagePlanningCommandes  from "./Renovation/PagePlanningCommandes";
 import BoutonAide             from "./Renovation/PageAide";
 import BulleTodo              from "./Renovation/BulleTodo";
@@ -1078,6 +1079,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="capture-cmd"        && (canAccess(role,"capture-cmd")        ? <PageCaptureCommandeMobile chantiers={chantiersExploitation} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="capture-cmd"/>)}
           {p==="rapprochement"      && (canAccess(role,"rapprochement")      ? <PageRapprochementFactures T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="rapprochement"/>)}
           {p==="encours-fournisseurs" && (canAccess(role,"encours-fournisseurs") ? <PageEncoursFournisseurs T={T} branch={branch}/> : <AccesRefuse T={T} page="encours-fournisseurs"/>)}
+          {p==="justificatifs-entreprise" && (canAccess(role,"justificatifs-entreprise") ? <PageJustificatifsEntreprise T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="justificatifs-entreprise"/>)}
           {p==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiersExploitation} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
           {p==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiersExploitation} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T} onOuvrirBilan={()=>setPage("bilan-semaine")} onOuvrirQualite={canAccess(role,"qualite-cr") ? ()=>setPage("qualite-cr") : null}/> : <AccesRefuse T={T} page="equipe"/>)}
           {p==="qualite-cr"         && (canAccess(role,"qualite-cr")         ? <PageQualiteComptesRendus T={T} branch={branch}/> : <AccesRefuse T={T} page="qualite-cr"/>)}

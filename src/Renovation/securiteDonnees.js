@@ -10,13 +10,17 @@
 // confondue avec « aucune donnée » (l'écran affiche « état illisible »).
 // ─────────────────────────────────────────────────────────────────────────────
 import { supabase } from "../supabase";
-import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, deposerPreuveSecurite, urlPreuveSecurite, lirePreuveSecurite } from "./storageChantier.js";
+import {
+  uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, deposerPreuveSecurite, urlPreuveSecurite, lirePreuveSecurite,
+  deposerDocumentConfidentiel, urlDocumentConfidentiel,
+} from "./storageChantier.js";
 import { journaliserStatut } from "./chantiersDonnees.js";
 import {
   serialisationCanonique, contenuVersion, motifDepuisJournal, entreeJournalValidation, entreeJournalMiseAJour,
   preparerMiseAJour, dossierJustificatifs, cheminSignature, EVENEMENT_JOURNAL,
 } from "./securiteVersion.js";
-import { etatValidation, justificatifsPourPastille } from "./securiteValidation.js";
+import { etatValidation, justificatifsPourPastille, justificatifsEntrepriseRattaches } from "./securiteValidation.js";
+import { stockageJustificatifEntreprise } from "./securiteEntreprise.js";
 import { cheminPdfVersion } from "./securitePdf.js";
 import { loadPhasagesPourLiaison } from "./phasagePlanning.js";
 
@@ -170,6 +174,23 @@ export async function chargerJustificatifs(chantierId) {
 }
 
 /**
+ * Justificatifs permanents de l'espace entreprise utilisables dans une fiche
+ * (tâche 9) : actifs, NON confidentiels — filtre explicite, pour qu'un admin
+ * et un non-admin lisent exactement la même liste (même contenu figé, même
+ * empreinte). → { liste, erreur }
+ */
+export async function chargerJustificatifsEntrepriseFiche() {
+  try {
+    const { data, error } = await supabase.from("securite_justificatifs").select(COLS_JUSTIF)
+      .eq("portee", "entreprise").eq("confidentiel", false).is("archive_le", null);
+    if (error) return { liste: null, erreur: error.message };
+    return { liste: data || [], erreur: null };
+  } catch (e) {
+    return { liste: null, erreur: msg(e) };
+  }
+}
+
+/**
  * Ajoute un justificatif de chantier : fichier dans chantier-documents sous
  * securite/chantiers/{chantier_id}/p{point}/, puis ligne securite_justificatifs.
  * Si la ligne est refusée, le fichier tout juste envoyé est retiré (il n'est
@@ -276,18 +297,23 @@ export async function empreinteContenu(contenu) {
  * jamais signer ni figer autre chose que ce qui est en base.
  * → { fiche, batiment, justificatifs, motif, contenu, empreinte, contexte, erreur }
  */
-export async function lireContenuAFiger({ chantier, op, clientLibelle, clientErreur = null }) {
-  const [f, b, j] = await Promise.all([chargerFiche(chantier.id), chargerBatiment(op.id), chargerJustificatifs(chantier.id)]);
+export async function lireContenuAFiger({ chantier, op, clientLibelle, clientErreur = null, aujourdhui = dateDuJourLocale() }) {
+  const [f, b, j, je] = await Promise.all([chargerFiche(chantier.id), chargerBatiment(op.id), chargerJustificatifs(chantier.id), chargerJustificatifsEntrepriseFiche()]);
   if (f.erreur || !f.ligne) return { erreur: `fiche illisible (${f.erreur || "absente"})` };
   const mo = await chargerMotifVersion(chantier.id, f.ligne.version);
   if (mo.erreur) return { erreur: `historique du chantier illisible (${mo.erreur})` };
   const contexte = { adresse: op.adresse || null, batiment: b.ligne, batimentErreur: b.erreur, clientErreur, motifTrouve: mo.trouve };
-  if (j.erreur || b.erreur) {
-    return { fiche: f.ligne, justificatifs: j.liste, contexte, erreur: j.erreur ? `justificatifs illisibles (${j.erreur})` : `bâtiment illisible (${b.erreur})` };
+  if (j.erreur || b.erreur || je.erreur) {
+    return {
+      fiche: f.ligne, justificatifs: j.liste, justificatifsEntreprise: je.liste, contexte,
+      erreur: j.erreur ? `justificatifs illisibles (${j.erreur})` : je.erreur ? `justificatifs de l'espace entreprise illisibles (${je.erreur})` : `bâtiment illisible (${b.erreur})`,
+    };
   }
-  const contenu = contenuVersion({ fiche: f.ligne, chantier, operation: op, clientLibelle, batiment: b.ligne, justificatifs: j.liste, motif: mo.motif });
+  // Tâche 9 : justificatifs permanents valides rattachés aux points concernés.
+  const rattachesEntreprise = justificatifsEntrepriseRattaches({ reponses: f.ligne.reponses, justificatifsEntreprise: je.liste, aujourdhui });
+  const contenu = contenuVersion({ fiche: f.ligne, chantier, operation: op, clientLibelle, batiment: b.ligne, justificatifs: j.liste, rattachesEntreprise, motif: mo.motif });
   const empreinte = await empreinteContenu(contenu);
-  return { fiche: f.ligne, batiment: b.ligne, justificatifs: j.liste, motif: mo.motif, contenu, empreinte, contexte, erreur: null };
+  return { fiche: f.ligne, batiment: b.ligne, justificatifs: j.liste, justificatifsEntreprise: je.liste, motif: mo.motif, contenu, empreinte, contexte, erreur: null };
 }
 
 /**
@@ -304,10 +330,10 @@ export async function signerFiche({ chantier, op, clientLibelle, clientErreur, t
     if (!["etablie_par", "chef_equipe"].includes(type)) return { signature: null, erreur: "type de signature inconnu" };
     if (!String(nom || "").trim()) return { signature: null, erreur: "nom du signataire obligatoire" };
     if (!png) return { signature: null, erreur: "signature vide" };
-    const a = await lireContenuAFiger({ chantier, op, clientLibelle, clientErreur });
+    const a = await lireContenuAFiger({ chantier, op, clientLibelle, clientErreur, aujourdhui });
     if (a.erreur) return { signature: null, erreur: a.erreur };
     if (a.empreinte !== empreinteAttendue) return { signature: null, erreur: "la fiche (ou le bâtiment, le client, un justificatif) a changé depuis son affichage : fermez puis rouvrez la fiche avant de signer" };
-    const etat = etatValidation({ fiche: a.fiche, contexte: a.contexte, justificatifs: a.justificatifs, signatures: [], empreinte: a.empreinte, aujourdhui });
+    const etat = etatValidation({ fiche: a.fiche, contexte: a.contexte, justificatifs: a.justificatifs, justificatifsEntreprise: a.justificatifsEntreprise, signatures: [], empreinte: a.empreinte, aujourdhui });
     if (!etat.contenuComplet) return { signature: null, erreur: "la fiche n'est pas complète : la signature se fait en dernier" };
     const alea = (() => { try { return crypto.randomUUID().slice(0, 8); } catch { return Math.random().toString(36).slice(2, 10); } })();
     const chemin = cheminSignature({ ficheId: a.fiche.id, version: a.fiche.version, type, horodatage: Date.now(), alea });
@@ -341,11 +367,11 @@ export async function signerFiche({ chantier, op, clientLibelle, clientErreur, t
  */
 export async function validerFicheSecurite({ chantier, op, clientLibelle, clientErreur, auteur, aujourdhui }) {
   try {
-    const a = await lireContenuAFiger({ chantier, op, clientLibelle, clientErreur });
+    const a = await lireContenuAFiger({ chantier, op, clientLibelle, clientErreur, aujourdhui });
     if (a.erreur) return { erreur: a.erreur };
     const s = await chargerSignatures(a.fiche.id);
     if (s.erreur) return { erreur: `signatures illisibles (${s.erreur})` };
-    const etat = etatValidation({ fiche: a.fiche, contexte: a.contexte, justificatifs: a.justificatifs, signatures: s.liste, empreinte: a.empreinte, aujourdhui });
+    const etat = etatValidation({ fiche: a.fiche, contexte: a.contexte, justificatifs: a.justificatifs, justificatifsEntreprise: a.justificatifsEntreprise, signatures: s.liste, empreinte: a.empreinte, aujourdhui });
     if (!etat.peutValider) return { erreur: "la fiche n'est pas validable", manquants: etat };
 
     const { error: eV } = await supabase.from("securite_fiches_versions").insert({
@@ -409,16 +435,18 @@ export async function chargerJustificatifsPastilles(chantierIds, aujourdhui) {
   const ids = [...new Set((chantierIds || []).filter(Boolean).map(String))];
   if (!ids.length) return { parChantier: {}, erreur: null };
   try {
-    const [f, j] = await Promise.all([
+    const [f, j, je] = await Promise.all([
       supabase.from("securite_fiches").select("chantier_id, reponses").in("chantier_id", ids),
       supabase.from("securite_justificatifs").select("chantier_id, point, type_code, expire_le, archive_le, date_document, created_at")
         .eq("portee", "chantier").in("chantier_id", ids).is("archive_le", null),
+      chargerJustificatifsEntrepriseFiche(),
     ]);
     if (f.error || j.error) return { parChantier: {}, erreur: (f.error || j.error).message };
+    if (je.erreur) return { parChantier: {}, erreur: `espace entreprise illisible (${je.erreur})` };
     const parChantier = {};
     (f.data || []).forEach((l) => {
       const justifs = (j.data || []).filter((x) => x.chantier_id === l.chantier_id);
-      parChantier[l.chantier_id] = justificatifsPourPastille({ reponses: l.reponses, justificatifs: justifs, aujourdhui });
+      parChantier[l.chantier_id] = justificatifsPourPastille({ reponses: l.reponses, justificatifs: justifs, aujourdhui, justificatifsEntreprise: je.liste });
     });
     return { parChantier, erreur: null };
   } catch (e) {
@@ -698,11 +726,68 @@ export async function marquerAMettreAJour({ fiche, prep }) {
 export async function chargerDonneesMiseAJourProposee({ chantier, op }) {
   const f = await chargerFiche(chantier.id);
   if (f.erreur || !f.ligne) return { fiche: null, erreur: f.erreur || "fiche absente" };
-  const [d, b, j] = await Promise.all([chargerDonneesPreRemplissage({ chantier, op }), chargerBatiment(op.id), chargerJustificatifs(chantier.id)]);
+  const [d, b, j, je] = await Promise.all([chargerDonneesPreRemplissage({ chantier, op }), chargerBatiment(op.id), chargerJustificatifs(chantier.id), chargerJustificatifsEntrepriseFiche()]);
   return {
     fiche: f.ligne,
     sources: { ...d, batiment: { ligne: b.ligne, erreur: b.erreur } },
     justificatifs: j.erreur ? null : j.liste,
+    justificatifsEntreprise: je.erreur ? null : je.liste,
     erreur: null,
   };
+}
+
+// ─── Tâche 9 : page « Justificatifs entreprise » ────────────────────────────
+// Lecture : table securite_justificatifs (portée entreprise, non archivés) ;
+// statut d'expiration lu dans la vue securite_justificatifs_expiration (elle
+// fait foi). Les règles de la base ne renvoient les aptitudes médicales
+// (confidentielles) qu'aux administrateurs, dans la table comme dans la vue.
+
+/** → { liste, etats: { [id]: etat } | null, erreur, erreurEtats } */
+export async function chargerJustificatifsEntreprisePage() {
+  try {
+    const [t, v] = await Promise.all([
+      supabase.from("securite_justificatifs").select(COLS_JUSTIF).eq("portee", "entreprise").is("archive_le", null),
+      supabase.from("securite_justificatifs_expiration").select("id, etat").eq("portee", "entreprise"),
+    ]);
+    if (t.error) return { liste: null, etats: null, erreur: t.error.message, erreurEtats: null };
+    const etats = v.error ? null : Object.fromEntries((v.data || []).map((x) => [x.id, x.etat]));
+    return { liste: t.data || [], etats, erreur: null, erreurEtats: v.error ? v.error.message : null };
+  } catch (e) {
+    return { liste: null, etats: null, erreur: msg(e), erreurEtats: null };
+  }
+}
+
+/**
+ * Ajoute un justificatif de l'espace entreprise. `ligne` : préparée par
+ * preparerJustificatifEntreprise (module pur). Non confidentiel :
+ * chantier-documents sous securite/entreprise/{type}/ ; aptitude médicale :
+ * securite-confidentiel sous entreprise/aptitude_medicale/ (admins).
+ * Si la ligne est refusée : fichier non confidentiel retiré ; fichier
+ * confidentiel conservé (aucune suppression possible dans ce bucket) et dit.
+ * → { ligne, erreur }
+ */
+export async function ajouterJustificatifEntreprise({ ligne, fichier, auteur }) {
+  try {
+    const { bucket, dossier } = stockageJustificatifEntreprise(ligne.type_code);
+    const confidentiel = bucket !== "chantier-documents";
+    if (confidentiel !== (ligne.confidentiel === true)) return { ligne: null, erreur: "type et confidentialité incohérents" };
+    const envoi = confidentiel ? await deposerDocumentConfidentiel(fichier, dossier) : await uploadDocumentChantier(fichier, dossier);
+    if (!envoi) return { ligne: null, erreur: derniereErreurDocument() || "envoi du fichier impossible" };
+    const { data, error } = await supabase.from("securite_justificatifs")
+      .insert({ ...ligne, fichier_path: envoi.path, fichier_nom: envoi.nom || null, ajoute_par: auteur || null })
+      .select(COLS_JUSTIF).single();
+    if (error) {
+      if (!confidentiel) await supprimerDocumentChantier(envoi.path);
+      return { ligne: null, erreur: confidentiel ? `${error.message} (le fichier déposé reste dans l'espace confidentiel, rattaché à rien)` : error.message };
+    }
+    return { ligne: data, erreur: null };
+  } catch (e) {
+    return { ligne: null, erreur: msg(e) };
+  }
+}
+
+/** URL signée (10 min) d'un justificatif de l'espace entreprise (bucket selon la confidentialité). */
+export async function urlJustificatifEntreprise(j) {
+  const url = j?.confidentiel ? await urlDocumentConfidentiel(j.fichier_path) : await urlDocumentChantier(j?.fichier_path);
+  return { url, erreur: url ? null : (derniereErreurDocument() || "lecture impossible") };
 }

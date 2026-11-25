@@ -67,6 +67,36 @@ export const LIBELLES_JUSTIFICATIFS = Object.freeze({
   autre:                        "Autre document",
 });
 
+// ─── Espace « Justificatifs entreprise » (tâche 9) ──────────────────────────
+
+/** Seul type confidentiel (aptitude médicale : admins seulement, bucket securite-confidentiel). */
+export const TYPE_JUSTIFICATIF_CONFIDENTIEL = "aptitude_medicale";
+
+/**
+ * Types proposés à l'ajout dans l'espace entreprise (justificatifs permanents
+ * de Profero), dans l'ordre d'affichage. L'aptitude médicale n'est proposée
+ * qu'aux administrateurs.
+ */
+export const TYPES_JUSTIFICATIF_ENTREPRISE = Object.freeze([
+  "habilitation_electrique", "formation_ss4", "formation_echafaudage", "aptitude_medicale",
+  "duerp", "mode_operatoire_amiante", "consigne_travail_isole",
+  "kbis", "attestation_decennale", "attestation_vigilance_urssaf", "autre",
+]);
+
+/**
+ * Types qu'un justificatif permanent de l'espace entreprise peut couvrir dans
+ * une fiche de chantier (« rattachement automatique ») : seulement s'ils sont
+ * attendus sur le point (liste `justificatifs` du point) et que le point est
+ * concerné. Kbis et attestations ne sont pas rattachés : sur la fiche, ils
+ * concernent les entreprises intervenantes (point 1), pas Profero. Jamais un
+ * type confidentiel (le contenu figé doit être le même pour un admin et un
+ * non-admin, sinon l'empreinte signée différerait).
+ */
+export const TYPES_RATTACHABLES_ENTREPRISE = Object.freeze([
+  "habilitation_electrique", "formation_ss4", "formation_echafaudage",
+  "duerp", "mode_operatoire_amiante", "consigne_travail_isole",
+]);
+
 const c = (code, libelle) => Object.freeze({ code, libelle });
 const j = (type_code, requis = false) => Object.freeze({ type_code, requis });
 

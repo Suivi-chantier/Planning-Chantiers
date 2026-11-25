@@ -21,6 +21,11 @@
 // « erreur, non enregistré ». Une fiche qui n'est pas en brouillon, ou dont le
 // contenu a une forme inattendue, s'affiche en lecture seule.
 //
+// Tâche 9 : un justificatif permanent valide de l'espace entreprise
+// (habilitation, formation, DUERP…) est rattaché automatiquement aux points
+// concernés qui l'attendent, affiché « depuis l'espace entreprise, valable
+// jusqu'au … », compté par la règle de validation et figé dans la version.
+//
 // Toute la logique (n/12, normalisation, structure) : securiteFiche.mjs.
 // Définition des points : securite/points.mjs.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,8 +48,9 @@ import {
   chargerJustificatifs, ajouterJustificatif, archiverJustificatif, urlJustificatif, urlImageSignature,
   chargerSignatures, chargerVersions, chargerMotifVersion, empreinteContenu,
   signerFiche, validerFicheSecurite, mettreAJourFiche, dateDuJourLocale, chargerDonneesPreRemplissage,
-  chargerVersionsAvecContenu, signerAccueil, marquerAMettreAJour,
+  chargerVersionsAvecContenu, signerAccueil, marquerAMettreAJour, chargerJustificatifsEntrepriseFiche,
 } from "./securiteDonnees.js";
+import { affectationPersonne, nomsPlanning, texteRattache } from "./securiteEntreprise.js";
 import {
   accueilParVersion, indexVersions, versionValideeCourante, quiDoitResigner, propositionsMiseAJour, preparerAMettreAJour,
   lectureOuvrier,
@@ -52,7 +58,7 @@ import {
 import { synchroniserEtapeFicheSecurite } from "./securiteCycleVieDonnees.js";
 import {
   SIGNATURES_REQUISES, etatValidation, justificatifsDuPoint, justificatifsRequisManquants, typesJustificatifPoint,
-  preparerJustificatif, estExpire, libelleSignature,
+  preparerJustificatif, estExpire, libelleSignature, justificatifsEntrepriseRattaches,
 } from "./securiteValidation.js";
 import { contenuVersion, empreinteCourte, MOTIF_MIN } from "./securiteVersion.js";
 import { ACCEPT_DOCS } from "./storageChantier.js";
@@ -111,8 +117,13 @@ function Justificatifs({ T, acc, point, ctx, styles, concerne }) {
   const [fichier, setFichier] = useState(null);
   if (!point) return null;
   const joints = ctx.charge && Array.isArray(ctx.liste) ? justificatifsDuPoint(ctx.liste, point.numero) : [];
-  const manquants = ctx.charge && Array.isArray(ctx.liste) && concerne
-    ? (justificatifsRequisManquants({ reponses: ctx.reponses, justificatifs: ctx.liste, aujourdhui: ctx.aujourdhui }) || []).filter((m) => m.numero === point.numero)
+  const entOk = ctx.entreprise.charge && Array.isArray(ctx.entreprise.liste);
+  const manquants = ctx.charge && Array.isArray(ctx.liste) && entOk && concerne
+    ? (justificatifsRequisManquants({ reponses: ctx.reponses, justificatifs: ctx.liste, justificatifsEntreprise: ctx.entreprise.liste, aujourdhui: ctx.aujourdhui }) || []).filter((m) => m.numero === point.numero)
+    : [];
+  // Tâche 9 : justificatifs permanents rattachés à ce point (point concerné).
+  const rattaches = entOk && concerne
+    ? (justificatifsEntrepriseRattaches({ reponses: ctx.reponses, justificatifsEntreprise: ctx.entreprise.liste, aujourdhui: ctx.aujourdhui }) || []).filter((r) => r.numero === point.numero)
     : [];
   const types = typesJustificatifPoint(point);
   const ouvrirAjout = () => { setAjout({ type_code: types[0] || "autre", date_document: ctx.aujourdhui || "", expire_le: "", personne: "", entreprise_nom: "" }); setFichier(null); setEnvoi({ enCours: false, erreurs: [] }); };
@@ -148,12 +159,30 @@ function Justificatifs({ T, acc, point, ctx, styles, concerne }) {
           })}
         </div>
       )}
+      {concerne && !ctx.entreprise.charge ? (
+        <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic", marginBottom: 4 }}>Espace entreprise : chargement…</div>
+      ) : concerne && ctx.entreprise.erreur ? (
+        <div style={{ fontSize: 12, color: ROUGE, fontWeight: 600, marginBottom: 4 }}>Espace entreprise illisible ({ctx.entreprise.erreur}) : on ne sait pas si une habilitation ou une formation permanente couvre ce point.</div>
+      ) : rattaches.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 4 }}>
+          {rattaches.map(({ justificatif: j }) => (
+            <div key={`ent-${j.id}`} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12.5, color: T.text, padding: "4px 0" }}>
+              <button onClick={() => ctx.onOuvrir(j)} title="Ouvrir le document" style={{ border: "none", background: "transparent", color: acc.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline", textAlign: "left" }}>
+                {libelleJustificatif(j.type_code)}{j.fichier_nom ? ` — ${j.fichier_nom}` : ""}
+              </button>
+              <span style={{ color: VERT, fontWeight: 700 }}>
+                {texteRattache(j, { affectation: j.type_code === "habilitation_electrique" ? affectationPersonne(j.personne, ctx.entreprise.noms) : "sans_objet", dateFr })}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {!ctx.charge ? (
         <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>Chargement des justificatifs…</div>
       ) : ctx.erreur ? (
         <div style={{ fontSize: 12, color: ROUGE, fontWeight: 600 }}>Justificatifs illisibles ({ctx.erreur}) : on ne sait pas lesquels sont joints.</div>
       ) : joints.length === 0 ? (
-        <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>Aucun document joint à ce point.</div>
+        <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>{rattaches.length ? "Aucun document joint sur ce chantier (couvert par l'espace entreprise ci-dessus)." : "Aucun document joint à ce point."}</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {joints.map((j) => {
@@ -312,6 +341,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   // Tâche 4
   const [ligneEnregistree, setLigneEnregistree] = useState(null); // dernière ligne lue ou écrite (base de l'empreinte)
   const [justifs, setJustifs] = useState({ charge: false, liste: null, erreur: null });
+  const [justifsEnt, setJustifsEnt] = useState({ charge: false, liste: null, erreur: null }); // tâche 9
   const [sigs, setSigs] = useState({ charge: false, liste: null, erreur: null });
   const [versions, setVersions] = useState({ charge: false, liste: null, erreur: null });
   const [motif, setMotif] = useState({ charge: false, motif: null, trouve: false, erreur: null });
@@ -385,7 +415,11 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   const ficheVersion = lecture.ligne?.version ?? null;
   const rechargerJustifs = useCallback(() => {
     setJustifs((j) => ({ ...j, charge: false }));
-    return chargerJustificatifs(chantier.id).then((r) => setJustifs({ charge: true, liste: r.liste, erreur: r.erreur }));
+    setJustifsEnt((j) => ({ ...j, charge: false }));
+    return Promise.all([
+      chargerJustificatifs(chantier.id).then((r) => setJustifs({ charge: true, liste: r.liste, erreur: r.erreur })),
+      chargerJustificatifsEntrepriseFiche().then((r) => setJustifsEnt({ charge: true, liste: r.liste, erreur: r.erreur })),
+    ]);
   }, [chantier.id]);
   const rechargerSignatures = useCallback(() => {
     if (!ficheId) return Promise.resolve();
@@ -534,13 +568,17 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   const clientErreur = !clients.charge ? "chargement en cours" : clients.erreur ? clients.erreur : (idClient && !client ? "client introuvable" : null);
   const contexteFige = { chantier, op, clientLibelle, clientErreur };
 
+  // Tâche 9 : justificatifs permanents rattachés à la fiche ENREGISTRÉE (ce
+  // qui sera figé). Même fonction que lireContenuAFiger (securiteDonnees.js).
+  const rattachesEnregistres = () => justificatifsEntrepriseRattaches({ reponses: ligneEnregistree?.reponses, justificatifsEntreprise: justifsEnt.liste, aujourdhui }) || [];
+
   useEffect(() => {
     let actif = true;
     setEmpreinte({ valeur: null, erreur: null });
-    if (!ligneEnregistree || !batiment.charge || batiment.erreur || !justifs.charge || justifs.erreur || !motif.charge || motif.erreur) return undefined;
+    if (!ligneEnregistree || !batiment.charge || batiment.erreur || !justifs.charge || justifs.erreur || !justifsEnt.charge || justifsEnt.erreur || !motif.charge || motif.erreur) return undefined;
     let contenu;
     try {
-      contenu = contenuVersion({ fiche: ligneEnregistree, chantier, operation: op, clientLibelle, batiment: batiment.ligne, justificatifs: justifs.liste, motif: motif.motif });
+      contenu = contenuVersion({ fiche: ligneEnregistree, chantier, operation: op, clientLibelle, batiment: batiment.ligne, justificatifs: justifs.liste, rattachesEntreprise: rattachesEnregistres(), motif: motif.motif });
     } catch (e) {
       setEmpreinte({ valeur: null, erreur: e?.message || String(e) });
       return undefined;
@@ -550,7 +588,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
       .catch((e) => actif && setEmpreinte({ valeur: null, erreur: e?.message || String(e) }));
     return () => { actif = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ligneEnregistree, batiment, justifs, motif, clientLibelle, op.id, op.nom, op.adresse, chantier.id, chantier.nom]);
+  }, [ligneEnregistree, batiment, justifs, justifsEnt, motif, clientLibelle, op.id, op.nom, op.adresse, chantier.id, chantier.nom, aujourdhui]);
 
   const etat = etatValidation({
     fiche: ligneEnregistree,
@@ -562,6 +600,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
       motifTrouve: !motif.charge ? undefined : motif.erreur ? false : motif.trouve,
     },
     justificatifs: justifs.charge ? justifs.liste : null,
+    justificatifsEntreprise: justifsEnt.charge ? justifsEnt.liste : null,
     signatures: sigs.charge ? sigs.liste : null,
     empreinte: empreinte.valeur,
     aujourdhui,
@@ -573,6 +612,11 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   const ctxJustifs = {
     charge: justifs.charge, liste: justifs.liste, erreur: justifs.erreur, modifiable, aujourdhui,
     chantierId: chantier.id, reponses: form?.reponses,
+    entreprise: {
+      charge: justifsEnt.charge, liste: justifsEnt.liste, erreur: justifsEnt.erreur,
+      // Noms du planning du chantier : mention « au planning de ce chantier » (habilitation).
+      noms: sourcesPre.charge && sourcesPre.donnees?.planning && !sourcesPre.donnees.planning.erreur ? nomsPlanning(sourcesPre.donnees.planning.cellules) : null,
+    },
     onAjouter: async (ligne, fichier) => {
       const r = await ajouterJustificatif({ ligne, fichier, auteur });
       if (r.erreur) return r.erreur;
@@ -642,12 +686,12 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   };
 
   // Aperçu d'un brouillon : même contenu que celui qui serait figé (et haché).
-  const apercuPossible = !!ligneEnregistree && batiment.charge && !batiment.erreur && justifs.charge && !justifs.erreur && motif.charge && !motif.erreur && sigs.charge && !sigs.erreur;
+  const apercuPossible = !!ligneEnregistree && batiment.charge && !batiment.erreur && justifs.charge && !justifs.erreur && justifsEnt.charge && !justifsEnt.erreur && motif.charge && !motif.erreur && sigs.charge && !sigs.erreur;
   const apercu = async () => {
     setPdfEtat((p) => ({ ...p, apercu: true, message: null }));
     let r;
     try {
-      const contenu = contenuVersion({ fiche: ligneEnregistree, chantier, operation: op, clientLibelle, batiment: batiment.ligne, justificatifs: justifs.liste, motif: motif.motif });
+      const contenu = contenuVersion({ fiche: ligneEnregistree, chantier, operation: op, clientLibelle, batiment: batiment.ligne, justificatifs: justifs.liste, rattachesEntreprise: rattachesEnregistres(), motif: motif.motif });
       r = await apercuPdfBrouillon({ contenu, empreinte: empreinte.valeur, signatures: sigs.liste, versions: versions.liste || [], chantierNom: chantier.nom, apercuLe: new Date().toISOString() });
     } catch (e) {
       r = { erreur: e?.message || String(e) };
@@ -688,9 +732,10 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
     if (!v || v < 2 || !idxVersions[v] || !idxVersions[v - 1]) return null;
     return quiDoitResigner({ contenuSigne: idxVersions[v - 1].contenu, contenuCourant: idxVersions[v].contenu });
   })();
-  const propMaj = sourcesPre.charge && sourcesPre.donnees && batiment.charge && justifs.charge && ligneEnregistree
+  const propMaj = sourcesPre.charge && sourcesPre.donnees && batiment.charge && justifs.charge && justifsEnt.charge && ligneEnregistree
     ? propositionsMiseAJour({
       fiche: ligneEnregistree, lots, aujourdhui, justificatifs: justifs.erreur ? null : justifs.liste,
+      justificatifsEntreprise: !justifsEnt.charge || justifsEnt.erreur ? null : justifsEnt.liste,
       sources: { ...sourcesPre.donnees, batiment: { ligne: batiment.ligne, erreur: batiment.erreur } },
     })
     : null;

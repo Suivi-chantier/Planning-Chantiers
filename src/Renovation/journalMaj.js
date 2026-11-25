@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
     type: "nouveaute",
+    titre: "Fiche sécurité : nouvelle page « Justificatifs entreprise » pour les habilitations, formations et documents permanents",
+    pages: [{ id: "justificatifs-entreprise", label: "Justificatifs entreprise" }, { id: "operations", label: "Opérations" }],
+    quoi: "Les documents de Profero qui servent sur tous les chantiers (habilitations électriques, formations amiante SS4 et échafaudage, DUERP, modes opératoires amiante, consigne de travail isolé, Kbis, attestations…) se rangent une seule fois dans une page dédiée, avec leur date d'expiration. La liste est triée par expiration la plus proche et dit pour chacun : valide, expire sous 30 jours ou expiré. Les fiches sécurité des chantiers les reprennent toutes seules : une habilitation électrique valide suffit pour le point 6, une consigne de travail isolé pour le point 9, sans joindre à nouveau le document sur chaque chantier ; ils figurent dans la version validée et dans son PDF. Les aptitudes médicales restent confidentielles : seuls les administrateurs les voient, les ajoutent et les ouvrent ; elles n'apparaissent jamais sur les fiches des chantiers.",
+    comment: "Menu → « Justificatifs entreprise » (administrateurs et conducteurs). « Ajouter un justificatif » : type, personne concernée, dates, puis photo ou fichier. Les filtres « Personne » et « Type » réduisent la liste ; « Retirer » archive le document (il n'est pas supprimé). Dans une fiche sécurité, sous le point concerné, le document apparaît en vert « depuis l'espace entreprise, valable jusqu'au … » ; pour une habilitation, la fiche précise si la personne figure au planning du chantier ou s'il faut vérifier. Un document expiré n'est plus repris : la fiche redemande le justificatif.",
+  },
+  {
+    date: "2026-11-25",
+    type: "nouveaute",
     titre: "Fiche sécurité : les alertes arrivent dans la cloche et sur le téléphone chaque matin",
     pages: [{ id: "chantiers", label: "Chantiers" }],
     quoi: "Chaque jour ouvré à 7h35, l'appli envoie aux administrateurs et aux conducteurs une notification qui regroupe les nouvelles alertes de fiche sécurité : chantier planifié sans fiche, fiche non validée à 7 jours ou moins du premier jour prévu au phasage, justificatif requis expiré sur un chantier en cours, fiche « à mettre à jour ». Une même alerte n'est envoyée qu'une fois tant qu'elle reste vraie ; si elle est réglée puis revient, elle repart. Les chantiers planifiés dont le phasage n'a aucune date sont signalés à part (« alerte à 7 jours impossible à calculer »). Les aptitudes médicales expirées font l'objet d'une notification séparée, réservée aux administrateurs, sans aucun nom.",
