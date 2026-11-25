@@ -49,6 +49,7 @@
 //   Lundi   8h30 Paris   → D3 synthèse de la semaine (?job=synthese_semaine&pas_avant=8)
 //   Lun-Ven 8h45 Paris   → D2 nouveau chantier signé (?job=nouveaux_chantiers&pas_avant=8)
 //   Lun-Ven 9h05 Paris   → C4 / C5 / D1 alertes chantiers (?job=alertes_chantiers&pas_avant=9)
+//   Lun-Ven 7h35 Paris   → S1 / S2 alertes fiche sécurité (?job=alertes_securite&pas_avant=7)
 //   Lun-Ven 18h30 Paris  → C1 + C2 point du soir des conducteurs
 //                          (?job=point_conducteurs&pas_avant=18:30)
 
@@ -68,6 +69,7 @@ const { runPushMateriaux }     = require("./_cron/cron-push-materiaux.js");
 const { runPointConducteurs }  = require("./_cron/cron-point-conducteurs.js");
 const { runAlertesChantiers }  = require("./_cron/cron-alertes-chantiers.js");
 const { runNouveauxChantiers, runSyntheseSemaine } = require("./_cron/cron-notifications-direction.js");
+const { runAlertesSecurite }   = require("./_cron/cron-alertes-securite.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -179,6 +181,15 @@ const TACHES = {
   synthese_semaine: {
     fenetre: null,
     run: (req, supabase, t) => runSyntheseSemaine(req, supabase, t),
+  },
+  // Notifications S1 / S2 « fiche sécurité » (projet fiche-securite-chantier,
+  // tâche 7b) : mêmes règles que l'appli (alertesSecurite), chaque alerte une
+  // seule fois tant qu'elle reste vraie (notifications_etat), une notification
+  // regroupée par type et par jour. `&simulation=1` : sans écriture ni envoi.
+  // Par `?job=` seulement.
+  alertes_securite: {
+    fenetre: null,
+    run: (req, supabase, t) => runAlertesSecurite(req, supabase, t),
   },
 };
 

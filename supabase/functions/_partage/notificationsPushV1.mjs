@@ -13,7 +13,7 @@
 // Ce que ce module décide :
 //   1. les RÉGLAGES (planning_config, clé « notifications_push ») ramenés à une
 //      forme sûre : interrupteur général coupé par défaut, un réglage par type
-//      C1 à D4 (actif + rôles destinataires), plage de silence. Le rôle
+//      C1 à D4, S1-S2 (actif + rôles destinataires), plage de silence. Le rôle
 //      « ouvrier » est retiré même s'il a été coché à la main en base (règle 1) ;
 //   2. les DESTINATAIRES : utilisateurs actifs des rôles cochés, avec un compte
 //      de connexion, jamais ouvrier, rattachés à la Rénovation ;
@@ -55,7 +55,14 @@ export const CATALOGUE = Object.freeze([
   { code: "D2", libelle: "Nouveau chantier signé", roles: ["admin", "conducteur"], push: true },
   { code: "D3", libelle: "Synthèse de la semaine", roles: ["admin"], push: true },
   { code: "D4", libelle: "Écart du contrôle du journal d'avancement", roles: ["admin"], push: false },
-].map((t) => Object.freeze({ ...t, roles: Object.freeze([...t.roles]) })));
+  // Fiche sécurité chantier (projet fiche-securite-chantier, tâche 7b ; décision
+  // de François du 25/11/2026 : admin + conducteur). S2 : aptitudes médicales,
+  // données confidentielles, administrateurs seulement.
+  { code: "S1", libelle: "Alertes fiche sécurité chantier", roles: ["admin", "conducteur"], push: true },
+  // rolesFixes : destinataires imposés, non modifiables dans Réglages (règle
+  // du projet : aptitudes médicales visibles des seuls admins).
+  { code: "S2", libelle: "Aptitude médicale expirée (confidentiel)", roles: ["admin"], rolesFixes: ["admin"], push: true },
+].map((t) => Object.freeze({ ...t, roles: Object.freeze([...t.roles]), ...(t.rolesFixes ? { rolesFixes: Object.freeze([...t.rolesFixes]) } : {}) })));
 
 export const CODES_TYPES = Object.freeze(CATALOGUE.map((t) => t.code));
 export const typeDuCatalogue = (code) => CATALOGUE.find((t) => t.code === code) || null;
@@ -107,9 +114,15 @@ export function normaliserReglages(brut) {
     if (!b || typeof b !== "object") { types[t.code] = def.types[t.code]; continue; }
     const roles = Array.isArray(b.roles) ? b.roles.map(nettoyerRole).filter(Boolean) : [...t.roles];
     if (roles.includes(ROLE_EXCLU)) avertissements.push(`${t.code} : rôle « ouvrier » retiré (aucune notification aux ouvriers).`);
+    let garde = [...new Set(roles.filter((r) => r !== ROLE_EXCLU))];
+    if (t.rolesFixes) {
+      const fixes = [...t.rolesFixes];
+      if (garde.some((r) => !fixes.includes(r))) avertissements.push(`${t.code} : destinataires imposés (${fixes.join(", ")}), autres rôles retirés.`);
+      garde = fixes;
+    }
     types[t.code] = {
       actif: b.actif !== false,
-      roles: [...new Set(roles.filter((r) => r !== ROLE_EXCLU))],
+      roles: garde,
     };
   }
 

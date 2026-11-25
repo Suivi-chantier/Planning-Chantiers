@@ -16,9 +16,14 @@
 // Jamais rendu pour le rôle « ouvrier » ni dans l'espace ouvrier (App.jsx).
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Bell, X, Check, RefreshCw } from "lucide-react";
+import { Bell, X, Check, RefreshCw, ShieldAlert } from "lucide-react";
 import { Icon } from "../ui";
 import { appelerFonction } from "./ProfilNotifications";
+import { typeDuCatalogue } from "../notificationsPushV1";
+
+// Icône propre à certains types (les autres gardent la pastille seule).
+// S1 / S2 : alertes de la fiche sécurité (tâche 7b du projet fiche sécurité).
+const ICONES_TYPE = { S1: ShieldAlert, S2: ShieldAlert };
 
 const FONCTION_BOITE = "notifications-boite";
 const PERIODE_MS = 60_000;
@@ -240,10 +245,13 @@ export function PanneauBoite({ boite, T, onClose, onNaviguer }) {
                     background: lue ? "transparent" : "#FFC200", border: lue ? `1px solid ${T.border}` : "none",
                   }}/>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                    <span style={{ fontSize: 14, fontWeight: lue ? 500 : 700 }}>{n.titre}</span>
+                    <span style={{ fontSize: 14, fontWeight: lue ? 500 : 700, display: "inline-flex", alignItems: "flex-start", gap: 6 }}>
+                      {ICONES_TYPE[n.type] && <Icon as={ICONES_TYPE[n.type]} size={15} color="#ef4444" style={{ marginTop: 2, flexShrink: 0 }}/>}
+                      <span>{n.titre}</span>
+                    </span>
                     {n.texte && <span style={{ fontSize: 13, lineHeight: 1.45, color: T.textSub, whiteSpace: "pre-line" }}>{n.texte}</span>}
                     <span style={{ fontSize: 11, color: T.textMuted }}>
-                      {dateLisible(n.created_at)} · {lue ? "lue" : "non lue"}
+                      {typeDuCatalogue(n.type) ? `${typeDuCatalogue(n.type).libelle} · ` : ""}{dateLisible(n.created_at)} · {lue ? "lue" : "non lue"}
                     </span>
                   </span>
                 </button>
