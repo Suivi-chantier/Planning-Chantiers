@@ -93,8 +93,8 @@ attendent l'accord de François.
 | 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | en ligne (fusion le 25/11/2026, 13 contrôles verts ; enregistrement du bloc Bâtiment à confirmer par François dans l'appli) | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | [#282](https://github.com/Suivi-chantier/Planning-Chantiers/pull/282) |
 | 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | en ligne (fusion le 25/11/2026 ; libellés des cases à faire relire par François — PDF v2 demandé ; rechargement d'une vraie fiche à confirmer dans l'appli) | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | [#283](https://github.com/Suivi-chantier/Planning-Chantiers/pull/283) |
 | 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | en ligne (fusion le 25/11/2026, 15 contrôles verts ; écritures essayées sur la vraie base en transaction annulée ; validation réelle à confirmer dans l'appli) | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | [#284](https://github.com/Suivi-chantier/Planning-Chantiers/pull/284) |
-| 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; écritures essayées sur la vraie base en transaction annulée ; génération réelle à confirmer dans l'appli) | Auto | PDF conforme au modèle v2 avec signatures | [#285](https://github.com/Suivi-chantier/Planning-Chantiers/pull/285) |
-| 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | à faire | Auto | Propositions justes sur des chantiers réels (phasage, planning) | — |
+| 5 | Export PDF charte Profero, généré et stocké à chaque validation + entrée `journalMaj.js` (fin de la première livraison) | en ligne (fusion le 25/11/2026, 20 contrôles verts ; génération réelle à confirmer dans l'appli) — **première livraison complète** | Auto | PDF conforme au modèle v2 avec signatures | [#285](https://github.com/Suivi-chantier/Planning-Chantiers/pull/285) |
+| 6 | Pré-remplissage : module de calcul pur (`.mjs` + façade), propositions avec raison, alertes de divergence + `verif-*` | en cours (demande de fusion ouverte, contrôles GitHub à attendre ; propositions calculées sur 3 vrais chantiers, voir comptes rendus) | Auto | Propositions justes sur des chantiers réels (phasage, planning) | [#286](https://github.com/Suivi-chantier/Planning-Chantiers/pull/286) |
 | 7 | Cycle de vie : étape `fiche_securite`, blocage du passage en cours + forçage admin tracé dans `chantiers_statut_journal`, verrouillage à « terminé », alertes `notifications` | à faire | Auto | Passage en cours refusé sans fiche validée ; forçage visible dans l'historique | — |
 | 8 | Équipe : signature d'accueil côté ouvrier (mobile), « signée sur la v1 », nouvelle version proposée quand un prestataire arrive au planning | à faire | Auto | Un ouvrier signe à son nom et ne peut rien modifier d'autre | — |
 | 9 | Espace « Justificatifs entreprise », rattachement automatique, alertes 30 jours, « Dossier de contrôle » (ZIP) + entrée `journalMaj.js` | à faire | **Arrêt** : nouvelle page, qui la voit | Aptitudes médicales invisibles pour un non-admin, ZIP sans documents confidentiels | — |
@@ -481,6 +481,74 @@ tâche 3 par l'enregistrement automatique).
   sur la page Opérations, bloc Bâtiment, 12 points, justificatifs,
   signatures, validation, PDF).
 
+**25/11/2026 — Tâche 6 : pré-remplissage.**
+
+- **Sources relevées sur la vraie base (lecture seule).** Lots : planning_config
+  « lots_travaux » — `demolition`, `maconnerie`, `murs_cloison`,
+  `electricite`, `plomberie`, `menuiserie`, `ouvertures`, `finitions_gen`, et
+  deux lots créés dans l'appli dont l'identifiant est généré : « Sol »
+  (`lot_1783405744817`) et « Plafond » (`lot_1783409027948`). Le code d'un
+  ouvrage est en tête de son libellé (« PL-002 : … »), lu par
+  `codeOuvrage.mjs` ; **beaucoup d'ouvrages n'ont pas de code** (« Faux-plafond
+  SDB », « Pose d'un carrelage »…) et 45 ouvrages n'ont pas de lot (dont
+  « Divers / hors devis » sur 31 chantiers). `planning_resources` : 13
+  personnes et **un seul prestataire, nommé « Externe »** (3 cases au planning,
+  semaines 20 à 22) ; le planning contient aussi d'anciens noms absents des
+  ressources (Stev, Yann, Julien) et des véhicules (semaine 13).
+  `securite_operations` : **0 ligne** (aucun bâtiment saisi).
+- **Liste unique des déclencheurs** : `DECLENCHEURS_PRE_REMPLISSAGE` dans
+  `securite/points.mjs`, avec l'origine de chaque code. Chute de hauteur :
+  lot Plafond, préfixes PL et COUV, LOC-001 (échafaudage), V-002 (sortie de
+  toiture), D-014 (dépose faux-plafond, écrit aussi « D-14 »), D-020
+  (trémie), D-031 (dépose menuiserie extérieure), fenêtres / portes-fenêtres /
+  baies / fenêtres de toit ME-021 à 024, 031 à 040, 044 à 049. Poussières :
+  lots démolition, maçonnerie, murs-cloisons + S-004, S-007, P-1005, D-023,
+  ME-0014. Dépose des sanitaires : D-004, D-015, D-016, D-017, D-026. Les
+  mots du libellé (faux-plafond, fenêtre, carrelage, « dépose » + WC…) ne
+  servent **que pour un ouvrage sans code** : un code non listé fait foi
+  (« E-006 … plafonnier » n'est pas une chute de hauteur). `concerneSi` de
+  chaque point = énoncé de la règle.
+- **Module pur** `securitePreRemplissage.mjs` (+ façade). Règle d'inconnu :
+  source absente ou illisible = « à compléter » avec la raison, jamais « non
+  concerné » ; « non concerné » seulement si la donnée existe et dit non.
+  Conversion semaine + jour → date dans le module (semaine 53 gérée, semaine
+  impossible = case signalée « illisible », pas de date inventée). Les points
+  qui dépendent d'autres (10, 3, 12) prennent la réponse de la fiche si elle
+  est choisie, sinon la proposition, et le disent.
+- Choix faits (spécification muette) : responsable jamais proposé (décision
+  du 25/11, saisi à la main) ; EPI de base proposés = chaussures et gants ;
+  harnais proposé si le point 5 est concerné et qu'aucune protection
+  collective n'est cochée au point 5 (trémies protégées, échafaudage, PIRL,
+  protection collective) ; travail isolé compté par chantier, en signalant
+  les jours où quelqu'un travaille sur un autre chantier de la même opération
+  (autre logement du même immeuble) ; quantités du point 8 : bons remplacés
+  par leur BL et lignes de migration écartés (même règle que
+  `achatsParMois.mjs`), « plaque » seul écarté (une plaque d'interrupteur
+  n'est pas une plaque de plâtre — vu sur FOURMOND 001), sacs = « sac » ou
+  20 kg et plus.
+- **Écran** : sur chaque carte (1 à 12), encadré « Proposé : statut — raison »
+  et bouton « Appliquer la proposition ». Le bouton ajoute (entreprises,
+  lots, cases, jours isolés dans les mesures, lignes de risques vides), ne
+  retire rien, et applique le statut proposé ; la date de dépose proposée
+  remplace celle du point 2 seulement par ce clic. Une proposition « à
+  compléter » n'a pas de bouton. Un choix manuel de statut enregistre aussi
+  `statut_propose` / `raison_proposition` (trace de la proposition vue).
+  **Rien n'est écrit à l'ouverture** : une fiche ouverte et non touchée reste
+  à 0/12, et rien n'est écrit dans `reponses` pour les points 1 à 3 (la vue
+  compte toute clé).
+- **Divergences** : calculées contre la fiche ENREGISTRÉE ; statut choisi ≠
+  proposition recalculée (sauf si la fiche porte déjà cette même proposition :
+  la personne l'a tranchée), prestataire du planning absent du point 1, lot du
+  phasage absent du point 2, date de dépose différente. Brouillon : encadré
+  orange « à revoir » ; fiche validée : « pour information » seulement.
+- Données : `chargerDonneesPreRemplissage` dans `securiteDonnees.js`, lecture
+  seule, phasage par le service existant `loadPhasagesPourLiaison`
+  (`null` = échec, absent = pas de phasage), planning paginé (1 000 lignes).
+- Script ajusté : `verif-securite-fiche.mjs` exigeait `concerneSi: null`
+  (état de la tâche 3) ; il exige maintenant un énoncé. Nouveau :
+  `verif-securite-preremplissage.mjs` + workflow. Aucune migration, aucune
+  écriture en base, aucune page ajoutée à `src/access.js`.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -753,3 +821,83 @@ Chrome, l'appli passe par `html2pdf` : rendu très proche mais pas identique,
 notamment les coupures de page) — à faire une fois en ligne, sur la première
 fiche validée ; la compilation et les autres contrôles sont faits par GitHub.
 
+### 25/11/2026 — Tâche 6 : l'appli propose une réponse pour chaque point
+
+**Ce qui change à l'écran** (fiche d'un chantier, ouverte depuis le bouton
+« Fiche sécurité » de la page Opérations) :
+
+- Sur chaque point, un encadré **« Proposé : Concerné — Lot Démolition au
+  phasage »** : la proposition et sa raison, recalculées à chaque ouverture à
+  partir du phasage, du planning, des commandes et du bâtiment.
+- Un bouton **« Appliquer la proposition »** recopie la proposition dans la
+  fiche : il ajoute ce qui manque (entreprises du planning, lots, date de
+  dépose des sanitaires, cases EPI, jours de travail isolé, lignes de
+  risques) et **ne retire jamais** ce que vous avez saisi. Sans clic, rien
+  n'est rempli et rien n'est validé.
+- Quand une donnée manque, la proposition dit **« À compléter »** et pourquoi
+  (« Date du permis inconnue : données du bâtiment jamais saisies sur
+  l'opération »), jamais « Non concerné ».
+- Si le phasage ou le planning change après vos réponses, un encadré orange
+  en haut de la fiche le signale (« Le phasage contient maintenant le lot
+  Démolition : absent du point 2 »). Sur une fiche validée, il s'affiche pour
+  information seulement.
+
+**Propositions calculées sur 3 vrais chantiers** — requête de lecture sur la
+vraie base le 25/11/2026, passée au module de l'appli. Le bloc Bâtiment n'est
+rempli pour aucune opération (0 ligne) : les points 4 et 8 sont donc « à
+compléter » partout, et le point 3 le signale.
+
+| Point | FOUGERAY APPT 101 (planifié) | KATHLEEN T2 (en cours) | FOURMOND 001 (en cours) |
+|---|---|---|---|
+| 1 Intervenants | Profero seule, aucun prestataire au planning | idem | idem |
+| 2 Données de base | Lots Électricité, Murs-cloisons, Plomberie, Menuiserie, Démolition, Sol, Plafond ; aucune dépose de WC / lavabo / douche au phasage | mêmes lots ; 1 ouvrage sans lot (« Divers / hors devis ») ; aucune dépose de sanitaires | mêmes lots sans Démolition ; aucune dépose de sanitaires |
+| 3 Synthèse | Chute de hauteur / Électricité / Poussières (amiante non évalué : point 4 à compléter) | idem | idem |
+| 4 Amiante | À compléter : date du permis inconnue (bâtiment jamais saisi) | idem | idem |
+| 5 Chute de hauteur | Concerné : PL-002 faux-plafond (lot Plafond) | Concerné : « Faux-plafond SDB » (lot Plafond) | Concerné : fenêtres ME-032, ME-033, porte-fenêtre ME-023, faux-plafond PL-001 |
+| 6 Électricité | Concerné, lot Électricité : habilitation exigée | idem | idem |
+| 7 Poussières | Concerné : lots Murs-cloisons, Démolition | Concerné : lots Murs-cloisons, Démolition ; carrelage S-004 | Concerné : lot Murs-cloisons |
+| 8 Manutention | À compléter (étage, ascenseur) ; aucune commande | À compléter ; commandé : 17 plaques, 2 sacs | À compléter ; commandé : 73 plaques, 22 sacs, 6 menuiseries |
+| 9 Travail isolé | Concerné : 16 jours sur 37 avec une seule personne (1er : 11/12/2026 Venceslas) ; les 16 ont quelqu'un sur un autre logement de l'opération | Concerné : 2 jours sur 17 (13/10 et 26/10/2026, Steven) | Non concerné : toujours au moins 2 personnes sur 36 jours |
+| 10 EPI | Chaussures, gants, FFP3, protections auditives, harnais | idem | Chaussures, gants, FFP3, harnais |
+| 11 Sanitaires | Concerné, pas de dépose au phasage | idem | idem |
+| 12 Coordination | Non concerné : une seule entreprise | idem | idem |
+
+**Résultats surprenants, à regarder :**
+
+- **Aucun bâtiment n'est saisi** : tant que le bloc Bâtiment de l'opération
+  est vide, amiante et manutention restent « à compléter » sur toutes les
+  fiches.
+- **Aucune dépose de sanitaires datée** sur ces 3 chantiers, alors que
+  FOUGERAY 101 et FOURMOND 001 ont une salle de bain neuve (P-021.2) : les
+  devis ne contiennent pas d'ouvrage « dépose de WC / lavabo / douche »
+  (D-015, D-016…). La date de dépose reste donc à saisir à la main.
+- **FOUGERAY 101 : 16 jours « seul »** sur le logement, mais chaque fois
+  quelqu'un travaille sur un autre appartement du même immeuble. La règle de
+  la spécification (« une seule personne sur le chantier ») les compte ; à
+  vous de dire si un collègue dans l'appartement voisin suffit.
+- **FOURMOND 001** est proposé « chute de hauteur » à cause du remplacement
+  de fenêtres (menuiserie extérieure, comme le demande la spécification),
+  même s'il s'agit probablement d'un rez-de-chaussée.
+- **Un seul prestataire existe dans l'appli, nommé « Externe »** : les
+  sous-traitants ne sont pas identifiés au planning, donc le point 1 propose
+  presque toujours « Profero seule » et le point 12 « non concerné ».
+- Le harnais est proposé dès qu'un point 5 est concerné, tant qu'aucune
+  protection collective n'est cochée au point 5 (règle de la
+  spécification) : il disparaît quand on coche « PIRL prévues » ou
+  « trémies protégées ».
+
+**Qui le voit.** Les mêmes personnes que la page Opérations (admin, direction,
+conducteurs, comptable, commercial, chargés d'affaires). Pas les ouvriers.
+Aucune nouvelle page, aucune migration, aucune écriture en base.
+
+**Vérifié.** Nouveau contrôle automatique (15 vérifications, exemples issus
+des tests, données fictives) lancé en local : tout passe — chaque règle, cas
+inconnus, conversion semaine / jour (semaine 53 de 2026), ordre des risques,
+divergences, « Appliquer » qui n'enlève rien. Tableau ci-dessus : vraies
+données (requête de lecture), calculé par le module de l'appli ; pour ce
+calcul, le planning des autres logements de l'opération a été limité aux
+jours utiles et les libellés raccourcis, sans effet sur les statuts.
+**Pas vérifié** depuis l'environnement de Claude : l'écran dans un
+navigateur (encadrés, bouton « Appliquer », encadré des divergences) — à
+faire une fois en ligne ; la compilation et les autres contrôles sont faits
+par GitHub.

@@ -47,7 +47,8 @@ test("1. 12 points dans l'ordre du PDF v2, sections et clés", () => {
     assert.equal(p.cle, `p${i + 1}`);
     assert.ok(p.titre && typeof p.titre === "string");
     assert.ok("concerneSi" in p, `point ${p.numero} : emplacement concerneSi`);
-    assert.equal(p.concerneSi, null, `point ${p.numero} : règle « concerné si » pas encore implémentée (tâche 6)`);
+    // Tâche 6 : énoncé de la règle de proposition (calcul : securitePreRemplissage.mjs).
+    assert.ok(typeof p.concerneSi === "string" && p.concerneSi.length > 0, `point ${p.numero} : règle « concerné si » énoncée`);
   });
   assert.deepEqual(POINTS_FICHE.slice(0, 3).map((p) => p.section), ["intervenants", "donnees_base", "synthese"]);
   assert.deepEqual(POINTS_CARTES.map((p) => p.numero), [4, 5, 6, 7, 8, 9, 10, 11, 12]);

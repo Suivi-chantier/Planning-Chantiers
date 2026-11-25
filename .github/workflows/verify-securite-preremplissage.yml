@@ -1,0 +1,31 @@
+name: Verify Fiche sécurité chantier (pré-remplissage)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/securite/**'
+      - 'src/Renovation/securitePreRemplissage.mjs'
+      - 'src/Renovation/securitePreRemplissage.js'
+      - 'src/Renovation/securiteFiche.mjs'
+      - 'src/Renovation/securiteDonnees.js'
+      - 'src/Renovation/codeOuvrage.mjs'
+      - 'src/Renovation/FicheSecuriteChantier.jsx'
+      - 'src/access.js'
+      - 'scripts/verif-securite-preremplissage.mjs'
+      - '.github/workflows/verify-securite-preremplissage.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fiche sécurité — propositions automatiques, inconnus, semaine → date, divergences (module pur, exemples fictifs)
+        run: node scripts/verif-securite-preremplissage.mjs
