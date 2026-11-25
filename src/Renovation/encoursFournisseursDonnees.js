@@ -17,7 +17,7 @@ import { lireDonneesEncoursFournisseurs } from "./encoursFournisseursLecture.mjs
 /**
  * Les quatre lectures de la page, en parallèle.
  * Rend { fournisseurs, commandes, factures, facturesBl } (tableaux, vides si la
- * lecture a échoué — comportement de la page, inchangé) et `erreur` (message de
+ * lecture a échoué) et `erreur` (message de
  * la première lecture en échec, sinon null) pour qui doit la signaler.
  */
 export function chargerDonneesEncoursFournisseurs() {

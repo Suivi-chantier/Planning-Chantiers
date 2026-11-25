@@ -36,6 +36,10 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);        // { mois, fournisseur, montant, paye }
+  // Lecture en échec : message explicite, jamais « 0 € » ni « Aucune dépense »
+  // (une impossibilité doit rester visible — CLAUDE.md).
+  const [erreur, setErreur] = useState(null);
+  const [essai, setEssai] = useState(0);
   const [fFilter, setFFilter] = useState("all");
   const [ouverts, setOuverts] = useState({});     // { [mois]: true } — mois déplié
   const [vue, setVue] = useState(lireVue);         // "echeance" | "achat"
@@ -44,13 +48,22 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      // Erreur de lecture : comportement inchangé (liste vide), voir encoursFournisseursDonnees.js.
-      const donnees = await chargerDonneesEncoursFournisseurs();
-      const arr = itemsEncoursFournisseurs(donnees);
-      setItems(arr);
+      setErreur(null);
+      let donnees;
+      try {
+        donnees = await chargerDonneesEncoursFournisseurs();
+      } catch (e) {
+        donnees = { erreur: e?.message || String(e) };
+      }
+      if (donnees?.erreur) {
+        setItems([]);
+        setErreur(donnees.erreur);
+      } else {
+        setItems(itemsEncoursFournisseurs(donnees));
+      }
       setLoading(false);
     })();
-  }, []);
+  }, [essai]);
 
   const fournisseurs = [...new Set(items.map(i => i.fournisseur))].sort((a, b) => a.localeCompare(b));
   const filtered = fFilter === "all" ? items : items.filter(i => i.fournisseur === fFilter);
@@ -133,13 +146,13 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
           <h1 style={{ margin: 0, fontSize: FONT.xl.size, fontWeight: 800, color: T.text }}>Encours fournisseurs</h1>
           <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>{sousTitre}</div>
         </div>
-        <button onClick={onPDF} title="Exporter en PDF" style={{
+        {onPDF && <button onClick={onPDF} title="Exporter en PDF" style={{
           display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0,
           background: "transparent", border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
           padding: "8px 12px", color: T.textSub, fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
         }}>
           <Icon as={Printer} size={14} /> PDF
-        </button>
+        </button>}
       </div>
       <div role="tablist" aria-label="Regroupement" style={{ display: "flex", gap: 4, padding: 4, marginBottom: SPACING.md, background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.md }}>
         {[["echeance", "Par échéance de paiement"], ["achat", "Par mois d'achat"]].map(([v, lib]) => (
@@ -157,6 +170,28 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
       <div style={page}>
         <VueAchatsParMois T={T} acc={acc} entete={entete} />
         <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
+      </div>
+    );
+  }
+
+  // Lecture en échec : ni cartes, ni liste, ni PDF — un état inconnu ne doit pas
+  // ressembler à « 0 € à payer » ou à « Aucune dépense enregistrée ».
+  if (!loading && erreur) {
+    return (
+      <div style={page}>
+        {entete({ sousTitre: EXPLICATION_ENCOURS, onPDF: null })}
+        <div role="alert" data-encours-erreur style={{ ...card, padding: "18px 20px", borderColor: SEMANTIC.danger?.border || T.border }}>
+          <div style={{ fontWeight: 800, color: SEMANTIC.danger?.color || T.text, marginBottom: 6 }}>
+            L'encours fournisseurs n'a pas pu être lu.
+          </div>
+          <div style={{ fontSize: FONT.sm.size, color: T.textSub, marginBottom: 12 }}>
+            Les montants ne sont pas affichés tant que la lecture n'a pas réussi, pour ne pas montrer de chiffre faux. Détail : {erreur}
+          </div>
+          <button onClick={() => setEssai(n => n + 1)} style={{
+            background: "transparent", border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+            padding: "8px 14px", color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+          }}>Réessayer</button>
+        </div>
       </div>
     );
   }
