@@ -560,7 +560,7 @@ Tous les nouveaux fichiers vivent dans `src/Renovation/planV2/` (modules purs `.
   | **Métrés comparés**, relevé brut contre relevé redressé (sol, périmètre, plafond, murs bruts, plinthes, murs nets ; par pièce et au total) | 54 | 78 |
   | — différents à la précision affichée | **0** | **0** |
   | — différents en valeur exacte | 38 | 48 |
-  | — écart le plus grand | 0,00035 | 0,00135 |
+  | — écart le plus grand | 0,00035 m² (murs nets) ; périmètre : 0,00014 m ; sol : 0,00004 m² | 0,00135 m² (murs) ; périmètre : 0,00054 m ; sol : 0,00035 m² |
   | Murs du modèle (tâche 1), avant → après | 95 → 95, mêmes identifiants et mêmes types | 152 → 152, mêmes identifiants et mêmes types |
   | Ouvertures rattachées à un mur, avant → après | 55 sur 55 → 55 sur 55 | 3 sur 4 → 3 sur 4 |
   | Murs partagés dont les deux faces sont parallèles, avant → après | 8 → 13 sur 17 | 9 → 13 sur 22 |
