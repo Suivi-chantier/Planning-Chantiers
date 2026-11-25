@@ -8,8 +8,9 @@
 //     mise à jour de pdf_path des versions ; aucun droit DELETE ni TRUNCATE ;
 //     déclencheurs d'immuabilité (update, delete, truncate) ;
 //   - aptitudes médicales forcément confidentielles ;
-//   - bucket securite-confidentiel privé et couvert par le verrou de
-//     storage.objects, sans rien ajouter d'autre à la liste ;
+//   - buckets securite-confidentiel et securite-preuves privés, couverts par
+//     le verrou de storage.objects (rien d'autre ajouté à la liste), sans
+//     aucune policy UPDATE ni DELETE ;
 //   - signature d'accueil d'un ouvrier limitée à son compte, à la version en
 //     cours et aux chantiers non archivés ; aucune fonction SECURITY DEFINER.
 //   node scripts/verif-securite-fiches-migration.mjs
@@ -95,19 +96,30 @@ test("6. aptitude médicale toujours confidentielle, et réservée aux admins", 
   }
 });
 
-test("7. bucket securite-confidentiel : privé, réservé aux admins, couvert par le verrou de storage.objects", () => {
-  assert.match(sql, /insert into storage\.buckets \(id, name, public\) values \('securite-confidentiel', 'securite-confidentiel', false\)/);
+test("7. buckets securite-confidentiel et securite-preuves : privés, couverts par le verrou, rien ne s'y modifie ni ne s'y efface", () => {
+  for (const b of ["securite-confidentiel", "securite-preuves"]) {
+    assert.ok(sql.includes(`insert into storage.buckets (id, name, public) values ('${b}', '${b}', false)`), `${b} privé`);
+  }
   const verrou = policies.filter((p) => p.table === "storage.objects" && p.nom === "profero_collaborateurs_seulement");
   assert.equal(verrou.length, 1);
   assert.ok(verrou[0].restrictive && verrou[0].cmd === "all");
   assert.ok(sql.includes("drop policy if exists profero_collaborateurs_seulement on storage.objects"));
   const listes = [...verrou[0].corps.matchAll(/bucket_id not in \(([^)]*)\)/g)].map((m) => m[1].replace(/[' ]/g, "").split(",").sort());
   assert.equal(listes.length, 2, "using et with check");
-  for (const l of listes) assert.deepEqual(l, ["chantier-documents", "invest-documents", "photos", "securite-confidentiel"]);
-  for (const p of policies.filter((x) => x.table === "storage.objects" && !x.restrictive)) {
+  for (const l of listes) assert.deepEqual(l, ["chantier-documents", "invest-documents", "photos", "securite-confidentiel", "securite-preuves"]);
+  const stockage = policies.filter((x) => x.table === "storage.objects" && !x.restrictive);
+  assert.deepEqual(stockage.map((p) => p.nom).sort(), [
+    "securite confidentiel admin ecriture", "securite confidentiel admin lecture",
+    "securite preuves bureau ajout", "securite preuves bureau lecture",
+    "securite preuves ouvrier lecture", "securite preuves ouvrier signature"]);
+  for (const p of stockage) assert.ok(["select", "insert"].includes(p.cmd), `${p.nom} : ni update ni delete (pas d'écrasement)`);
+  for (const p of stockage.filter((x) => x.nom.startsWith("securite confidentiel"))) {
     assert.match(p.corps, /bucket_id = 'securite-confidentiel' and \(select public\.is_admin\(\)\)/, p.nom);
-    assert.ok(["select", "insert"].includes(p.cmd), `${p.nom} : ni update ni delete`);
   }
+  const sig = stockage.find((p) => p.nom === "securite preuves ouvrier signature");
+  assert.ok(sig.corps.includes("(storage.foldername(name))[1] = 'signatures'"), "ouvrier : seulement sous signatures/");
+  assert.ok(sig.corps.includes("from public.securite_fiches f"), "ouvrier : fiche qu'il voit");
+  assert.match(sql, /raise exception 'une policy permet de modifier ou supprimer un fichier/);
 });
 
 test("8. signature d'accueil d'un ouvrier : son compte, version en cours validée, chantier non archivé", () => {
@@ -127,7 +139,7 @@ test("9. vues en security_invoker, aucune fonction SECURITY DEFINER, garde-fou f
   assert.equal((sql.match(/create (or replace )?view/g) || []).length, 2);
   assert.ok(!/security definer/.test(sql), "aucune SECURITY DEFINER");
   assert.match(sql, /raise exception 'tables securite_ sans rls ou sans profero_collaborateurs_seulement/);
-  assert.match(sql, /raise exception 'bucket securite-confidentiel non couvert/);
+  assert.match(sql, /raise exception 'bucket securite-confidentiel ou securite-preuves non couvert/);
 });
 
 console.log(`\n${n} vérifications réussies (${fichiers[0]}).`);

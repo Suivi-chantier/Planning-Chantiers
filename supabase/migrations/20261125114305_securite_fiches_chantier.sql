@@ -3,9 +3,11 @@
 -- docs/projets/fiche-securite-chantier.md).
 --
 -- Additive : 5 tables securite_, 2 vues, déclencheurs d'immuabilité, droits,
--- un bucket privé securite-confidentiel. Aucune table existante n'est modifiée.
+-- deux buckets privés : securite-confidentiel (aptitudes médicales, admins) et
+-- securite-preuves (signatures et PDF de version, rien ne s'y efface).
+-- Aucune table existante n'est modifiée.
 -- Seul objet existant touché : la policy RESTRICTIVE profero_collaborateurs_seulement
--- de storage.objects, recréée à l'identique avec le nouveau bucket en plus.
+-- de storage.objects, recréée à l'identique avec les deux nouveaux buckets en plus.
 --
 -- Écarts avec le SQL de la spécification du 25/11/2026 (détail et raisons dans
 -- le journal du fichier projet) :
@@ -22,7 +24,11 @@
 --   f. colonnes qualifiées dans les sous-requêtes des policies ouvrier ;
 --   g. search_path figé sur les fonctions de déclencheur ;
 --   h. garde-fou final : la migration échoue si une table securite_ n'a pas la
---      RLS et profero_collaborateurs_seulement, ou si le bucket n'est pas couvert.
+--      RLS et profero_collaborateurs_seulement, si un bucket n'est pas couvert,
+--      ou si une policy permet de modifier / supprimer un fichier securite- ;
+--   i. bucket securite-preuves (décision de François du 25/11/2026) : images
+--      de signature et PDF de version, sans policy UPDATE ni DELETE, au lieu
+--      de chantier-documents où tout collaborateur peut effacer un fichier.
 -- ============================================================================
 
 -- 1. Données bâtiment, au niveau de l'opération
@@ -318,14 +324,41 @@ create policy "securite confidentiel admin lecture" on storage.objects for selec
 create policy "securite confidentiel admin ecriture" on storage.objects for insert to authenticated
   with check (bucket_id = 'securite-confidentiel' and (select public.is_admin()));
 
+-- 12. Preuves : images de signature et PDF de version (décision de François du
+-- 25/11/2026). Rien ne peut y être effacé ni écrasé : aucune policy UPDATE ni
+-- DELETE (un upsert est donc refusé). Chemins :
+--   signatures/{fiche_id}/…  (images de signature)
+--   versions/{fiche_id}/…    (PDF figés à chaque validation)
+-- Bureau : lecture et ajout partout. Ouvrier : lecture des preuves des fiches
+-- qu'il voit (chantiers non archivés), ajout seulement sous signatures/{fiche_id}/
+-- d'une fiche qu'il voit (la RLS de securite_fiches s'applique dans la sous-requête).
+insert into storage.buckets (id, name, public) values ('securite-preuves', 'securite-preuves', false)
+  on conflict (id) do nothing;
+
+create policy "securite preuves bureau lecture" on storage.objects for select to authenticated
+  using (bucket_id = 'securite-preuves' and (select not public.est_ouvrier()));
+create policy "securite preuves bureau ajout" on storage.objects for insert to authenticated
+  with check (bucket_id = 'securite-preuves' and (select not public.est_ouvrier()));
+create policy "securite preuves ouvrier lecture" on storage.objects for select to authenticated
+  using (bucket_id = 'securite-preuves' and (select public.est_ouvrier())
+         and (storage.foldername(name))[1] in ('signatures', 'versions')
+         and exists (select 1 from public.securite_fiches f
+                      where f.id::text = (storage.foldername(objects.name))[2]));
+create policy "securite preuves ouvrier signature" on storage.objects for insert to authenticated
+  with check (bucket_id = 'securite-preuves' and (select public.est_ouvrier())
+              and (storage.foldername(name))[1] = 'signatures'
+              and exists (select 1 from public.securite_fiches f
+                           where f.id::text = (storage.foldername(objects.name))[2]));
+
 -- Verrou commun (deny by default) : définition en place au 25/11/2026,
--- recréée à l'identique avec 'securite-confidentiel' en plus. Rien d'autre.
+-- recréée à l'identique avec 'securite-confidentiel' et 'securite-preuves' en
+-- plus. Rien d'autre.
 drop policy if exists profero_collaborateurs_seulement on storage.objects;
 create policy profero_collaborateurs_seulement on storage.objects as restrictive for all to authenticated
-  using (bucket_id not in ('chantier-documents', 'invest-documents', 'photos', 'securite-confidentiel') or (select public.est_collaborateur_actif()))
-  with check (bucket_id not in ('chantier-documents', 'invest-documents', 'photos', 'securite-confidentiel') or (select public.est_collaborateur_actif()));
+  using (bucket_id not in ('chantier-documents', 'invest-documents', 'photos', 'securite-confidentiel', 'securite-preuves') or (select public.est_collaborateur_actif()))
+  with check (bucket_id not in ('chantier-documents', 'invest-documents', 'photos', 'securite-confidentiel', 'securite-preuves') or (select public.est_collaborateur_actif()));
 
--- 12. Garde-fous : rien n'est appliqué si la couverture n'est pas complète.
+-- 13. Garde-fous : rien n'est appliqué si la couverture n'est pas complète.
 do $do$
 declare manquantes text;
 begin
@@ -343,8 +376,15 @@ begin
   if not exists (select 1 from pg_policies p
                   where p.schemaname = 'storage' and p.tablename = 'objects'
                     and p.policyname = 'profero_collaborateurs_seulement' and p.permissive = 'RESTRICTIVE'
-                    and p.qual like '%securite-confidentiel%' and p.with_check like '%securite-confidentiel%') then
-    raise exception 'Bucket securite-confidentiel non couvert par profero_collaborateurs_seulement';
+                    and p.qual like '%securite-confidentiel%' and p.with_check like '%securite-confidentiel%'
+                    and p.qual like '%securite-preuves%' and p.with_check like '%securite-preuves%') then
+    raise exception 'Bucket securite-confidentiel ou securite-preuves non couvert par profero_collaborateurs_seulement';
+  end if;
+  if exists (select 1 from pg_policies p
+              where p.schemaname = 'storage' and p.tablename = 'objects' and p.permissive = 'PERMISSIVE'
+                and p.cmd in ('UPDATE', 'DELETE', 'ALL')
+                and (p.qual like '%securite-%' or p.with_check like '%securite-%')) then
+    raise exception 'Une policy permet de modifier ou supprimer un fichier securite-confidentiel ou securite-preuves';
   end if;
 end
 $do$;

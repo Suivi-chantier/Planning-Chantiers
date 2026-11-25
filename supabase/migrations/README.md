@@ -237,7 +237,7 @@ la première n'ont jamais été mis en ligne. Détail :
 `docs/projets/editeur-plans.md`, « Arrêt du projet ».
 
 `20261125114305_securite_fiches_chantier.sql` **NON appliquée** (projet « fiche
-de préparation sécurité chantier », tâche 1) : en attente de l'accord de
-François, car elle touche aux droits d'accès. Essayée dans une transaction
-annulée sur la vraie base le 25/11/2026 (54 contrôles conformes, rien n'est
-resté). Détail : `docs/projets/fiche-securite-chantier.md`.
+de préparation sécurité chantier », tâche 1) : accord de François reçu le
+25/11/2026, application à faire (même nom). Essayée deux fois dans une
+transaction annulée sur la vraie base le 25/11/2026 (54 contrôles conformes à
+chaque fois, rien n'est resté). Détail : `docs/projets/fiche-securite-chantier.md`.

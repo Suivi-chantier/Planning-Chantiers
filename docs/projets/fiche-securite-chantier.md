@@ -89,7 +89,7 @@ attendent l'accord de François.
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | **en attente de François** (accord pour appliquer) | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | — (branche `claude/busy-cannon-n478wr`, pas encore de demande de fusion) |
+| 1 | Migration : 5 tables `securite_`, vues d'état, déclencheurs d'immuabilité, droits, dossier de stockage `securite-confidentiel` (avec le verrou `profero_collaborateurs_seulement`) ; script `verif-*` des règles de droits | **en cours** — accord de François reçu, `securite-preuves` ajouté et essayé ; application pas encore faite (voir journal) | **Arrêt avant application** (droits d'accès) | Essai dans une transaction annulée sur la vraie base ; tables, policies et verrou présents après application ; l'appli s'ouvre | — (branche `claude/busy-cannon-n478wr`, pas encore de demande de fusion) |
 | 2 | Page opération : bouton « Fiche sécurité », panneau des chantiers avec pastilles, bloc « Bâtiment » éditable | à faire | Auto | Pastilles justes sur une opération réelle ; bloc bâtiment relu après rechargement | — |
 | 3 | Fiche éditable : configuration des 12 points dans le code, bandeau, points 1 et 2 (responsable saisi à la main), cartes 4 à 12, synthèse, enregistrement automatique | à faire | Auto | Fiche remplie, rechargée, réponses intactes ; utilisable sur tablette | — |
 | 4 | Justificatifs de chantier, signatures « établie par » / « chef d'équipe », bouton « Valider » avec liste de ce qui manque, version figée + empreinte, lecture seule, « Mettre à jour » avec motif | à faire | Auto | Validation refusée tant qu'il manque un élément ; version et signature non modifiables | — |
@@ -174,6 +174,37 @@ comme dans la configuration (16 à l'étude, 10 planifiés, 20 en cours,
 « déjà en cours à la mise en service » (fiche brouillon + alerte, pas de
 blocage).
 
+**25/11/2026 — Réponse de François aux deux questions de la tâche 1 : « Oui et
+oui ».** 1) appliquer la migration ; 2) ajouter un espace de stockage où rien
+ne peut être effacé pour les images de signature et les PDF de version.
+
+- Ajouté à la même migration (pas encore appliquée) : bucket privé
+  `securite-preuves`. Chemins : `signatures/{fiche_id}/…` (images de
+  signature) et `versions/{fiche_id}/…` (PDF de version). **Ils ne vont plus
+  dans `chantier-documents`** (la spécification le prévoyait ; corrige aussi la
+  section « Stockage » pour les tâches 4, 5 et 8). Les autres justificatifs
+  restent dans `chantier-documents` sous `securite/…`.
+- Règles : bureau = lecture et dépôt partout ; ouvrier = lecture des preuves
+  des fiches qu'il voit, dépôt seulement sous `signatures/{fiche_id}/` d'une
+  fiche qu'il voit ; **aucune règle de modification ni de suppression**, pour
+  personne (un dépôt « remplacer si existe » est donc refusé). Bucket ajouté au
+  verrou `profero_collaborateurs_seulement` et au garde-fou final, qui refuse
+  aussi toute règle de modification / suppression sur un bucket `securite-`.
+- Conséquence pour l'appli : un fichier déposé ne se remplace pas ; une
+  nouvelle image ou un nouveau PDF prend un nouveau nom.
+- Deuxième essai complet dans une transaction annulée (vraie base) : 54
+  contrôles conformes, dont les nouveaux sur `securite-preuves`. Les essais
+  « supprimer un fichier » y étaient bloqués par la protection générale de
+  Supabase contre les suppressions directes, et « écraser » par une erreur de
+  syntaxe de l'essai, pas encore par les règles elles-mêmes. Un essai ciblé
+  (même protection levée comme le fait le service de stockage, écrasement
+  correctement écrit) a été lancé, mais l'outil de base de données a demandé
+  une confirmation restée sans réponse : **il n'a pas tourné**. Au vu des
+  règles, il doit montrer 0 fichier supprimé et l'écrasement refusé, car aucune
+  règle ne permet de modifier ou de supprimer un fichier de ce bucket.
+- **Pas encore appliquée** : à reprendre par cet essai ciblé, puis
+  l'application (même nom), puis les vérifications prévues.
+
 ## Comptes rendus
 
 ### 25/11/2026 — Liste des 24 chantiers sans statut
@@ -241,4 +272,13 @@ la comptable, un admin) et une fiche d'essai sur un chantier en cours :
    dossier de stockage à part où rien ne peut être supprimé (au lieu de
    `chantier-documents`, où tout collaborateur peut effacer un fichier) ?
    Si oui, je l'ajoute à cette même migration avant de l'appliquer.
+
+### 25/11/2026 — Tâche 1 : votre accord est noté, application à reprendre
+
+Vous avez répondu oui aux deux questions. Le dossier de stockage protégé
+`securite-preuves` est ajouté : les signatures et les PDF de chaque version y
+seront rangés, et personne, admin compris, ne pourra les effacer ni les
+remplacer. Un deuxième essai complet sur la vraie base, annulé ensuite, est
+conforme. La migration n'est pas encore appliquée : un dernier contrôle sur la
+suppression des fichiers attend une confirmation technique côté base.
 
