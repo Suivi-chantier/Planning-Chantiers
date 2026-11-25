@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
+    type: "correctif",
+    titre: "Lecture des factures fournisseurs : réservée aux comptes autorisés",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "La lecture automatique d'une facture fournisseur vérifie désormais qui la demande, comme le fait déjà la lecture des bons de livraison : il faut être connecté avec un compte actif de rôle administrateur, conducteur ou comptable. Auparavant, ce contrôle n'existait pas à cet endroit, et une personne extérieure aurait pu faire lire des documents aux frais de l'entreprise.",
+    comment: "Rien à faire pour les utilisateurs habituels de la page. Si votre session a expiré, la lecture affiche « Authentification requise » : reconnectez-vous puis relancez. Un compte d'un autre rôle voit un message « Accès refusé ».",
+  },
+  {
+    date: "2026-11-25",
     type: "amelioration",
     titre: "Fonctions d'intelligence artificielle : passage aux modèles les plus récents",
     pages: [],
