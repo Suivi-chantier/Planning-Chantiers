@@ -226,3 +226,12 @@ une transaction annulée. Re-synchronisation idempotente :
 le rôle une fois par requête au lieu d'une fois par ligne. Mêmes droits
 (vérifié : 60 tables × 5 rôles, 0 différence), après essai dans une transaction
 annulée. Retour arrière : `sql/202611_rls_bureau_role_verifie_une_fois_rollback.sql`.
+
+`20261125093119_plans_v2.sql` puis `20261125093401_plans_v2_retrait.sql`
+**appliquées le 25/11/2026** (projet « nouvel éditeur de plans », annulé par
+Loris le jour même) : la première crée la table `plans_v2`, la seconde la
+retire, vide (0 ligne), après essai dans une transaction annulée. Les deux
+restent ici parce que la base les a enregistrées toutes les deux ; la table
+n'existe plus. Le script et le retour arrière cités dans les commentaires de
+la première n'ont jamais été mis en ligne. Détail :
+`docs/projets/editeur-plans.md`, « Arrêt du projet ».
