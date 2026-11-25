@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
+    type: "amelioration",
+    titre: "Fiche sécurité : l'appli propose une réponse pour chaque point, à partir du phasage et du planning",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "En ouvrant la fiche sécurité d'un chantier, chaque point affiche une proposition et sa raison, tirées des données déjà saisies : lots et date de dépose des sanitaires du phasage ; faux plafonds, fenêtres, trémies ou toiture (chute de hauteur) ; démolition, cloisons, carrelage ou ponçage (poussières) ; jours où une seule personne est prévue au planning (travail isolé) ; prestataires présents au planning ; étage et ascenseur du bâtiment ; EPI à fournir ; risques principaux dans l'ordre amiante, chute de hauteur, électricité, poussières. Quand une donnée manque (date du permis non saisie, pas de phasage…), la proposition reste « À compléter » et le dit, elle ne répond jamais « Non concerné » à votre place. Si le phasage ou le planning change après coup, la fiche le signale (« Le phasage contient maintenant le lot Démolition : … revoir le point 7 »).",
+    comment: "Page Opérations → « Fiche sécurité » → « Ouvrir la fiche ». Sous le titre de chaque point, l'encadré « Proposé : … » donne la proposition et sa raison. Rien n'est rempli tant que vous ne cliquez pas sur « Appliquer la proposition » ; ce bouton ajoute ce qui manque (entreprises, lots, cases, jours isolés, lignes de risques vides) sans jamais retirer ce que vous avez saisi. Vous restez libre de choisir un autre statut : la fiche garde la trace de la proposition que vous aviez sous les yeux. En haut de la fiche, un encadré orange liste ce qui a changé depuis vos réponses ; sur une fiche déjà validée, il est affiché pour information seulement (rien n'est modifié ; « Mettre à jour » pour en tenir compte).",
+  },
+  {
+    date: "2026-11-25",
     type: "nouveaute",
     titre: "Fiche de préparation sécurité de chaque chantier : remplie, signée, validée et exportée en PDF",
     pages: [{ id: "operations", label: "Opérations" }],

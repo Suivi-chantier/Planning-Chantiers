@@ -9,6 +9,11 @@
 // archivage), signatures « établie par » et « chef d'équipe », validation avec
 // la liste de ce qui manque, version figée + empreinte, « Mettre à jour ».
 // Règles : securiteValidation.mjs ; contenu figé : securiteVersion.mjs.
+// Tâche 6 : pré-remplissage. Chaque carte affiche le statut proposé et sa
+// raison (securitePreRemplissage.mjs), recalculés à l'ouverture ; « Appliquer
+// la proposition » ne fait rien sans clic et n'enlève jamais une saisie. Les
+// divergences avec la fiche enregistrée sont signalées (à revoir en
+// brouillon, pour information sur une fiche validée).
 //
 // Enregistrement automatique avec anti-rebond. L'indicateur ne dit
 // « enregistré » qu'après une écriture réussie ; une écriture refusée ou en
@@ -37,7 +42,7 @@ import {
   chargerFiche, chargerBatiment, enregistrerFiche,
   chargerJustificatifs, ajouterJustificatif, archiverJustificatif, urlJustificatif, urlImageSignature,
   chargerSignatures, chargerVersions, chargerMotifVersion, empreinteContenu,
-  signerFiche, validerFicheSecurite, mettreAJourFiche, dateDuJourLocale,
+  signerFiche, validerFicheSecurite, mettreAJourFiche, dateDuJourLocale, chargerDonneesPreRemplissage,
 } from "./securiteDonnees.js";
 import {
   SIGNATURES_REQUISES, etatValidation, justificatifsDuPoint, justificatifsRequisManquants, typesJustificatifPoint,
@@ -47,6 +52,10 @@ import { contenuVersion, empreinteCourte, MOTIF_MIN } from "./securiteVersion.js
 import { ACCEPT_DOCS } from "./storageChantier.js";
 import SignatureFicheSecurite from "./SignatureFicheSecurite.jsx";
 import { genererPdfVersion, apercuPdfBrouillon, telechargerPdfVersion } from "./securitePdfRendu.js";
+import {
+  proposerPreRemplissage, divergencesPreRemplissage, appliquerProposition, estampillerProposition,
+  propositionDejaAppliquee, texteAidesManutention, dateFr as dateFrIso,
+} from "./securitePreRemplissage.js";
 import { chargerClients, libelleClient } from "./clientsDonnees.js";
 import { clientEffectifId } from "./progbatAutomatisation.js";
 
@@ -199,6 +208,41 @@ function Justificatifs({ T, acc, point, ctx, styles, concerne }) {
   );
 }
 
+/**
+ * Proposition automatique d'un point (tâche 6) : statut proposé et raison,
+ * divergence éventuelle avec la fiche enregistrée, bouton « Appliquer ».
+ * `etat` : { charge, erreur } du chargement des sources.
+ */
+function Proposition({ T, acc, prop, etat, divergences = [], modifiable, dejaAppliquee, onAppliquer, avecStatut = true, children = null }) {
+  if (!etat.charge) return <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic", marginBottom: 8 }}>Proposition automatique : chargement…</div>;
+  if (!prop) return <div style={{ fontSize: 12, color: ROUGE, fontWeight: 600, marginBottom: 8 }}>Proposition automatique impossible{etat.erreur ? ` (${etat.erreur})` : ""}.</div>;
+  const couleur = prop.statut_propose === "concerne" ? acc.accent : prop.statut_propose === "non_concerne" ? T.textSub : ORANGE;
+  return (
+    <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: RADIUS.lg, border: `1px dashed ${T.border}`, fontSize: 12.5, color: T.textSub }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <span style={{ fontWeight: 700, color: T.textMuted }}>Proposé{avecStatut ? " : " : ""}</span>
+          {avecStatut && <b style={{ color: couleur }}>{libelleStatutPoint(prop.statut_propose)}</b>}
+          {" — "}{prop.raison_proposition}
+        </div>
+        {modifiable && prop.applicable !== false && (
+          <button onClick={onAppliquer} disabled={dejaAppliquee}
+            title={dejaAppliquee ? "La fiche contient déjà tout ce qui est proposé" : "Recopie la proposition dans la fiche (rien de ce qui est déjà saisi n'est retiré)"}
+            style={{ padding: "6px 11px", minHeight: 34, borderRadius: RADIUS.md, border: `1px solid ${dejaAppliquee ? T.border : acc.border}`,
+              background: dejaAppliquee ? "transparent" : acc.bg10, color: dejaAppliquee ? T.textMuted : acc.accent, fontWeight: 700, fontSize: 12,
+              cursor: dejaAppliquee ? "default" : "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+            {dejaAppliquee ? "Proposition appliquée" : "Appliquer la proposition"}
+          </button>
+        )}
+      </div>
+      {children}
+      {divergences.map((d, i) => (
+        <div key={i} style={{ marginTop: 6, fontWeight: 700, color: ORANGE }}>⚠ {d.message}</div>
+      ))}
+    </div>
+  );
+}
+
 function ChoixStatut({ T, acc, valeur, modifiable, onChange }) {
   const v = valeur || "a_completer";
   return (
@@ -220,7 +264,7 @@ function ChoixStatut({ T, acc, valeur, modifiable, onChange }) {
   );
 }
 
-function CartePoint({ T, acc, point, reponse, modifiable, onChange, styles, ctxJustifs }) {
+function CartePoint({ T, acc, point, reponse, modifiable, onChange, styles, ctxJustifs, proposition = null }) {
   const r = reponse && typeof reponse === "object" && !Array.isArray(reponse) ? reponse : {};
   const cases = r.cases && typeof r.cases === "object" ? r.cases : {};
   const statutInconnu = r.statut !== undefined && !STATUTS_POINT.some((s) => s.id === r.statut);
@@ -229,11 +273,7 @@ function CartePoint({ T, acc, point, reponse, modifiable, onChange, styles, ctxJ
       droite={statutInconnu
         ? <span style={{ fontSize: 12, fontWeight: 700, color: ROUGE }}>{libelleStatutPoint(r.statut)}</span>
         : <ChoixStatut T={T} acc={acc} valeur={r.statut} modifiable={modifiable} onChange={(s) => onChange({ statut: s })}/>}>
-      {r.statut_propose != null && (
-        <div style={{ fontSize: 12, color: T.textSub, marginBottom: 8 }}>
-          Proposé : <b>{libelleStatutPoint(r.statut_propose)}</b>{r.raison_proposition ? ` — ${r.raison_proposition}` : ""}
-        </div>
-      )}
+      {proposition}
       <div className="fsc-cases" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "2px 14px", opacity: r.statut === "non_concerne" ? 0.6 : 1 }}>
         {point.cases.map((c) => (
           <label key={c.code} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 4px", minHeight: 36, cursor: modifiable ? "pointer" : "default", fontSize: 13, color: T.text }}>
@@ -276,6 +316,8 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   const [messageDoc, setMessageDoc] = useState(null);
   // Tâche 5 : PDF des versions (génération en cours, erreurs par version, aperçu)
   const [pdfEtat, setPdfEtat] = useState({ enCours: null, erreurs: {}, message: null, apercu: false });
+  // Tâche 6 : sources du pré-remplissage (phasage, planning, ressources, commandes)
+  const [sourcesPre, setSourcesPre] = useState({ charge: false, donnees: null, erreur: null });
   const aujourdhui = dateDuJourLocale();
 
   const formRef = useRef(null);
@@ -313,6 +355,17 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
     loadLots().then((l) => actif && Array.isArray(l) && l.length && setLots(l)).catch(() => {});
     return () => { actif = false; };
   }, [op.id]);
+
+  // Tâche 6 : sources des propositions, relues à chaque ouverture de la fiche.
+  useEffect(() => {
+    let actif = true;
+    setSourcesPre({ charge: false, donnees: null, erreur: null });
+    chargerDonneesPreRemplissage({ chantier, op })
+      .then((d) => actif && setSourcesPre({ charge: true, donnees: d, erreur: null }))
+      .catch((e) => actif && setSourcesPre({ charge: true, donnees: null, erreur: e?.message || String(e) }));
+    return () => { actif = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chantier.id, op.id]);
 
   // ── Tâche 4 : justificatifs, signatures, versions, motif de la version ──
   const ficheId = lecture.ligne?.id || null;
@@ -401,6 +454,47 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
   const contenuCompte = prep?.ok ? prep.contenu : lecture.ligne;
   const nbPoints = compterPointsCompletes(contenuCompte);
   const etatPoints = etatDesPoints(contenuCompte);
+
+  // ── Tâche 6 : propositions (sur le contenu affiché) et divergences (avec la
+  // fiche ENREGISTRÉE). Bâtiment pas encore lu = pas de proposition.
+  const propositions = sourcesPre.charge && sourcesPre.donnees && batiment.charge
+    ? proposerPreRemplissage({ ...sourcesPre.donnees, batiment: { ligne: batiment.ligne, erreur: batiment.erreur }, lots, fiche: contenuCompte })
+    : null;
+  const etatPre = { charge: sourcesPre.charge && batiment.charge, erreur: sourcesPre.erreur };
+  const propositionsEnregistrees = sourcesPre.charge && sourcesPre.donnees && batiment.charge && ligneEnregistree
+    ? proposerPreRemplissage({ ...sourcesPre.donnees, batiment: { ligne: batiment.ligne, erreur: batiment.erreur }, lots, fiche: ligneEnregistree })
+    : null;
+  const divergences = propositionsEnregistrees ? divergencesPreRemplissage({ propositions: propositionsEnregistrees, fiche: ligneEnregistree, lots }) : [];
+  const divergencesDe = (numero) => divergences.filter((d) => d.numero === numero);
+  const appliquer = (prop) => modifier((f) => appliquerProposition(f, prop, { auteur, maintenant: new Date().toISOString(), nouvelId }));
+  const propositionDe = (numero, extra = null) => {
+    const prop = propositions?.points[`p${numero}`] || null;
+    return (
+      <Proposition T={T} acc={acc} prop={prop} etat={etatPre} divergences={divergencesDe(numero)} modifiable={modifiable}
+        avecStatut={numero > 3} dejaAppliquee={!form || !prop || propositionDejaAppliquee(form, prop)} onAppliquer={() => prop && appliquer(prop)}>
+        {extra}
+      </Proposition>
+    );
+  };
+  // Détail affiché sous la proposition : quantités (8), jours isolés (9), EPI (10).
+  const extraProposition = (numero) => {
+    const v = propositions?.points[`p${numero}`]?.valeurs;
+    if (!v) return null;
+    if (numero === 8 && v.aides) return <div style={{ marginTop: 4 }}>{texteAidesManutention(v.aides)}</div>;
+    if (numero === 9 && v.jours?.length) {
+      return (
+        <div style={{ marginTop: 4 }}>
+          {v.jours.slice(0, 12).map((j) => `${dateFrIso(j.date)} ${j.personne}${j.autresSurOperation?.length ? ` (autres logements : ${j.autresSurOperation.join(", ")})` : ""}`).join(" · ")}
+          {v.jours.length > 12 ? ` · et ${v.jours.length - 12} autres jours` : ""}
+        </div>
+      );
+    }
+    if (numero === 10 && v.epi?.length) {
+      const pt = POINTS_CARTES.find((x) => x.numero === 10);
+      return <div style={{ marginTop: 4 }}>EPI proposés : {v.epi.map((c) => pt.cases.find((x) => x.code === c)?.libelle || c).join(", ")}</div>;
+    }
+    return null;
+  };
   const indic = libelleEnregistrement(mode.modifiable && !lecture.erreur ? enreg.etat : "lecture_seule");
   const couleurIndic = indic.ton === "ok" ? VERT : indic.ton === "erreur" ? ROUGE : indic.ton === "attente" ? ORANGE : T.textMuted;
 
@@ -638,6 +732,18 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
               {messageDoc && (
                 <div style={{ marginBottom: 12, fontSize: 12.5, color: ROUGE, fontWeight: 600 }}>{messageDoc}</div>
               )}
+              {divergences.length > 0 && (
+                <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 10, fontSize: 12.5,
+                  background: statutFiche === "brouillon" ? "rgba(245,166,35,.12)" : "rgba(91,106,138,.10)",
+                  border: `1px solid ${statutFiche === "brouillon" ? "rgba(245,166,35,.45)" : "rgba(91,106,138,.4)"}`, color: T.text }}>
+                  <div style={{ fontWeight: 800, marginBottom: 4, color: statutFiche === "brouillon" ? ORANGE : T.textSub }}>
+                    {statutFiche === "brouillon"
+                      ? "Les données du chantier ont changé depuis les réponses enregistrées : à revoir"
+                      : "Pour information : les données du chantier ne correspondent plus à cette version (aucune modification faite ; « Mettre à jour » pour en tenir compte)"}
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>{divergences.map((d, i) => <li key={i}>Point {d.numero} — {d.message}</li>)}</ul>
+                </div>
+              )}
               {enreg.etat === "enregistre" && enreg.messages.length > 0 && (
                 <div style={{ marginBottom: 12, fontSize: 12.5, color: ORANGE }}>{enreg.messages.map((m, i) => <div key={i}>{m}</div>)}</div>
               )}
@@ -673,6 +779,10 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
 
               {/* ── Point 1 : intervenants ── */}
               <Carte T={T} numero={1} titre={p1.titre} objet={p1.objet}>
+                {propositionDe(1, propositions?.points.p1.valeurs.entreprises?.length ? (
+                  <div style={{ marginTop: 4 }}>Entreprises proposées : {propositions.points.p1.valeurs.entreprises.map((e) => e.nom).join(", ")}
+                    {propositions.points.p1.valeurs.personnes?.length ? ` · personnes de Profero au planning : ${propositions.points.p1.valeurs.personnes.join(", ")}` : ""}</div>
+                ) : null)}
                 <div className="fsc-grille" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
                   <div>
                     <label style={styles.label}>Responsable du chantier</label>
@@ -726,6 +836,7 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
 
               {/* ── Point 2 : données de base ── */}
               <Carte T={T} numero={2} titre={p2.titre} objet={p2.objet}>
+                {propositionDe(2)}
                 <label style={styles.label}>Lots prévus</label>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
                   {[...lots.map((l) => ({ id: l.id, label: l.label })), ...lotsInconnus.map((id) => ({ id, label: `lot inconnu (${id})` }))].map((l) => {
@@ -794,11 +905,19 @@ export default function FicheSecuriteChantier({ T, acc, op, chantier, profil = n
               {/* ── Points 4 à 12 ── */}
               {POINTS_CARTES.map((p) => (
                 <CartePoint key={p.cle} T={T} acc={acc} point={p} reponse={form.reponses[p.cle]} modifiable={modifiable} styles={styles} ctxJustifs={ctxJustifs}
-                  onChange={(chg) => modifier((f) => modifierPoint(f, p.cle, chg, { auteur, maintenant: new Date().toISOString() }))}/>
+                  proposition={propositionDe(p.numero, extraProposition(p.numero))}
+                  onChange={(chg) => modifier((f) => {
+                    const g = modifierPoint(f, p.cle, chg, { auteur, maintenant: new Date().toISOString() });
+                    // Un choix de statut garde la trace de la proposition vue à ce moment-là.
+                    return chg.statut !== undefined ? estampillerProposition(g, p.cle, propositions?.points[p.cle]) : g;
+                  })}/>
               ))}
 
               {/* ── Point 3 : synthèse des risques ── */}
               <Carte T={T} numero={3} titre={p3.titre} objet={p3.objet}>
+                {propositionDe(3, propositions?.points.p3.valeurs.risques?.length ? (
+                  <ol style={{ margin: "4px 0 0", paddingLeft: 18 }}>{propositions.points.p3.valeurs.risques.map((r, i) => <li key={i}>{r}</li>)}</ol>
+                ) : null)}
                 {Array.from({ length: Math.max(NB_LIGNES_SYNTHESE, form.synthese.length) }).map((_, i) => {
                   const l = form.synthese[i];
                   if (l !== undefined && typeof l !== "string") {

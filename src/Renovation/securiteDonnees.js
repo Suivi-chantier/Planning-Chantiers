@@ -18,6 +18,7 @@ import {
 } from "./securiteVersion.js";
 import { etatValidation, justificatifsPourPastille } from "./securiteValidation.js";
 import { cheminPdfVersion } from "./securitePdf.js";
+import { loadPhasagesPourLiaison } from "./phasagePlanning.js";
 
 const COLS_ETAT = "fiche_id, chantier_id, version, statut, points_completes, signe_etablie_par, signe_chef_equipe, nb_signatures_accueil, nb_justificatifs_chantier, demarrage_force";
 const COLS_BATIMENT = "operation_id, date_permis_construire, avant_1997, avant_1949, copropriete, etage, ascenseur_utilisable, reperage_amiante_statut, notes, maj_par, updated_at";
@@ -500,4 +501,86 @@ export async function enregistrerPdfVersion({ ligne, blob }) {
 export async function urlPdfVersion(path, nomFichier) {
   const url = await urlPreuveSecurite(path, 600, { download: nomFichier || true });
   return { url, erreur: url ? null : (derniereErreurDocument() || "lecture impossible") };
+}
+
+// ─── Tâche 6 : pré-remplissage (lecture seule) ───────────────────────────────
+// Sources des propositions (règles : securitePreRemplissage.mjs, module pur).
+// Chaque source a sa propre erreur : une source illisible donne « à
+// compléter » avec la raison, jamais « non concerné ». Aucune écriture.
+//   - phasage : même lecture que la page Planning (loadPhasagesPourLiaison :
+//     null = lecture en échec, chantier absent = pas de phasage) ;
+//   - planning : planning_cells des chantiers non archivés de l'opération
+//     (celui de la fiche + les autres, pour signaler les jours isolés où
+//     quelqu'un travaille sur un autre logement du même bâtiment) ;
+//   - ressources : planning_resources (reconnaître les prestataires) ;
+//   - commandes : commande_lignes du chantier, en aide au point 8 (bons
+//     remplacés par leur BL et lignes de migration écartés, même règle que
+//     achatsParMois.mjs : une livraison n'est pas comptée deux fois).
+
+const PAGE = 1000;
+async function toutesLesLignes(requete) {
+  const out = [];
+  for (let debut = 0; ; debut += PAGE) {
+    const { data, error } = await requete().range(debut, debut + PAGE - 1);
+    if (error) return { data: null, error };
+    out.push(...(data || []));
+    if (!data || data.length < PAGE) return { data: out, error: null };
+  }
+}
+
+/**
+ * Tout ce qu'il faut pour calculer les propositions d'une fiche.
+ * → { phasage, planning, planningOperation, ressources, commandes } (chacun avec son `erreur`)
+ */
+export async function chargerDonneesPreRemplissage({ chantier, op }) {
+  const id = String(chantier.id);
+  const lirePhasage = async () => {
+    try {
+      const m = await loadPhasagesPourLiaison([id]);
+      if (m === null) return { ouvrages: null, erreur: "lecture du phasage impossible" };
+      return { ouvrages: m[id] ? m[id].ouvrages : null, erreur: null };
+    } catch (e) { return { ouvrages: null, erreur: msg(e) }; }
+  };
+  const lirePlanning = async () => {
+    try {
+      let ids = [id];
+      const noms = {};
+      let erreurOp = null;
+      if (op?.id) {
+        const { data, error } = await supabase.from("chantiers").select("id, nom, archive_le").eq("operation_id", String(op.id));
+        if (error) erreurOp = error.message;
+        else (data || []).filter((c) => !c.archive_le).forEach((c) => { noms[c.id] = c.nom; if (c.id !== id) ids.push(c.id); });
+      }
+      const { data, error } = await toutesLesLignes(() => supabase.from("planning_cells")
+        .select("chantier_id, week_id, jour, ouvriers").in("chantier_id", ids).order("id"));
+      if (error) return { planning: { cellules: null, erreur: error.message }, planningOperation: { cellules: null, erreur: error.message } };
+      return {
+        planning: { cellules: data.filter((c) => c.chantier_id === id), erreur: null },
+        planningOperation: erreurOp ? { cellules: null, erreur: erreurOp } : { cellules: data.filter((c) => c.chantier_id !== id), nomsChantiers: noms, erreur: null },
+      };
+    } catch (e) {
+      return { planning: { cellules: null, erreur: msg(e) }, planningOperation: { cellules: null, erreur: msg(e) } };
+    }
+  };
+  const lireRessources = async () => {
+    try {
+      const { data, error } = await supabase.from("planning_resources").select("id, nom, nom_planning, kind, actif");
+      return error ? { liste: null, erreur: error.message } : { liste: data || [], erreur: null };
+    } catch (e) { return { liste: null, erreur: msg(e) }; }
+  };
+  const lireCommandes = async () => {
+    try {
+      const { data: lignes, error } = await toutesLesLignes(() => supabase.from("commande_lignes")
+        .select("id, commande_id, libelle, quantite, unite, lot_id").eq("chantier_id", id).order("id"));
+      if (error) return { lignes: null, erreur: error.message };
+      const idsCmd = [...new Set(lignes.map((l) => l.commande_id).filter(Boolean))];
+      if (!idsCmd.length) return { lignes: [], erreur: null };
+      const { data: cmds, error: e2 } = await supabase.from("commandes").select("id, source, remplace_par_id").in("id", idsCmd);
+      if (e2) return { lignes: null, erreur: e2.message };
+      const ecartees = new Set((cmds || []).filter((c) => c.source === "migration" || c.remplace_par_id).map((c) => c.id));
+      return { lignes: lignes.filter((l) => !ecartees.has(l.commande_id)), erreur: null };
+    } catch (e) { return { lignes: null, erreur: msg(e) }; }
+  };
+  const [phasage, pl, ressources, commandes] = await Promise.all([lirePhasage(), lirePlanning(), lireRessources(), lireCommandes()]);
+  return { phasage, planning: pl.planning, planningOperation: pl.planningOperation, ressources, commandes };
 }
