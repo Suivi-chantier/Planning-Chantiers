@@ -929,7 +929,10 @@ Nettoyage complet demandé par Loris, fait le 25/11/2026 :
   pièces éloignés ; aucune vraie porte ni fenêtre placée ; un redressement
   qui laisse 16 et 23 points à valider ; des métrés identiques à l'affichage
   à la création du plan, mais de justesse.
-- **Restent en place** : les branches `projet/editeur-plans-…` sur GitHub
-  (elles contiennent le code retiré, si une autre manière de procéder voulait
-  le reprendre) et les quatre images des relevés réels remises à Loris dans
-  la conversation.
+- **Branches** : à la demande de Loris (« supprime aussi les branches du
+  projet »), les branches `projet/editeur-plans-…` ont été supprimées de
+  GitHub. Le code des tâches 1, 2 et 6a reste lisible dans l'historique de
+  `main` (demandes de fusion #269, #271, #272) ; celui de la tâche 3, jamais
+  fusionné, n'existe plus que dans la demande #274 fermée.
+- **Reste en place** : les quatre images des relevés réels remises à Loris
+  dans la conversation.
