@@ -423,7 +423,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   });
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", minHeight:0 }}>
+    <div style={{ flex:1, display:"flex", flexDirection:"column", minHeight:0, minWidth:0 }}>
       <style>{`
         .cell-with-agenda:hover .cell-agenda-btn { opacity: .85 !important; pointer-events: auto !important; }
         .cell-with-agenda .cell-agenda-btn:hover { opacity: 1 !important; }
@@ -570,12 +570,14 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
 
       {/* ── HEADER ── */}
       <div className="planning-header" style={{
-        padding:"14px 28px",
+        padding: isMobile ? "12px 12px" : "14px 28px",
         borderBottom:`1px solid ${T.headerBorder}`,
-        display:"flex", alignItems:"center", gap:14,
-        flexWrap:"wrap", background: T.surface,
+        display:"flex", alignItems:"center", gap: isMobile ? 10 : 14,
+        flexWrap:"wrap", background: T.surface, minWidth:0,
       }}>
-        <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+        {/* Retour à la ligne autorisé : sur téléphone, « Semaine · rythme · lignes liées »
+            ne doit pas imposer sa largeur à toute la page (débordement à droite). */}
+        <div style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap", rowGap:6, minWidth:0 }}>
           <span className="planning-title" style={{
             fontSize: FONT.xl.size, fontWeight: 800, letterSpacing: -0.3, color: T.text,
           }}>

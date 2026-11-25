@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-25",
     type: "correctif",
+    titre: "Planning semaine sur téléphone : la page tient de nouveau dans l'écran",
+    pages: [{ id: "planning", label: "Planning semaine" }],
+    quoi: "Sur téléphone, la page Planning semaine débordait à droite : la ligne « Semaine 48 · 2026 · Semaine de 4 jours · 69 % des lignes liées » ne pouvait pas passer à la ligne et élargissait toute la page, si bien que les boutons Simulation et Référence, les chiffres de la semaine et le bord droit des cartes de chantier sortaient de l'écran. Cette ligne passe désormais à la ligne quand la place manque, et toute la page tient dans la largeur du téléphone.",
+    comment: "Rien à faire. Sur ordinateur, la page ne change pas.",
+  },
+  {
+    date: "2026-11-25",
+    type: "correctif",
     titre: "Mail récap du vendredi : les matériaux à commander de la semaine prochaine, comme sur la page Commandes à passer",
     pages: [{ id: "planning-commandes", label: "Commandes à passer" }, { id: "dashboard", label: "Tableau de bord" }],
     quoi: "La partie « Commandes prévisionnelles » du mail récap des commandes du vendredi annonçait toujours « Aucun matériau prévisionnel à commander aujourd'hui » : elle lisait une ancienne saisie des matériaux, abandonnée depuis que les matériaux sont rattachés aux ouvrages du phasage. Elle devient « Matériaux à commander · semaine prochaine » et liste exactement les articles de l'onglet « Semaine prochaine » de la page Commandes à passer (bouton « Commandes de la semaine »), les mêmes que le bloc « Matériaux à commander » du tableau de bord : nombre d'articles, puis par chantier le nombre d'articles et la première date de besoin, puis chaque article (quantité, ouvrage, chantier, date de besoin). La date de besoin est la date prévue la plus proche des tâches de l'ouvrage.",
