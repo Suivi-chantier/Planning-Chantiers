@@ -1693,3 +1693,12 @@ Aucun chiffre financier touché.
 (démarrage bloqué, verrouillage), accueil des ouvriers, travail isolé,
 alertes dans la cloche, page « Justificatifs entreprise », dossier de
 contrôle et alerte 30 jours.
+
+### 26/11/2026 — Premier envoi réel des alertes sécurité : conforme
+
+Vérifié sur la base à 7h50 (Paris) : la tâche planifiée
+`profero_push_alertes_securite` a tourné à 6h35 (rien envoyé, avant 7h, comme
+prévu) puis à 7h35 (succès). 4 notifications S1 créées à 7h35 (une par
+admin), 10 alertes inscrites dans `notifications_etat` (les 10 chantiers
+planifiés sans fiche : LOUISON 1 à 4, FOUGERAY ×6). Conforme à l'essai du
+25/11.
