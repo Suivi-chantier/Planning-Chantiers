@@ -56,12 +56,16 @@ const json = (corps: unknown, status = 200) =>
 const refus = (r: { status: number; code: string; message: string }) =>
   json({ error: { code: r.code, message: r.message } }, r.status)
 
-// Où lire les références d'un BL selon le fournisseur. « Votre commande » chez
+// Où lire les références d'un BL selon le fournisseur. Würth (comptoir) : pas
+// de n° de BL séparé ; « Livraison/Date 8173115263/ … » donne numero_livraison
+// (et bl_numero), « Commande 2283584033 » le n° de commande. « Votre commande » chez
 // Rexel est la référence DU CLIENT (souvent un nom de chantier), jamais un
 // numéro de commande fournisseur.
 const REGLES_REFERENCES = `Références d'un BL :
 - date_livraison : date d'expédition ou de livraison du BL (Rexel : « expédié le »).
-- commande_numero : numéro de commande DU FOURNISSEUR, recopié tel qu'imprimé, chiffres et séparateurs seulement (Rexel : le numéro qui suit « Notre Réf: », sans la date « du … » — « Notre Réf: 4900000917429 du 22/09/2026 » donne "4900000917429" ; Partedis : « Cde No » ; Zolpan : « N° Cde »). Aucun numéro de commande fournisseur imprimé pour ce BL : null.
+- commande_numero : numéro de commande DU FOURNISSEUR, recopié tel qu'imprimé, chiffres et séparateurs seulement (Rexel : le numéro qui suit « Notre Réf: », sans la date « du … » — « Notre Réf: 4900000917429 du 22/09/2026 » donne "4900000917429" ; Partedis : « Cde No » ; Zolpan : « N° Cde » ; Würth : le numéro qui suit « Commande », ex. « Commande 2283584033 » donne "2283584033", jamais « Votre n° de cde » qui est la référence du client). Aucun numéro de commande fournisseur imprimé pour ce BL : null.
+- numero_livraison : numéro de livraison imprimé, recopié tel quel, sans la date (Würth : « Livraison/Date 8173115263/ 29.10.2026 » donne "8173115263" ; Partedis : « Livraison No »). Absent : null.
+- bl_numero chez Würth (achat comptoir, une facture par passage) : la facture n'imprime pas de n° de BL séparé ; le BL est le numéro de livraison, donc bl_numero = numero_livraison. Ne jamais mettre le numéro de facture ni le n° de commande dans bl_numero.
 - reference_client : référence donnée PAR LE CLIENT (Rexel : tout le texte qui suit « Votre commande », « Chantier n° … » compris, ex. « FOURMOND Chantier n° TLV » ; Partedis : « V/ref client » ; Zolpan : « Réf. de cde client »).
 - Chez Rexel, « Votre commande » est TOUJOURS la référence client, JAMAIS le numéro de commande : « Votre commande : FOURMOND » ou « Votre commande : TOUR BOUTON » vont dans reference_client. Un nom, un mot ou un nom de chantier ne va jamais dans commande_numero.`
 
@@ -72,6 +76,7 @@ Réponds uniquement par un objet JSON valide. N'invente jamais un numéro ou un 
 Format attendu :
 {
  "bl_numero": "numéro du BL tel qu'imprimé",
+ "numero_livraison": "numéro de livraison ou null",
  "date_bl": "AAAA-MM-JJ ou null",
  "commande_numero": "numéro de commande fournisseur ou null",
  "reference_client": "référence client ou null",
@@ -226,7 +231,7 @@ Format attendu :
  "montant_tva": 0.0,
  "montant_ttc": 0.0,
  "bls": [
-  {"bl_numero":"numéro BL ou null","commande_numero":"numéro de commande fournisseur ou null","date_livraison":"AAAA-MM-JJ ou null","reference_client":"référence client ou null","montant_ht":0.0}
+  {"bl_numero":"numéro BL ou null","numero_livraison":"numéro de livraison ou null","commande_numero":"numéro de commande fournisseur ou null","date_livraison":"AAAA-MM-JJ ou null","reference_client":"référence client ou null","montant_ht":0.0}
  ],
  "frais": [{"libelle":"libellé","montant_ht":0.0}],
  "incertitudes": ["motif éventuel"]

@@ -215,3 +215,97 @@ test("le n° de BL reste prioritaire sur le n° de commande", () => {
   assert.equal(r.rapprochements[0].document.id, "bl");
   assert.equal(r.rapprochements[0].mode, "numero");
 });
+
+// ── Würth (tâche 3) — exemples issus des tests, données fictives reprenant les
+// n° du cahier : facture 4336131218 du 29/10/2026, 61,08 € HT, « Commande
+// 2283584033 », « Livraison/Date 8173115263/ 29.10.2026 ».
+const REGLES_WURTH = { alias: ["Würth France", "WURTH PROXI SHOP"], numero_facture_d_abord: true };
+const docWurth = (x) => ({ fournisseur_id: "wurth", statut_facturation: "en_attente_facture", date_doc: "2026-10-29", ...x });
+const factureWurth = (bl = {}) => ({ fournisseurId: "wurth", dateFacture: "2026-10-29", regles: REGLES_WURTH,
+  livraisons: [{ bl_numero: null, numero_livraison: "8173115263", commande_numero: "2283584033",
+    facture_numero: "4336131218", date_livraison: "2026-10-29", montant_ht: 61.08, ...bl }] });
+
+test("Würth : ticket comptoir 4336131218 (même n° que la facture) trouvé via le n° de facture", () => {
+  const r = rapprocherFacture({ ...factureWurth(), documents: [
+    docWurth({ id: "ticket", doc_type: "ticket", doc_numero: "4336131218", montant_ht: 61.08 }),
+    docWurth({ id: "autre", doc_type: "ticket", doc_numero: "4336038499", date_doc: "2026-10-19", montant_ht: 163.26 })] });
+  const a = r.rapprochements[0];
+  assert.equal(a.document.id, "ticket");
+  assert.equal(a.mode, "numero_facture");
+  assert.equal(a.confirmationRequise, false);
+  assert.equal(a.conforme, true);
+  assert.equal(a.ecartCentimes, 0);
+});
+
+test("Würth : ticket saisi avec le n° de livraison 8173115263 trouvé (bl_numero absent → numero_livraison)", () => {
+  const r = rapprocherFacture({ ...factureWurth(), documents: [
+    docWurth({ id: "liv", doc_type: "ticket", doc_numero: "8173115263", montant_ht: 61.08 })] });
+  assert.equal(r.rapprochements[0].document.id, "liv");
+  assert.equal(r.rapprochements[0].mode, "numero");
+  assert.equal(r.rapprochements[0].conforme, true);
+});
+
+test("Würth : achat saisi avec le n° de commande 2283584033 trouvé si même montant", () => {
+  const r = rapprocherFacture({ ...factureWurth(), documents: [
+    docWurth({ id: "cde", doc_type: "bl", doc_numero: "BL-COMPTOIR", numero_commande_fournisseur: "2283584033", montant_ht: 61.08 })] });
+  assert.equal(r.rapprochements[0].document.id, "cde");
+  assert.equal(r.rapprochements[0].mode, "commande");
+});
+
+test("Würth : ticket absent → BL manquant, sans écart fantôme", () => {
+  const r = rapprocherFacture({ ...factureWurth(), documents: [
+    docWurth({ id: "juillet", doc_type: "bl", doc_numero: "8160735781", date_doc: "2026-07-13", montant_ht: 22.24 }),
+    docWurth({ id: "autre", doc_type: "ticket", doc_numero: "4336038499", date_doc: "2026-10-19", montant_ht: 163.26 })] });
+  const a = r.rapprochements[0];
+  assert.equal(a.document, null);
+  assert.equal(a.conforme, false);
+  assert.equal(a.ecartCentimes, undefined);
+  assert.deepEqual(a.propositions, []);
+  assert.equal(statutLiaisonBl({ commande_id: null, montant_ht: 61.08 }), "manquant");
+});
+
+test("Würth : même n° de facture mais montant différent → proposition, jamais un écart automatique", () => {
+  const r = rapprocherFacture({ ...factureWurth(), documents: [
+    docWurth({ id: "ticket", doc_type: "ticket", doc_numero: "4336131218", montant_ht: 59.10 })] });
+  const a = r.rapprochements[0];
+  assert.equal(a.document, null);
+  assert.equal(a.confirmationRequise, true);
+  assert.deepEqual(a.propositions.map(p => [p.document.id, p.mode]), [["ticket", "numero_facture"]]);
+});
+
+test("Würth : n° de facture d'abord, puis n° de livraison si le ticket ne correspond pas en montant", () => {
+  const r = rapprocherFacture({ ...factureWurth(), documents: [
+    docWurth({ id: "ticket", doc_type: "ticket", doc_numero: "4336131218", montant_ht: 59.10 }),
+    docWurth({ id: "bl", doc_type: "bl", doc_numero: "8173115263", montant_ht: 61.08 })] });
+  assert.equal(r.rapprochements[0].document.id, "bl");
+  assert.equal(r.rapprochements[0].mode, "numero");
+  // Würth : n° de facture prioritaire quand les deux conviennent.
+  const r2 = rapprocherFacture({ ...factureWurth(), documents: [
+    docWurth({ id: "bl", doc_type: "bl", doc_numero: "8173115263", montant_ht: 61.08 }),
+    docWurth({ id: "ticket", doc_type: "ticket", doc_numero: "4336131218", montant_ht: 61.08 })] });
+  assert.equal(r2.rapprochements[0].document.id, "ticket");
+  assert.equal(r2.rapprochements[0].mode, "numero_facture");
+});
+
+test("Rexel inchangé avec le n° de facture transmis : le n° de BL reste prioritaire", () => {
+  const r = rapprocherFacture({ fournisseurId: "rexel", dateFacture: "2026-10-31", regles: REGLES_REXEL,
+    livraisons: [{ bl_numero: "CL-4900-619330811-02", facture_numero: "961106792", montant_ht: 120.5 },
+      { bl_numero: "000383104", facture_numero: "961106792", montant_ht: 100.12 }],
+    documents: [docRexel({ id: "fact", doc_numero: "961106792", montant_ht: 120.5 }),
+      docRexel({ id: "cl", doc_numero: "619330811-02 / 4900", montant_ht: 120.5 }),
+      docRexel({ id: "bl", doc_numero: "383104 / 4900", montant_ht: 100 })] });
+  assert.deepEqual(r.rapprochements.map(x => [x.document?.id, x.mode]), [["cl", "numero"], ["bl", "numero"]]);
+  // Le BL exact lie même si le montant diffère (écart signalé).
+  assert.equal(r.rapprochements[1].ecartCentimes, 12);
+});
+
+test("n° de facture en dernier recours (Rexel, Partedis) : montant égal exigé", () => {
+  const base = { fournisseurId: "partedis", dateFacture: "2026-10-31", regles: { montant_bl: "total_ht_facture", retirerClient: true } };
+  const doc = (montant_ht) => ({ id: "f", fournisseur_id: "partedis", statut_facturation: "en_attente_facture", date_doc: "2026-10-20", doc_numero: "9302111/571678", montant_ht });
+  const ok = rapprocherFacture({ ...base, livraisons: [{ bl_numero: "12196097/ 571678", facture_numero: "9302111", montant_ht: 52.61 }], documents: [doc(52.61)] });
+  assert.equal(ok.rapprochements[0].document.id, "f");
+  assert.equal(ok.rapprochements[0].mode, "numero_facture");
+  const ko = rapprocherFacture({ ...base, livraisons: [{ bl_numero: "12196097/ 571678", facture_numero: "9302111", montant_ht: 52.61 }], documents: [doc(48)] });
+  assert.equal(ko.rapprochements[0].document, null);
+  assert.deepEqual(ko.rapprochements[0].propositions.map(p => p.mode), ["numero_facture"]);
+});

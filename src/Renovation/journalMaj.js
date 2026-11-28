@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
     type: "amelioration",
+    titre: "Factures Würth : le ticket comptoir est retrouvé par le n° de la facture",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Chez Würth (comptoir Proxi Shop, une facture par passage), le ticket remis au comptoir porte le même n° que la facture (4336…). Quand c'est ce ticket qui a été saisi, la facture le retrouve maintenant toute seule. Elle le retrouve aussi s'il a été saisi avec le n° de livraison (81…) ou avec le n° de commande Würth (« Commande 228… »). Pour Rexel, Partedis et Zolpan, rien ne change : le n° de BL reste la première clé.",
+    comment: "Rien à faire : à la lecture d'une facture Würth, l'achat apparaît « Apparié » avec la mention « via n° de facture » (ou « via n° de commande »). L'appariement n'est automatique que si le montant est le même ; sinon l'achat est seulement proposé dans « Correspondances possibles » et c'est vous qui choisissez. Si aucun achat n'a été saisi pour ce passage, la ligne reste « BL manquant », sans écart de montant inventé.",
+  },
+  {
+    date: "2026-11-28",
+    type: "amelioration",
     titre: "Factures Rexel : un BL est retrouvé par son n° de commande (« Notre Réf ») quand le montant est le même",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
     quoi: "Sur une facture Rexel, chaque BL porte « Notre Réf » : c'est le n° de commande Rexel (agence 4900 ou 4903 + n° de commande). Quand un achat a été saisi avec ce n° de commande plutôt qu'avec le n° de BL (par exemple à partir de l'accusé de réception, « 4900-000917429 »), le BL de la facture lui est maintenant relié automatiquement, sans confirmation, si les montants sont égaux. « Votre commande » (FOURMOND, TOUR BOUTON…) est la référence du chantier donnée au comptoir : elle n'est plus jamais prise pour un n° de commande.",
