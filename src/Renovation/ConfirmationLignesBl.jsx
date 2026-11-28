@@ -3,7 +3,7 @@ import { FONT, RADIUS, SPACING, SEMANTIC, guessLotId } from "../constants";
 import { Icon } from "../ui";
 import { Loader2, Check, X, AlertTriangle, Split, Trash2, Plus } from "lucide-react";
 import { NATURES_COUT, lignesChantierSansLot, messageLotObligatoire, natureSaisie } from "./saisieLotNature.js";
-import { preparerLignesBl, diviserLigne } from "./saisieBlFacture.js";
+import { preparerLignesBl, diviserLigne, totalLigne } from "./saisieBlFacture.js";
 
 // Fenêtre commune à « Saisir ce BL depuis la facture » (Rapprochement factures)
 // et « Compléter avec le PDF du BL » (fiche d'une commande). Mêmes possibilités
@@ -17,7 +17,7 @@ const dateFr = (d) => (d ? new Date(d + "T00:00:00").toLocaleDateString("fr-FR")
 const txt = (v) => (v == null ? "" : String(v));
 
 export default function ConfirmationLignesBl({
-  titre, etat, erreur, lecture, controle, montantBl, toleranceHt = 0.05, chantiers = [], propositions, lots = [],
+  titre, etat, message, erreur, lecture, controle, montantBl, toleranceHt = 0.05, chantiers = [], propositions, lots = [],
   alertes = [], libelleValider = "Créer la commande", T, acc, onConfirmer, onAnnuler, enregistrement,
 }) {
   const [chantierCommun, setChantierCommun] = useState(propositions?.propose || "");
@@ -75,7 +75,7 @@ export default function ConfirmationLignesBl({
           <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
             {etat === "lecture" && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.textSub, fontSize: FONT.sm.size }}>
-                <Icon as={Loader2} size={18} className="spin" /> Lecture du détail du BL…
+                <Icon as={Loader2} size={18} className="spin" /> {message || "Lecture du détail du BL…"}
               </div>
             )}
             {erreur && (
@@ -137,8 +137,8 @@ export default function ConfirmationLignesBl({
                       </div>
                       {l.reference && <div style={{ fontSize: FONT.xs.size, color: T.textSub, fontFamily: "monospace", marginBottom: 6 }}>{l.reference}</div>}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
-                        <input inputMode="decimal" value={l.quantite} onChange={e => setLigne(i, { quantite: e.target.value })} placeholder={`Qté (${l.unite || "U"})`} style={inp} />
-                        <input inputMode="decimal" value={l.prix_unitaire} onChange={e => setLigne(i, { prix_unitaire: e.target.value })} placeholder="PU €" style={inp} />
+                        <input inputMode="decimal" value={l.quantite} onChange={e => { const t = totalLigne(e.target.value, l.prix_unitaire); setLigne(i, t != null ? { quantite: e.target.value, prix_total: String(t) } : { quantite: e.target.value }); }} placeholder={`Qté (${l.unite || "U"})`} style={inp} />
+                        <input inputMode="decimal" value={l.prix_unitaire} onChange={e => { const t = totalLigne(l.quantite, e.target.value); setLigne(i, t != null ? { prix_unitaire: e.target.value, prix_total: String(t) } : { prix_unitaire: e.target.value }); }} placeholder="PU €" style={inp} />
                         <input inputMode="decimal" value={l.prix_total} onChange={e => setLigne(i, { prix_total: e.target.value })} placeholder="Total €" style={inp} />
                       </div>
                       {repartir && (

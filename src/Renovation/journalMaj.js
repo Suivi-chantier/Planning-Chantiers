@@ -24,6 +24,38 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
+    type: "amelioration",
+    titre: "Saisie commande : BL sans prix (Wurth) complétés avec les prix de la facture",
+    pages: [{ id: "capture-cmd", label: "Saisie commande (mobile)" }],
+    quoi: "Les BL Wurth ne portent pas de prix : « Compléter avec le PDF du BL » donnait des lignes à 0 €. Désormais, les prix manquants sont repris, par référence article, des lignes déjà connues de la commande, puis de la facture du BL si elle est déjà enregistrée dans Rapprochement factures. Dans la fenêtre, saisir le prix unitaire calcule aussi le total de la ligne.",
+    comment: "Rien à faire de plus : un message dans la fenêtre indique d'où viennent les prix, ou combien de lignes restent sans prix.",
+  },
+  {
+    date: "2026-11-28",
+    type: "correctif",
+    titre: "Rapprochement factures Partedis : plus de faux écart dû aux frais de port",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Chez Partedis, le bon d'emporte est valorisé frais de port, énergie et éco-taxe compris. La lecture de la facture sortait pourtant le port en frais séparés : le BL apparaissait en écart (ex. −10 €) et ces frais risquaient d'être comptés deux fois. Désormais, pour une facture Partedis à un seul BL, le montant du BL est le total HT de la facture, hors « Frais facturation » ; seuls ces frais de facturation restent à part. La facture 9302111 a été corrigée : BL 12211060 apparié à 52,61 €, sans frais.",
+    comment: "Rien à faire à l'analyse. Pour une facture Partedis regroupant plusieurs BL, les frais restent proposés à part, à vérifier.",
+  },
+  {
+    date: "2026-11-28",
+    type: "correctif",
+    titre: "Rapprochement factures : les factures PDF refusées par l'IA (ex. Partedis) sont relues automatiquement en images",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Certaines factures PDF, comme celles de Partedis, étaient refusées par l'IA : l'écran affichait seulement « Unexpected end of JSON input ». Désormais, si l'IA refuse un PDF, l'application le convertit en images de pages et relance la lecture toute seule. Si la lecture échoue malgré tout, le message dit pourquoi (« Le document n'a pas pu être lu par l'IA : … »). Par ailleurs, la participation énergie imprimée sur un BL (Partedis) est désormais comptée dans le montant de ce BL, comme sur le BL lui-même, au lieu de partir dans les frais : plus de faux écart de quelques centimes.",
+    comment: "Rien à faire : la seconde lecture se lance seule et prend quelques secondes de plus. Vaut aussi pour « Saisir ce BL depuis la facture » et « Compléter depuis la facture ».",
+  },
+  {
+    date: "2026-11-28",
+    type: "amelioration",
+    titre: "Rapprochement factures : rattacher un BL saisi après la facture",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Quand une facture est enregistrée avant que son BL soit saisi, la ligne restait « manquant » sans moyen de la relier ensuite. Désormais, une facture « À rapprocher » propose, sur chaque BL manquant, les achats du même fournisseur en attente de facture : d'abord ceux qui portent le même n° de BL, puis ceux saisis avec le n° de la facture (cas fréquent des achats comptoir), puis ceux de même montant.",
+    comment: "Ouvre la facture dans l'historique, bouton « Rattacher un achat » sur la ligne du BL manquant, choisis l'achat, puis « Valider les correspondances conformes ».",
+  },
+  {
+    date: "2026-11-28",
     type: "correctif",
     titre: "Rapprochement factures Partedis : plus de faux écart dû aux frais de port",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],

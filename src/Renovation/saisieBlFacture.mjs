@@ -177,3 +177,49 @@ export function classerAchatsCandidats({ bl, factureNumero, achats = [], regles 
   }).filter(Boolean)
     .sort((x, y) => ordre[x.raison] - ordre[y.raison] || Math.abs(x.ecartHt ?? 1e9) - Math.abs(y.ecartHt ?? 1e9));
 }
+
+// Référence article comparée sans espaces ni casse (« 071566 098 » = « 071566098 »).
+const refCle = (v) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const libCle = (v) => sansAccents(v).replace(/[^a-z0-9]/g, "");
+
+/**
+ * BL sans prix (Wurth) : reporte les prix connus ailleurs (lignes existantes de
+ * la commande, ou lignes lues sur la facture) sur les lignes du BL, par
+ * référence article, à défaut par désignation identique. Ne remplace jamais un
+ * prix déjà présent. Total manquant + quantité + prix unitaire → total calculé.
+ * @returns { lignes, sansPrix } — sansPrix = nombre de lignes toujours sans total
+ */
+export function reporterPrix(lignesBl = [], lignesSource = []) {
+  const parRef = new Map(), parLib = new Map();
+  for (const s of lignesSource) {
+    if (s?.prix_unitaire == null && s?.prix_total == null) continue;
+    if (refCle(s.reference)) parRef.set(refCle(s.reference), s);
+    if (libCle(s.libelle ?? s.designation)) parLib.set(libCle(s.libelle ?? s.designation), s);
+  }
+  const lignes = lignesBl.map((l) => {
+    const out = { ...l };
+    const src = parRef.get(refCle(l.reference)) || parLib.get(libCle(l.libelle));
+    const q = lireQuantite(l.quantite).quantite;
+    if (src) {
+      const qs = lireQuantite(src.quantite).quantite;
+      const pu = src.prix_unitaire != null ? Number(src.prix_unitaire)
+        : (src.prix_total != null && qs ? Number(src.prix_total) / qs : null);
+      if (out.prix_unitaire == null || out.prix_unitaire === "") out.prix_unitaire = pu;
+      if ((out.prix_total == null || out.prix_total === "") && src.prix_total != null && qs != null && q != null && qs === q) {
+        out.prix_total = Number(src.prix_total);
+      }
+    }
+    if ((out.prix_total == null || out.prix_total === "") && out.prix_unitaire != null && out.prix_unitaire !== "" && q != null) {
+      out.prix_total = euros(Math.round(Number(out.prix_unitaire) * q * 100));
+    }
+    return out;
+  });
+  return { lignes, sansPrix: lignes.filter((l) => l.prix_total == null || l.prix_total === "").length };
+}
+
+/** Total d'une ligne = quantité × prix unitaire, au centime (null si incalculable). */
+export function totalLigne(quantite, prixUnitaire) {
+  const q = lireQuantite(quantite).quantite;
+  const pu = prixUnitaire == null || prixUnitaire === "" ? NaN : Number(String(prixUnitaire).replace(/\s/g, "").replace(",", "."));
+  return q == null || !Number.isFinite(pu) ? null : euros(Math.round(q * pu * 100));
+}
