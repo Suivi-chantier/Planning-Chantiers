@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
+    type: "correctif",
+    titre: "Rapprochement factures : les factures PDF refusées par l'IA (ex. Partedis) sont relues automatiquement en images",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Certaines factures PDF, comme celles de Partedis, étaient refusées par l'IA : l'écran affichait seulement « Unexpected end of JSON input ». Désormais, si l'IA refuse un PDF, l'application le convertit en images de pages et relance la lecture toute seule. Si la lecture échoue malgré tout, le message dit pourquoi (« Le document n'a pas pu être lu par l'IA : … »). Par ailleurs, la participation énergie imprimée sur un BL (Partedis) est désormais comptée dans le montant de ce BL, comme sur le BL lui-même, au lieu de partir dans les frais : plus de faux écart de quelques centimes.",
+    comment: "Rien à faire : la seconde lecture se lance seule et prend quelques secondes de plus. Vaut aussi pour « Saisir ce BL depuis la facture » et « Compléter depuis la facture ».",
+  },
+  {
+    date: "2026-11-28",
     type: "amelioration",
     titre: "Rapprochement factures : rattacher un BL saisi après la facture",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
