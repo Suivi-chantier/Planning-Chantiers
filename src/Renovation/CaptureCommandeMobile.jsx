@@ -8,6 +8,7 @@ import { repartirRemiseGlobale, ecartLignesDocument } from "./prixLignesAchat.js
 import { NATURES_COUT, lignesChantierSansLot, messageLotObligatoire, natureSaisie } from "./saisieLotNature.js";
 import { preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl } from "./saisieBlFacture.js";
 import ConfirmationLignesBl from "./ConfirmationLignesBl.jsx";
+import { analyserFactureAvecRepli } from "./RapprochementFactures.jsx";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
   ChevronLeft, ChevronDown, AlertTriangle, FileText, ShoppingCart, Truck, Search, Split,
@@ -107,27 +108,18 @@ async function analyseCommande(images) {
   return JSON.parse(clean);
 }
 
-// Lit la réponse d'une Edge Function d'analyse (format Anthropic) en objet JSON.
-function lireJsonIa(data) {
-  const anthropic = data?.content ? data : (data?.data || data);
-  if (!anthropic?.content && anthropic?.error) throw new Error(anthropic.error.message || "Document illisible par l'IA.");
-  let clean = (anthropic?.content?.find(c => c.type === "text")?.text || "").replace(/```json|```/g, "").trim();
-  if (clean[0] !== "{") { const m = clean.match(/\{[\s\S]*\}/); if (m) clean = m[0]; }
-  if (!clean) throw new Error("L'IA n'a rien renvoyé (document illisible ?).");
-  return JSON.parse(clean);
-}
-
 // Relit la facture archivée (bucket privé) en ne demandant que le BL `blNumero`.
+// Même repli que Rapprochement factures : PDF refusé par l'IA → pages en images.
 async function lireBlSurFacture(fichiers, blNumero) {
-  const images = [];
+  const docs = [];
   for (const chemin of fichiers || []) {
     const { data: blob, error } = await supabase.storage.from("factures-privees").download(chemin);
     if (error || !blob) throw new Error("Facture archivée illisible : " + (error?.message || "fichier absent"));
-    const mediaType = /\.pdf$/i.test(chemin) ? "application/pdf" : (blob.type || "image/jpeg");
-    images.push({ base64: await fileToBase64(blob), mediaType });
+    const type = /\.pdf$/i.test(chemin) ? "application/pdf" : (blob.type || "image/jpeg");
+    docs.push(new File([blob], chemin.split("/").pop() || "facture", { type }));
   }
-  if (!images.length) throw new Error("Aucun fichier archivé pour cette facture.");
-  return lireJsonIa(await invoquerFonction("analyse-facture", { images, bl_cible: blNumero }));
+  if (!docs.length) throw new Error("Aucun fichier archivé pour cette facture.");
+  return analyserFactureAvecRepli(docs, blNumero);
 }
 
 // Une commande « à compléter » : statut, ou ligne provisoire créée depuis une facture.

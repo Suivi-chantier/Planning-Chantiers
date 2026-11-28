@@ -3,6 +3,7 @@ import { normaliserNumero, rapprocherFacture, statutLiaisonBl } from "./rapproch
 import { construireHistoriqueRapprochement, statutHistorique, fmtEur } from "./historiqueRapprochementV1.js";
 import { chargerHistoriqueRapprochement } from "./rapprochementDonnees";
 import { supabase, photoTransform } from "../supabase";
+import { pdfFileToImages } from "../pdfToImages";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur, LOTS_DEFAUT, loadLots } from "../constants";
 import { preparerLignesBl, proposerChantiers, noteReferenceClient } from "./saisieBlFacture.js";
 import ConfirmationLignesBl from "./ConfirmationLignesBl.jsx";
@@ -72,16 +73,49 @@ async function analyseFacture(images, blCible) {
     },
     body: JSON.stringify(blCible ? { images, bl_cible: blCible } : { images }),
   });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || "Erreur Edge Function");
+  let data = {};
+  try { data = (await response.json()) || {}; } catch { data = {}; }
+  // `cause` porte le code du refus (DOCUMENT_REFUSE → nouvel essai en images).
+  if (!response.ok) throw new Error(data.error?.message || `Le document n'a pas pu être lu par l'IA : erreur ${response.status}.`, { cause: data.error?.code || null });
   const anthropic = data.content ? data : (data.data || data);
+  if (!anthropic.content && anthropic.error) {
+    throw new Error(`Le document n'a pas pu être lu par l'IA : ${anthropic.error.message || anthropic.error.type || "erreur inconnue"}`);
+  }
+  if (anthropic.stop_reason === "max_tokens") {
+    throw new Error("Le document n'a pas pu être lu par l'IA : réponse tronquée (document trop long). Essaie avec moins de pages.");
+  }
   const textContent = anthropic.content?.find(c => c.type === "text")?.text || "";
   let clean = textContent.replace(/```json|```/g, "").trim();
   if (clean[0] !== "{") {
     const match = clean.match(/\{[\s\S]*\}/);
     if (match) clean = match[0];
   }
-  return JSON.parse(clean);
+  if (!clean) throw new Error("Le document n'a pas pu être lu par l'IA : aucune réponse exploitable.");
+  try {
+    return JSON.parse(clean);
+  } catch {
+    throw new Error("Le document n'a pas pu être lu par l'IA : réponse illisible.");
+  }
+}
+
+// Envoie la facture telle quelle (meilleure lecture des petits caractères) ;
+// si l'IA refuse un PDF (cas des PDF « exotiques », ex. générés par
+// Ghostscript), réessaie une fois avec chaque PDF converti en images de pages,
+// comme la saisie commande. `fichiers` = [File | Blob].
+export async function analyserFactureAvecRepli(fichiers, blCible) {
+  const bruts = await Promise.all(fichiers.map(async f => ({
+    base64: await fileToBase64(f), mediaType: f.type === "application/pdf" || /\.pdf$/i.test(f.name || "") ? "application/pdf" : (f.type || "image/jpeg"),
+  })));
+  try {
+    return await analyseFacture(bruts, blCible);
+  } catch (e) {
+    if (e?.cause !== "DOCUMENT_REFUSE" || !bruts.some(b => b.mediaType === "application/pdf")) throw e;
+    const parPage = await Promise.all(fichiers.map(async (f, i) => {
+      if (bruts[i].mediaType !== "application/pdf") return [bruts[i]];
+      try { return await pdfFileToImages(f); } catch { return [bruts[i]]; }
+    }));
+    return analyseFacture(parPage.flat(), blCible);
+  }
 }
 
 // "2026-06" -> "juin 2026"
@@ -485,10 +519,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
     const [ups, ia] = await Promise.allSettled([
       Promise.all(photos.map(p => uploadPhoto(p.file, "factures"))),
-      (async () => {
-        const images = await Promise.all(photos.map(async p => ({ base64: await fileToBase64(p.file), mediaType: p.mediaType })));
-        return analyseFacture(images);
-      })(),
+      analyserFactureAvecRepli(photos.map(p => p.file)),
     ]);
 
     if (ups.status === "fulfilled") appliquerArchives(ups.value);
@@ -531,8 +562,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     setSaisieBl({ index: i, etat: "lecture" });
     try {
       if (!photos.length) throw new Error("La facture n'est plus chargée : relance l'analyse.");
-      const images = await Promise.all(photos.map(async p => ({ base64: await fileToBase64(p.file), mediaType: p.mediaType })));
-      const lu = await analyseFacture(images, bl.bl_numero || "");
+      const lu = await analyserFactureAvecRepli(photos.map(p => p.file), bl.bl_numero || "");
       const controle = preparerLignesBl(lu?.lignes, toNum(bl.montant_ht), toleranceFournisseur);
       const lecture = {
         bl_numero: bl.bl_numero || lu?.bl_numero || "",
