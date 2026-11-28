@@ -113,3 +113,30 @@ export function verifierTotalFacture({ livraisons = [], frais = [], total_ht, to
   return { sommeCentimes: somme, ecartCentimes: attendu == null ? null : attendu - somme,
     conforme: attendu != null && Math.abs(attendu - somme) <= centimes(toleranceHt) };
 }
+
+// Frais liés au compte ou à la facture (absents du bon de livraison).
+export const estFraisFacturation = (libelle) => /frais\s*(de\s*)?factur/i.test(String(libelle ?? ""));
+
+/**
+ * Règle fournisseur « montant du BL » (fournisseurs.regles_numero.montant_bl) :
+ *   "sous_total_bl" (défaut, ex. Rexel) : montant imprimé par BL, inchangé ;
+ *   "total_ht_facture" (ex. Partedis) : le bon d'emporte est valorisé port,
+ *     énergie et éco-taxe compris. Pour une facture à UN SEUL BL, montant du BL
+ *     = TOTAL HT de la facture − « Frais facturation » ; seuls ces frais de
+ *     facturation restent en frais de facture. Plusieurs BL : rien n'est
+ *     réparti automatiquement (frais proposés, à confirmer).
+ * @returns { bls, frais, applique: boolean }
+ */
+export function appliquerRegleMontantBl({ regles = {}, bls = [], frais = [], totalHt }) {
+  const total = centimes(totalHt);
+  if (regles.montant_bl !== "total_ht_facture" || bls.length !== 1 || total == null) {
+    return { bls, frais, applique: false };
+  }
+  const fraisFacturation = frais.filter(f => estFraisFacturation(f?.libelle));
+  const montantBl = total - fraisFacturation.reduce((n, f) => n + (centimes(f.montant_ht) || 0), 0);
+  return {
+    bls: [{ ...bls[0], montant_ht: montantBl / 100 }],
+    frais: fraisFacturation,
+    applique: true,
+  };
+}
