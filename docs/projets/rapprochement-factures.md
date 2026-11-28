@@ -65,8 +65,8 @@ Découpage du reste (proposition, à valider par François) :
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Fournisseur reconnu par n° de TVA : extraction `tva_fournisseur`, TVA des 4 fournisseurs, ordre TVA → alias → nom ; plus de création automatique de fournisseur (liste déroulante) (§4 P1) | à faire | migration additive + redéploiement analyse-facture | les 9 factures du test reconnues sans saisie | |
-| 2 | Rexel « Notre Réf » = n° de commande ; « Votre commande » = référence client ; n° de commande comparé à `numero_commande_fournisseur` et aux `doc_numero` de forme commande Rexel → appariement automatique si montant égal (§6 cas 1.1) | à faire | contrôles verts + tests sur les 29 n° de 961106792 | 960676175 : 383912 apparié sans confirmation | |
+| 1 | Fournisseur reconnu par n° de TVA : extraction `tva_fournisseur`, TVA des 4 fournisseurs, ordre TVA → alias → nom ; plus de création automatique de fournisseur (liste déroulante) (§4 P1) | en ligne | migration 20261128030653 (4 lignes, sauvegarde) + analyse-facture v13 | à confirmer par François sur les 9 factures du test | #305 |
+| 2 | Rexel « Notre Réf » = n° de commande ; « Votre commande » = référence client ; n° de commande comparé à `numero_commande_fournisseur` et aux `doc_numero` de forme commande Rexel → appariement automatique si montant égal (§6 cas 1.1) | en cours | contrôles verts + tests sur les 29 n° de 961106792 | 960676175 : 383912 apparié sans confirmation | |
 | 3 | Würth : n° de facture essayé contre les tickets ; `numero_livraison` extrait (§4 P1) | à faire | contrôles verts + tests | 4336131218 trouvée si le ticket est en base | |
 | 4 | Frais affectés automatiquement par fournisseur (`regles_frais` : P.F.A., Frais facturation, FFVDF → frais généraux ; port → chantier du BL) (§6 cas 7.2) | à faire | migration additive | 960676175, 9302109, 28746368 : frais en frais généraux sans action | |
 | 5 | `numero_normalise` rempli à l'enregistrement et utilisé au rapprochement (§4 P1) | à faire | **arrêt** : recalcul de l'existant = reprise de données | 29/29 n° Rexel normalisés | |
@@ -92,7 +92,13 @@ Découpage du reste (proposition, à valider par François) :
 
 ## Comptes rendus
 
-_(Aucune tâche du découpage commencée.)_
+### Tâche 1 — Fournisseur reconnu par n° de TVA (en ligne le 28/11/2026, #305)
+- Base : colonne `fournisseurs.tva_intracom` (unique), TVA des 4 fournisseurs principaux ; autres noms complétés dans `regles_numero.alias` (REXEL France ; Würth France, WURTH PROXI SHOP ; CROMOLOGY, CROMOLOGY DISTRIBUTION, TOLLENS). Migration `20261128030653`, 4 lignes sur 27, sauvegarde `sauvegarde_20261128_fournisseurs_tva_alias` (4 lignes, policy `profero_collaborateurs_seulement`), essayée d'abord en transaction annulée.
+- analyse-facture v13 : extrait `tva_fournisseur` (jamais notre n° FR52921024584).
+- Écran : reconnaissance TVA → autres noms → nom ; liste déroulante des fournisseurs ; plus aucune création automatique (bouton « Créer le fournisseur » volontaire) ; enregistrement bloqué sans fournisseur.
+- Contrôles : 23/23 verts ; tests `fournisseursNoms` 6/6 (données fictives) ; `verif-analyse-facture` 15/15.
+- Pas de chiffre financier touché.
+- À vérifier par François : les 9 factures du test reconnues sans saisie (Zolpan 28746368 → « ZOLPAN, reconnu par son n° de TVA »).
 
 ---
 
