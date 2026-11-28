@@ -64,11 +64,21 @@ export function getClientId() {
   }
 }
 
+// Vrai si l'URL désigne un fichier PDF (extension, avant d'éventuels paramètres).
+export function estUrlPdf(url) {
+  return typeof url === "string" && /\.pdf(?:$|[?#])/i.test(url);
+}
+
 // Transforme une URL Supabase Storage publique en URL avec resize on-the-fly.
 // Nécessite Image Transformations (plan Pro). Si l'URL n'est pas une URL Storage
 // publique reconnue, elle est renvoyée telle quelle — appel safe sur toute URL.
 export function photoTransform(url, { width, height, quality = 75, resize = "cover" } = {}) {
   if (!url || typeof url !== "string") return url;
+  // Un PDF ne peut pas être réduit en image : la demande échoue (400) et chaque
+  // échec mobilise une connexion du service Storage. Une liste de 229 bons PDF
+  // a saturé les connexions de la base le 27/11/2026. On ne génère donc jamais
+  // de miniature pour un PDF : l'appelant affiche une icône à la place.
+  if (estUrlPdf(url)) return null;
   if (!url.includes("/storage/v1/object/public/")) return url;
   const base = url.replace("/storage/v1/object/public/", "/storage/v1/render/image/public/");
   const params = new URLSearchParams();

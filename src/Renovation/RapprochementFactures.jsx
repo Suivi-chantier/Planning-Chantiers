@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { normaliserNumero, rapprocherFacture } from "./rapprochementFactures.mjs";
+import { normaliserNumero, rapprocherFacture, statutLiaisonBl } from "./rapprochementFactures.mjs";
 import { construireHistoriqueRapprochement, statutHistorique, fmtEur } from "./historiqueRapprochementV1.js";
 import { chargerHistoriqueRapprochement } from "./rapprochementDonnees";
 import { supabase, photoTransform } from "../supabase";
@@ -16,6 +16,14 @@ const EDGE_ANALYSE_FACTURE =
 
 // Tolérance d'écart de montant (remises, arrondis) avant de signaler un "écart"
 const TOLERANCE_ECART = 0.05;
+// Badge discret : comment le BL a été apparié (le n° exact n'a pas de badge).
+const MODES_APPARIEMENT = {
+  montant: "apparié par montant",
+  commande: "via n° de commande",
+  numero_facture: "via n° de facture",
+  numero_ambigu: "n° ambigu, choisi",
+  regroupement: "bon regroupé",
+};
 
 function toNum(v) {
   if (v == null || v === "") return null;
@@ -528,13 +536,10 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   };
 
   // Statut d'affichage d'un BL (ajoute la détection d'écart)
-  const blStatut = (b) => {
-    if (!b.commande_id) return "manquant";
-    if (["montant", "numero_ambigu", "regroupement"].includes(b.mode_rapprochement)) return "ecart";
-    const m = toNum(b.montant_ht);
-    if (m != null && b.commandeMontant != null && Math.abs(b.commandeMontant - m) > TOLERANCE_ECART) return "ecart";
-    return "rapproche";
-  };
+  // Le statut ne dépend que des montants (tolérance du fournisseur) ; le mode
+  // d'appariement est conservé pour la traçabilité et affiché en badge.
+  const toleranceFournisseur = Number(matchFournisseur(fact.fournisseur || "", fournisseurs).fournisseur?.tolerance_ht ?? TOLERANCE_ECART);
+  const blStatut = (b) => statutLiaisonBl(b, bls, toleranceFournisseur);
 
   const aucunManquant = bls.every(b => blStatut(b) !== "manquant");
   const totalBl = bls.reduce((s, b) => s + (toNum(b.montant_ht) || 0), 0);
@@ -878,7 +883,12 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
                   {b.commande_id && b.commandeMontant != null ? ` · Commande : ${b.commandeMontant} € HT` : ""}
                 </div>
               </div>
-              <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>{label}</span>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
+                <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>{label}</span>
+                {b.commande_id && MODES_APPARIEMENT[b.mode_rapprochement] && (
+                  <span style={{ fontSize: FONT.xs.size, color: T.textSub, whiteSpace: "nowrap" }}>{MODES_APPARIEMENT[b.mode_rapprochement]}</span>
+                )}
+              </div>
             </div>
             {st === "manquant" && b.propositions?.length > 0 && (
               <div style={{ marginTop: 10, fontSize: 13 }}>
@@ -888,7 +898,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
                   if (!p) return;
                   setBls(prev => prev.map((x, j) => (j === i || (p.mode === "regroupement" && p.bls?.includes(x.bl_numero))) ? {
                     ...x, commande_id: p.document.id, commandeMontant: p.document.montant_ht,
-                    mode_rapprochement: p.mode, propositions: [], statut: "ecart",
+                    mode_rapprochement: p.mode, propositions: [], statut: null,
                   } : x));
                 }} style={inputStyle}>
                   <option value="">Choisir un document…</option>

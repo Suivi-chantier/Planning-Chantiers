@@ -9,7 +9,11 @@ export function normaliserNumero(value, regles = {}) {
   for (const prefixe of regles.prefixes || []) {
     if (numero.startsWith(prefixe.toUpperCase())) numero = numero.slice(prefixe.length);
   }
-  if (regles.retirerAgence && /^\d+\s*\/\s*\d{4}$/.test(numero)) numero = numero.split("/")[0];
+  if (regles.retirerAgence) {
+    // Rexel : la facture écrit « CL-<agence>-619330811-02 », la base « 619330811-02 / 4900 ».
+    numero = numero.replace(/^CL-\d{4}-(?=\d)/, "");
+    if (/^\d[\d-]*\/\d{4}$/.test(numero)) numero = numero.split("/")[0];
+  }
   if (regles.retirerClient && /^\d+\s*\/\s*\d{6}$/.test(numero)) numero = numero.split("/")[0];
   if (regles.retirerZeros !== false) numero = numero.replace(/^0+(?=\d)/, "");
   return numero.replace(/\s*([/-])\s*/g, "$1");
@@ -86,6 +90,21 @@ export function rapprocherFacture({ livraisons = [], documents = [], fournisseur
   const inverses = eligible.filter(d => !utilises.has(d.id) &&
     (!periodeDebut || d.date_doc >= periodeDebut) && (!periodeFin || d.date_doc <= periodeFin));
   return { rapprochements: resultat, absentsFacture: inverses };
+}
+
+// Statut d'une liaison BL ↔ document d'achat : il ne dépend QUE des montants.
+// La façon dont la liaison a été trouvée (numéro, montant, proposition choisie…)
+// reste dans mode_rapprochement pour la traçabilité, sans changer le statut.
+// Plusieurs BL liés au même document (regroupement) sont comparés ensemble.
+export function statutLiaisonBl(bl, tous = [bl], toleranceHt = 0.05) {
+  if (!bl?.commande_id) return "manquant";
+  const lies = tous.filter(x => x.commande_id === bl.commande_id);
+  if (!lies.includes(bl)) lies.push(bl);
+  const montants = lies.map(x => centimes(x.montant_ht));
+  const commande = centimes(bl.commandeMontant ?? bl.montant_commande_ht);
+  if (commande == null || montants.some(m => m == null)) return "ecart";
+  const somme = montants.reduce((n, m) => n + m, 0);
+  return Math.abs(somme - commande) <= centimes(toleranceHt) ? "rapproche" : "ecart";
 }
 
 export function verifierTotalFacture({ livraisons = [], frais = [], total_ht, toleranceHt = 0.05 }) {

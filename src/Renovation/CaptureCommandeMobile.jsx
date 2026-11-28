@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { supabase, photoTransform, invoquerFonction } from "../supabase";
+import { supabase, photoTransform, estUrlPdf, invoquerFonction } from "../supabase";
 import { useDraft, useDirtyGuard } from "../hooks";
 import { pdfFileToImages } from "../pdfToImages";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots, guessLotId, matchFournisseur } from "../constants";
@@ -222,8 +222,12 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
           <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
             {c.photo_url && (
               <a href={c.photo_url} target="_blank" rel="noopener noreferrer" style={{ display: "block", position: "relative", marginBottom: SPACING.md }}>
-                <img src={photoTransform(c.photo_url, { width: 900, quality: 75 })} alt="Document scanné"
-                  style={{ width: "100%", maxHeight: 320, objectFit: "contain", borderRadius: RADIUS.md, background: T.bg, border: `1px solid ${T.border}` }} />
+                {estUrlPdf(c.photo_url)
+                  ? <div style={{ width: "100%", height: 120, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: RADIUS.md, background: T.bg, border: `1px solid ${T.border}`, color: T.textSub, fontSize: FONT.sm.size }}>
+                      <Icon as={FileText} size={32} color={T.textSub} /> Document PDF
+                    </div>
+                  : <img src={photoTransform(c.photo_url, { width: 900, quality: 75 })} alt="Document scanné"
+                      style={{ width: "100%", maxHeight: 320, objectFit: "contain", borderRadius: RADIUS.md, background: T.bg, border: `1px solid ${T.border}` }} />}
                 <span style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: RADIUS.md, padding: "4px 8px", fontSize: FONT.xs.size, display: "inline-flex", alignItems: "center", gap: 4 }}>
                   <Icon as={ExternalLink} size={12} /> Agrandir
                 </span>
@@ -753,8 +757,8 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
         : { ...card, marginBottom: SPACING.sm };
       return (
         <div key={c.id} onClick={() => setDetail(c)} style={{ ...base, display: "flex", gap: 12, alignItems: "center", cursor: "pointer" }}>
-          {c.photo_url
-            ? <img src={photoTransform(c.photo_url, { width: 88, height: 88, quality: 60 })} alt=""
+          {c.photo_url && !estUrlPdf(c.photo_url)
+            ? <img src={photoTransform(c.photo_url, { width: 88, height: 88, quality: 60 })} alt="" loading="lazy" decoding="async"
                 style={{ width: 44, height: 44, borderRadius: RADIUS.md, objectFit: "cover", flexShrink: 0 }} />
             : <div style={{ width: 44, height: 44, borderRadius: RADIUS.md, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <Icon as={FileText} size={18} color={T.textSub} />
