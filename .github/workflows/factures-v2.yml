@@ -24,6 +24,9 @@ on:
       - 'src/Renovation/fraisGenerauxFactures.js'
       - 'src/Renovation/EtatsFinanciers.jsx'
       - 'tests/fraisGenerauxFactures.test.mjs'
+      - 'src/fournisseursNoms.mjs'
+      - 'src/constants.js'
+      - 'tests/fournisseursNoms.test.mjs'
       - 'supabase/functions/analyse-facture/**'
       - 'supabase/functions/analyse-commande/**'
       - '.github/workflows/factures-v2.yml'
@@ -43,6 +46,8 @@ jobs:
         run: node --test tests/saisieBlFacture.test.mjs
       - name: Frais généraux issus des factures (module, données fictives)
         run: node --test tests/fraisGenerauxFactures.test.mjs
+      - name: Noms de fournisseurs (module, données fictives)
+        run: node --test tests/fournisseursNoms.test.mjs
       - name: Achats par mois de commande (module, données fictives)
         run: node scripts/verif-achats-par-mois.mjs
       - run: npm run build

@@ -617,7 +617,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     supabase.from("phasages").select("id, chantier_id, plan_travaux")
       .then(({ data }) => setPhasages(data || []));
     loadLots().then(setLots);
-    supabase.from("fournisseurs").select("id, nom, mode_paiement").order("nom").then(({ data }) => setFournisseurs(data || []));
+    supabase.from("fournisseurs").select("id, nom, mode_paiement, regles_numero").order("nom").then(({ data }) => setFournisseurs(data || []));
   }, []);
 
   const phasageForChantier = useCallback(
