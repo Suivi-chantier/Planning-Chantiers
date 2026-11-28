@@ -15,6 +15,13 @@ on:
       - 'src/Renovation/encoursDoc.js'
       - 'scripts/verif-achats-par-mois.mjs'
       - 'tests/rapprochementFactures.test.mjs'
+      - 'src/Renovation/saisieBlFacture.mjs'
+      - 'src/Renovation/saisieBlFacture.js'
+      - 'src/Renovation/ConfirmationLignesBl.jsx'
+      - 'src/Renovation/CaptureCommandeMobile.jsx'
+      - 'tests/saisieBlFacture.test.mjs'
+      - 'supabase/functions/analyse-facture/**'
+      - 'supabase/functions/analyse-commande/**'
       - '.github/workflows/factures-v2.yml'
   workflow_dispatch:
 jobs:
@@ -28,6 +35,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --test tests/rapprochementFactures.test.mjs
+      - name: Saisie d'un BL depuis la facture (module, données fictives)
+        run: node --test tests/saisieBlFacture.test.mjs
       - name: Achats par mois de commande (module, données fictives)
         run: node scripts/verif-achats-par-mois.mjs
       - run: npm run build

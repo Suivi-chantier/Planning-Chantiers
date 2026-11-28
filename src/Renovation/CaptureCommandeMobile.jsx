@@ -6,6 +6,8 @@ import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_D
 import { Icon } from "../ui";
 import { repartirRemiseGlobale, ecartLignesDocument } from "./prixLignesAchat.js";
 import { NATURES_COUT, lignesChantierSansLot, messageLotObligatoire, natureSaisie } from "./saisieLotNature.js";
+import { preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl } from "./saisieBlFacture.js";
+import ConfirmationLignesBl from "./ConfirmationLignesBl.jsx";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
   ChevronLeft, ChevronDown, AlertTriangle, FileText, ShoppingCart, Truck, Search, Split,
@@ -105,6 +107,33 @@ async function analyseCommande(images) {
   return JSON.parse(clean);
 }
 
+// Lit la réponse d'une Edge Function d'analyse (format Anthropic) en objet JSON.
+function lireJsonIa(data) {
+  const anthropic = data?.content ? data : (data?.data || data);
+  if (!anthropic?.content && anthropic?.error) throw new Error(anthropic.error.message || "Document illisible par l'IA.");
+  let clean = (anthropic?.content?.find(c => c.type === "text")?.text || "").replace(/```json|```/g, "").trim();
+  if (clean[0] !== "{") { const m = clean.match(/\{[\s\S]*\}/); if (m) clean = m[0]; }
+  if (!clean) throw new Error("L'IA n'a rien renvoyé (document illisible ?).");
+  return JSON.parse(clean);
+}
+
+// Relit la facture archivée (bucket privé) en ne demandant que le BL `blNumero`.
+async function lireBlSurFacture(fichiers, blNumero) {
+  const images = [];
+  for (const chemin of fichiers || []) {
+    const { data: blob, error } = await supabase.storage.from("factures-privees").download(chemin);
+    if (error || !blob) throw new Error("Facture archivée illisible : " + (error?.message || "fichier absent"));
+    const mediaType = /\.pdf$/i.test(chemin) ? "application/pdf" : (blob.type || "image/jpeg");
+    images.push({ base64: await fileToBase64(blob), mediaType });
+  }
+  if (!images.length) throw new Error("Aucun fichier archivé pour cette facture.");
+  return lireJsonIa(await invoquerFonction("analyse-facture", { images, bl_cible: blNumero }));
+}
+
+// Une commande « à compléter » : statut, ou ligne provisoire créée depuis une facture.
+const aCompleter = (c) => c.statut_completude === "a_completer"
+  || (c.lignes || []).some(l => String(l.libelle || "").startsWith("(à détailler"));
+
 const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U", prix_unitaire: "", prix_total: "", chantier_id: "", lot_id: "", nature: "materiaux" });
 
 // ── Modale de détail d'un document — consultation ET correction ──
@@ -118,6 +147,8 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [dejaPaye, setDejaPaye] = useState(c.statut_facturation === "facture");
+  // Rattachée à une facture : le statut vient du rapprochement, pas de la case « déjà payé ».
+  const factureLiee = !!c.facture_id;
   const [lignesE, setLignesE] = useState(() => (c.lignes || []).map(l => ({ ...l })));
   const setLigne = (i, patch) => setLignesE(prev => prev.map((l, j) => j === i ? { ...l, ...patch } : l));
 
@@ -160,9 +191,11 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
     if (sansLot.length > 0) { setErreurLot(messageLotObligatoire(sansLot.length)); return; }
     setErreurLot("");
     setSaving(true);
-    await supabase.from("commandes").update({
-      statut_facturation: dejaPaye ? "facture" : "en_attente_facture",
-    }).eq("id", c.id);
+    if (!factureLiee) {
+      await supabase.from("commandes").update({
+        statut_facturation: dejaPaye ? "facture" : "en_attente_facture",
+      }).eq("id", c.id);
+    }
     for (const l of lignesE) {
       await supabase.from("commande_lignes").update({
         chantier_id: l.chantier_id || null,
@@ -170,10 +203,94 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
         nature: natureSaisie(l.nature),
         quantite: num(l.quantite),
         prix_total: num(l.prix_total),
-        prix_verrouille: dejaPaye,
+        prix_verrouille: factureLiee ? true : dejaPaye,
       }).eq("id", l.id);
     }
     setSaving(false);
+    onSaved?.();
+    onClose();
+  };
+
+  // ── Compléter la commande : PDF/photo du BL, ou relecture de la facture ──
+  // Les lignes lues REMPLACENT celles de CETTE commande : jamais de nouvelle
+  // commande, donc pas de doublon. Les anciennes lignes restent récupérables
+  // (Admin → Historique).
+  const filePdfBl = useRef(null);
+  const [completion, setCompletion] = useState(null); // { etat, lecture, controle, propositions, alertes, photoUrl, erreur, enregistrement }
+  const ouvrirCompletion = (lu, photoUrl) => {
+    const controle = preparerLignesBl(lu?.lignes, c.montant_ht);
+    const lecture = {
+      bl_numero: lu?.bl_numero || lu?.doc_numero || "",
+      date_bl: lu?.date_bl || lu?.date_doc || null,
+      commande_numero: lu?.commande_numero || c.numero_commande_fournisseur || null,
+      reference_client: lu?.reference_client || null,
+    };
+    const alertes = [];
+    if (lecture.bl_numero && c.doc_numero && !memeNumeroBl(lecture.bl_numero, c.doc_numero)) {
+      alertes.push(`Le document lu porte le n° ${lecture.bl_numero}, différent de cette commande (${c.doc_numero}). Vérifie que c'est le bon BL avant de confirmer.`);
+    } else if (!lecture.bl_numero && c.doc_numero) {
+      alertes.push(`Numéro de BL non lu sur le document : impossible de vérifier qu'il s'agit du BL ${c.doc_numero}.`);
+    }
+    if (!controle.lignes.length) {
+      setCompletion({ etat: "erreur", erreur: "Aucune ligne lue sur ce document." + (lu?.incertitudes?.length ? " " + lu.incertitudes.join(" ") : "") });
+      return;
+    }
+    setCompletion({ etat: "verif", lecture, controle, alertes, photoUrl,
+      propositions: proposerChantiers(lecture.reference_client, chantiers) });
+  };
+  const completerAvecPdf = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setCompletion({ etat: "lecture" });
+    try {
+      const [ups, lu] = await Promise.all([
+        Promise.all(files.map(f => uploadPhoto(f, "commandes"))),
+        (async () => {
+          const parPage = await Promise.all(files.map(async f => {
+            if (f.type === "application/pdf") {
+              try { return await pdfFileToImages(f); }
+              catch { return [{ base64: await fileToBase64(f), mediaType: "application/pdf" }]; }
+            }
+            return [{ base64: await fileToBase64(f), mediaType: f.type || "image/jpeg" }];
+          }));
+          return analyseCommande(parPage.flat());
+        })(),
+      ]);
+      ouvrirCompletion(lu, ups.find(u => u?.url)?.url || null);
+    } catch (e) {
+      setCompletion({ etat: "erreur", erreur: e?.message || "Lecture impossible." });
+    }
+  };
+  const completerDepuisFacture = async () => {
+    setCompletion({ etat: "lecture" });
+    try {
+      ouvrirCompletion(await lireBlSurFacture(c.facture?.fichiers, c.doc_numero), null);
+    } catch (e) {
+      setCompletion({ etat: "erreur", erreur: e?.message || "Lecture impossible." });
+    }
+  };
+  const remplacerLignes = async ({ chantierId, lotId }) => {
+    const cp = completion; if (!cp?.controle) return;
+    setCompletion({ ...cp, enregistrement: true, erreur: "" });
+    const verrou = factureLiee || c.statut_facturation === "facture";
+    const { error: eIns } = await supabase.from("commande_lignes").insert(cp.controle.lignes.map(l => ({
+      commande_id: c.id, reference: l.reference || null, libelle: l.libelle || "Article",
+      quantite: l.quantite, unite: l.unite, prix_unitaire: l.prix_unitaire, prix_total: l.prix_total,
+      chantier_id: chantierId, lot_id: lotId, nature: "materiaux", prix_verrouille: verrou,
+    })));
+    if (eIns) { setCompletion({ ...cp, enregistrement: false, erreur: "Lignes non enregistrées : " + eIns.message }); return; }
+    const anciennes = (c.lignes || []).map(l => l.id).filter(Boolean);
+    if (anciennes.length) {
+      const { error: eDel } = await supabase.from("commande_lignes").delete().in("id", anciennes);
+      if (eDel) { setCompletion({ ...cp, enregistrement: false, erreur: "Nouvelles lignes ajoutées, mais les anciennes n'ont pas pu être retirées : " + eDel.message }); return; }
+    }
+    await supabase.from("commandes").update({
+      date_doc: cp.lecture.date_bl || c.date_doc || null,
+      numero_commande_fournisseur: cp.lecture.commande_numero || c.numero_commande_fournisseur || null,
+      notes: noteReferenceClient(cp.lecture.reference_client, c.notes || ""),
+      ...(cp.photoUrl ? { photo_url: cp.photoUrl } : {}),
+    }).eq("id", c.id);
+    setCompletion(null);
     onSaved?.();
     onClose();
   };
@@ -238,13 +355,34 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
               <div><div style={infoStyle}>Numéro</div><div style={valStyle}>{c.doc_numero || (c.numero_en_attente ? "En attente" : "—")}</div></div>
               <div><div style={infoStyle}>Date doc.</div><div style={valStyle}>{dateDoc}</div></div>
               <div><div style={infoStyle}>Montant HT</div><div style={valStyle}>{c.montant_ht != null ? `${c.montant_ht} €` : "—"}</div></div>
-              {!edit && <div><div style={infoStyle}>Facturation</div><div style={valStyle}>{c.statut_facturation === "facture" ? "Payé / facturé" : "En attente facture"}</div></div>}
+              {!edit && !factureLiee && <div><div style={infoStyle}>Facturation</div><div style={valStyle}>{c.statut_facturation === "facture" ? "Payé / facturé" : "En attente facture"}</div></div>}
+              {c.numero_commande_fournisseur && <div><div style={infoStyle}>N° cde fournisseur</div><div style={valStyle}>{c.numero_commande_fournisseur}</div></div>}
               {c.saisi_par && <div><div style={infoStyle}>Saisi par</div><div style={valStyle}>{c.saisi_par}</div></div>}
               {dateScan && <div><div style={infoStyle}>Scanné le</div><div style={valStyle}>{dateScan}</div></div>}
             </div>
 
-            {/* Correction : bascule "déjà payé" */}
-            {edit && (
+            {/* Rattachée à une facture : information en lecture seule */}
+            {factureLiee && <FactureLiee facture={c.facture} fournisseur={c.fournisseur_nom} T={T} acc={acc} />}
+
+            {/* Compléter une commande « à détailler » */}
+            {edit && aCompleter(c) && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: SPACING.md }}>
+                <input ref={filePdfBl} type="file" accept="application/pdf,image/*" multiple style={{ display: "none" }}
+                  onChange={e => { completerAvecPdf(e.target.files); e.target.value = ""; }} />
+                <button onClick={() => filePdfBl.current?.click()} style={{ padding: "10px", borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontFamily: "inherit", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Icon as={FileText} size={16} /> Compléter avec le PDF du BL
+                </button>
+                {c.facture?.fichiers?.length > 0 && c.doc_numero && (
+                  <button onClick={completerDepuisFacture} style={{ padding: "10px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                    Compléter depuis la facture {c.facture?.numero ? `n° ${c.facture.numero}` : ""}
+                  </button>
+                )}
+                <div style={{ fontSize: FONT.xs.size, color: T.textSub }}>Les lignes lues remplacent celles de cette commande (aucune nouvelle commande n'est créée).</div>
+              </div>
+            )}
+
+            {/* Correction : bascule "déjà payé" — seulement sans facture rattachée */}
+            {edit && !factureLiee && (
               <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "10px 12px", marginBottom: SPACING.md }}>
                 <input type="checkbox" checked={dejaPaye} onChange={e => setDejaPaye(e.target.checked)} style={{ width: 18, height: 18, accentColor: acc.accent }} />
                 <span style={{ fontSize: FONT.sm.size, color: T.text, fontWeight: 600 }}>
@@ -326,7 +464,48 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
           )}
         </div>
       </div>
+      {completion && (
+        <ConfirmationLignesBl
+          titre={`Compléter le BL ${c.doc_numero || ""}`}
+          etat={completion.etat} erreur={completion.erreur} lecture={completion.lecture} controle={completion.controle}
+          montantBl={c.montant_ht} chantiers={chantiers} lots={lots} propositions={completion.propositions}
+          alertes={completion.alertes || []} enregistrement={completion.enregistrement}
+          libelleValider={completion.alertes?.length ? "Confirmer et remplacer les lignes" : "Remplacer les lignes"}
+          T={T} acc={acc} onConfirmer={remplacerLignes}
+          onAnnuler={() => { if (!completion.enregistrement) setCompletion(null); }}
+        />
+      )}
     </>
+  );
+}
+
+// « Facturé — facture REXEL n° 961106792 du 31/10/2026 », avec lien vers le PDF
+// archivé (lien signé, bucket privé). Remplace la case « Déjà payé ».
+function FactureLiee({ facture, fournisseur, T, acc }) {
+  const [ouverture, setOuverture] = useState(false);
+  const date = facture?.date_facture ? new Date(facture.date_facture + "T00:00:00").toLocaleDateString("fr-FR") : null;
+  const chemin = facture?.fichiers?.[0];
+  const ouvrir = async () => {
+    if (!chemin) return;
+    setOuverture(true);
+    const { data, error } = await supabase.storage.from("factures-privees").createSignedUrl(chemin, 900);
+    setOuverture(false);
+    if (error || !data?.signedUrl) { alert("Facture introuvable : " + (error?.message || "fichier absent")); return; }
+    window.open(data.signedUrl, "_blank", "noopener");
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, background: SEMANTIC.success.bg, border: `1px solid ${SEMANTIC.success.border}`, borderRadius: RADIUS.md, padding: "10px 12px", marginBottom: SPACING.md, fontSize: FONT.sm.size, color: T.text }}>
+      <Icon as={Check} size={16} color={SEMANTIC.success.color} />
+      <span style={{ flex: 1 }}>
+        Facturé — facture {facture?.fournisseur_nom || fournisseur || ""}{facture?.numero ? ` n° ${facture.numero}` : ""}{date ? ` du ${date}` : ""}
+        {!facture && " (facture non lisible)"}
+      </span>
+      {chemin && (
+        <button onClick={ouvrir} disabled={ouverture} style={{ background: "transparent", border: `1px solid ${acc.border}`, color: acc.accent, borderRadius: RADIUS.md, padding: "5px 10px", fontFamily: "inherit", fontWeight: 700, fontSize: FONT.xs.size, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <Icon as={ExternalLink} size={12} /> {ouverture ? "…" : "Voir"}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -399,7 +578,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     // porte alors pas sur les saisies les plus anciennes).
     const { data } = await supabase
       .from("commandes")
-      .select("id, type_evenement, doc_type, doc_numero, numero_en_attente, fournisseur_nom, montant_ht, date_doc, statut_completude, statut_facturation, notes, saisi_par, photo_url, created_at, lignes:commande_lignes(id, libelle, reference, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id, nature)")
+      .select("id, type_evenement, doc_type, doc_numero, numero_en_attente, fournisseur_nom, montant_ht, date_doc, statut_completude, statut_facturation, facture_id, numero_commande_fournisseur, notes, saisi_par, photo_url, created_at, facture:factures(id, numero, date_facture, fournisseur_nom, fichiers), lignes:commande_lignes(id, libelle, reference, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id, nature)")
       .order("created_at", { ascending: false })
       .limit(LIMITE_RECENTS);
     setRecents(data || []);

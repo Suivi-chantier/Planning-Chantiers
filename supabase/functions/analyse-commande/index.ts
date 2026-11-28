@@ -196,6 +196,8 @@ Format :
   "doc_type": "bl | ticket | bon_commande (le type du document ; 'bl' pour un bon de livraison, 'ticket' pour un ticket de caisse/comptoir, 'bon_commande' pour un bon de commande)",
   "doc_numero": "le numéro du document (n° de BL, ticket, bon de commande) ou null si introuvable",
   "date_doc": "date du document au format AAAA-MM-JJ, ou null",
+  "commande_numero": "numéro de commande DU FOURNISSEUR (Rexel : « Notre Réf », Partedis : « Cde No », Zolpan : « N° Cde ») ou null",
+  "reference_client": "référence donnée PAR LE CLIENT (Rexel : « Votre commande » et « Chantier n° », Partedis : « V/ref client », Zolpan : « Réf. de cde client ») ou null — « Votre commande : FOURMOND » est une référence client, jamais un numéro de commande",
   "montant_ht": nombre (total HT du document) ou null,
   "lignes": [
     {

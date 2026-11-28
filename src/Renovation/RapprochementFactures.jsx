@@ -3,7 +3,9 @@ import { normaliserNumero, rapprocherFacture, statutLiaisonBl } from "./rapproch
 import { construireHistoriqueRapprochement, statutHistorique, fmtEur } from "./historiqueRapprochementV1.js";
 import { chargerHistoriqueRapprochement } from "./rapprochementDonnees";
 import { supabase, photoTransform } from "../supabase";
-import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur } from "../constants";
+import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur, LOTS_DEFAUT, loadLots } from "../constants";
+import { preparerLignesBl, proposerChantiers, noteReferenceClient } from "./saisieBlFacture.js";
+import ConfirmationLignesBl from "./ConfirmationLignesBl.jsx";
 import { Icon } from "../ui";
 import { chargerChantiers } from "./chantiersDonnees";
 import {
@@ -57,7 +59,9 @@ function fileToBase64(file) {
 }
 
 // `images` = [{ base64, mediaType }] (facture pouvant tenir sur plusieurs pages).
-async function analyseFacture(images) {
+// `blCible` : si fourni, l'analyse ne renvoie que le détail de ce BL
+// (lignes, date, n° de commande, référence client).
+async function analyseFacture(images, blCible) {
   const { data: { session } } = await supabase.auth.getSession();
   const response = await fetch(EDGE_ANALYSE_FACTURE, {
     method: "POST",
@@ -66,7 +70,7 @@ async function analyseFacture(images) {
       "Authorization": `Bearer ${session?.access_token}`,
       "apikey": import.meta.env.VITE_SUPABASE_KEY,
     },
-    body: JSON.stringify({ images }),
+    body: JSON.stringify(blCible ? { images, bl_cible: blCible } : { images }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error?.message || "Erreur Edge Function");
@@ -343,6 +347,8 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const [detail, setDetail] = useState(null);        // { kind, row } affiché dans la modale
   const [recherche, setRecherche] = useState("");
   const [chantiersMap, setChantiersMap] = useState({}); // id -> { nom, couleur }
+  const [lots, setLots] = useState(LOTS_DEFAUT);
+  const [saisieBl, setSaisieBl] = useState(null); // { index, etat, lecture, controle, propositions, erreur, enregistrement }
   const [fournisseurs, setFournisseurs] = useState([]); // référentiel Admin → Fournisseurs
   const [photoUrl, setPhotoUrl] = useState("");
   const [photos, setPhotos] = useState([]); // [{ file, preview, mediaType }] — facture multi-pages
@@ -387,6 +393,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         setChantiersMap(map);
       });
     supabase.from("fournisseurs").select("id, nom, type_facturation, regles_numero, tolerance_ht").order("nom").then(({ data }) => setFournisseurs(data || []));
+    loadLots().then(l => { if (Array.isArray(l) && l.length) setLots(l); }).catch(() => {});
   }, []);
 
   // Rattache le fournisseur saisi à l'existant le plus proche, sinon le crée.
@@ -514,25 +521,58 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   };
 
   // Saisir un BL manquant : crée une commande minimale (chantier à affecter plus tard)
+  // « Saisir ce BL depuis la facture » : relit la facture en ne demandant que
+  // ce BL (lignes, date, n° de commande, référence client), puis fenêtre de
+  // confirmation (chantier proposé, lot) avant de créer la commande.
+  const listeChantiers = Object.entries(chantiersMap).map(([id, c]) => ({ id, nom: c.nom }))
+    .sort((a, b) => String(a.nom).localeCompare(String(b.nom)));
   const saisirBl = async (i) => {
     const bl = bls[i];
+    setSaisieBl({ index: i, etat: "lecture" });
+    try {
+      if (!photos.length) throw new Error("La facture n'est plus chargée : relance l'analyse.");
+      const images = await Promise.all(photos.map(async p => ({ base64: await fileToBase64(p.file), mediaType: p.mediaType })));
+      const lu = await analyseFacture(images, bl.bl_numero || "");
+      const controle = preparerLignesBl(lu?.lignes, toNum(bl.montant_ht), toleranceFournisseur);
+      const lecture = {
+        bl_numero: bl.bl_numero || lu?.bl_numero || "",
+        date_bl: lu?.date_bl || bl.date_livraison || null,
+        commande_numero: lu?.commande_numero || bl.commande_numero || null,
+        reference_client: lu?.reference_client || bl.reference_client || null,
+      };
+      if (!controle.lignes.length) throw new Error("Aucune ligne lue pour ce BL sur la facture." + (lu?.incertitudes?.length ? " " + lu.incertitudes.join(" ") : ""));
+      setSaisieBl({ index: i, etat: "verif", lecture, controle, propositions: proposerChantiers(lecture.reference_client, listeChantiers) });
+    } catch (e) {
+      setSaisieBl({ index: i, etat: "erreur", erreur: (e?.message || "Lecture impossible") + " — tu peux fermer et réessayer." });
+    }
+  };
+
+  const creerCommandeBl = async ({ chantierId, lotId }) => {
+    const sb = saisieBl; if (!sb?.controle) return;
+    const bl = bls[sb.index];
     const montant = toNum(bl.montant_ht);
+    setSaisieBl({ ...sb, enregistrement: true, erreur: "" });
     const fr = await resolveFourn();
     const { data: cmd, error } = await supabase.from("commandes").insert({
-      type_evenement: "livraison", doc_type: "bl", doc_numero: bl.bl_numero || null,
+      type_evenement: "livraison", doc_type: "bl", doc_numero: sb.lecture.bl_numero || null,
       numero_en_attente: false, fournisseur_id: fr.id, fournisseur_nom: fr.nom,
-      date_doc: fact.date_facture || null, montant_ht: montant, source: "facture",
+      date_doc: sb.lecture.date_bl || fact.date_facture || null, montant_ht: montant, source: "facture",
+      numero_commande_fournisseur: sb.lecture.commande_numero || null,
+      notes: noteReferenceClient(sb.lecture.reference_client),
       saisi_par: profil?.nom || profil?.email || null,
       statut_completude: "a_completer", statut_facturation: "en_attente_facture",
     }).select("id").single();
-    if (error || !cmd) { alert("Erreur création BL : " + (error?.message || "inconnue")); return; }
-    await supabase.from("commande_lignes").insert({
-      commande_id: cmd.id, libelle: "(à détailler — saisi depuis facture)",
-      prix_total: montant, chantier_id: null,
-    });
-    setBls(prev => prev.map((b, j) => j === i
+    if (error || !cmd) { setSaisieBl({ ...sb, enregistrement: false, erreur: "Erreur création BL : " + (error?.message || "inconnue") }); return; }
+    const { error: eL } = await supabase.from("commande_lignes").insert(sb.controle.lignes.map(l => ({
+      commande_id: cmd.id, reference: l.reference || null, libelle: l.libelle || "Article",
+      quantite: l.quantite, unite: l.unite, prix_unitaire: l.prix_unitaire, prix_total: l.prix_total,
+      chantier_id: chantierId, lot_id: lotId, nature: "materiaux",
+    })));
+    if (eL) { setSaisieBl({ ...sb, enregistrement: false, erreur: "BL créé, mais lignes non enregistrées : " + eL.message }); return; }
+    setBls(prev => prev.map((b, j) => j === sb.index
       ? { ...b, commande_id: cmd.id, commandeMontant: montant, fournisseurCmd: fact.fournisseur, statut: "rapproche" }
       : b));
+    setSaisieBl(null);
   };
 
   // Statut d'affichage d'un BL (ajoute la détection d'écart)
@@ -916,7 +956,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
                 fontFamily: "inherit", fontWeight: 700, fontSize: 14,
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
               }}>
-                <Icon as={Plus} size={16} /> Saisir ce BL (chantier à affecter ensuite)
+                <Icon as={Plus} size={16} /> Saisir ce BL depuis la facture
               </button>
             )}
           </div>
@@ -988,6 +1028,17 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textSub, textAlign: "center" }}>
         Pour une facture d'avant la saisie des BL, ou un fournisseur sans BL (coûts déjà saisis autrement).
       </div>
+
+      {saisieBl && (
+        <ConfirmationLignesBl
+          titre={`Saisir le BL ${bls[saisieBl.index]?.bl_numero || ""}`}
+          etat={saisieBl.etat} erreur={saisieBl.erreur} lecture={saisieBl.lecture} controle={saisieBl.controle}
+          montantBl={toNum(bls[saisieBl.index]?.montant_ht)} chantiers={listeChantiers} lots={lots}
+          propositions={saisieBl.propositions} enregistrement={saisieBl.enregistrement}
+          libelleValider="Créer la commande" T={T} acc={acc}
+          onConfirmer={creerCommandeBl} onAnnuler={() => { if (!saisieBl.enregistrement) setSaisieBl(null); }}
+        />
+      )}
 
       <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
     </div>
