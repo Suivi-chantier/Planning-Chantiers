@@ -76,7 +76,7 @@ create policy profero_collaborateurs_seulement on public.sauvegarde_20261128_fac
   as restrictive for all to authenticated
   using ((select public.est_collaborateur_actif())) with check ((select public.est_collaborateur_actif()));
 create policy sauvegarde_lecture_bureau on public.sauvegarde_20261128_facture_bl_statut
-  for select to authenticated using (not public.est_ouvrier());
+  for select to authenticated using ((select not public.est_ouvrier()));
 
 update public.facture_bl b set statut = 'rapproche'
 from public.sauvegarde_20261128_facture_bl_statut s
