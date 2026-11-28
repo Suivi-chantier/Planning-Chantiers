@@ -79,36 +79,62 @@ export function rapprocherFacture({ livraisons = [], documents = [], fournisseur
       Date.parse(d.date_doc) <= Date.parse(dateFacture)));
   const utilises = new Set();
   const resultat = [];
+  // Trois clés par livraison, comparées à doc_numero et au n° de commande
+  // fournisseur des achats saisis :
+  //   « numero »         : n° de BL, ou n° de livraison (Würth « Livraison/Date
+  //                        8173115263/ … », Partedis « Livraison No ») ;
+  //   « commande »       : n° de commande fournisseur (Rexel « Notre Réf »,
+  //                        Würth « Commande 2283584033 ») ;
+  //   « numero_facture » : n° de la facture (Würth : le ticket comptoir porte
+  //                        le même n° que la facture).
+  // Ordre : n° de BL d'abord (Rexel, Partedis, Zolpan). Règle fournisseur
+  // regles.numero_facture_d_abord (Würth) : n° de facture d'abord.
+  // Seul le n° de BL exact lie sans regarder le montant ; par n° de commande ou
+  // de facture, il faut le même montant (± tolérance), sinon c'est une
+  // proposition à confirmer.
+  const ordre = regles.numero_facture_d_abord ? ["numero_facture", "numero", "commande"] : ["numero", "commande", "numero_facture"];
   for (const livraison of livraisons) {
-    const nBl = normaliserNumero(livraison.bl_numero, regles);
+    const nBls = [...new Set([livraison.bl_numero, livraison.numero_livraison]
+      .map(v => normaliserNumero(v, regles)).filter(Boolean))];
     const nCommande = cleCommande(livraison.commande_numero, regles);
     const nFacture = normaliserNumero(livraison.facture_numero, regles);
     const candidats = eligible.filter(d => !utilises.has(d.id));
     const numero = (d, n) => n && [d.doc_numero, d.commande_numero].some(v => normaliserNumero(v, regles) === n);
-    const uniques = (n) => candidats.filter(d => numero(d, n));
     // N° de commande : comparé au n° de commande fournisseur du document ET à
     // son doc_numero (commande saisie avec son n° de commande Rexel).
     const memeCommande = d => [d.numero_commande_fournisseur, d.commande_numero, d.doc_numero]
       .some(v => cleCommande(v, regles) === nCommande);
-    const stricts = nBl ? uniques(nBl) : [];
-    const commandes = !stricts.length && nCommande ? candidats.filter(memeCommande) : [];
-    const factures = !stricts.length && !commandes.length && nFacture ? uniques(nFacture) : [];
-    const choix = stricts.length ? stricts : commandes.length ? commandes : factures;
-    let trouve = choix.length === 1 ? choix[0] : null;
-    let mode = stricts.length ? "numero" : commandes.length ? "commande" : "numero_facture";
-    // Une référence de commande peut couvrir plusieurs BL : jamais d'attribution
-    // automatique sans confirmation si le montant ne correspond pas.
-    if (trouve && mode === "commande" && !memeMontant(montant(livraison), montant(trouve), tolerance)) trouve = null;
+    const parCle = {
+      numero: () => nBls.length ? candidats.filter(d => nBls.some(n => numero(d, n))) : [],
+      commande: () => nCommande ? candidats.filter(memeCommande) : [],
+      numero_facture: () => nFacture ? candidats.filter(d => numero(d, nFacture)) : [],
+    };
+    let trouve = null, mode = null;
+    const proposes = [];
+    for (const cle of ordre) {
+      const choix = parCle[cle]().filter(d => !proposes.some(p => p.document === d));
+      if (!choix.length) continue;
+      const unique = choix.length === 1 ? choix[0] : null;
+      // Une référence de commande ou de facture peut couvrir un autre achat :
+      // jamais d'attribution automatique si le montant ne correspond pas.
+      if (unique && (cle === "numero" || memeMontant(montant(livraison), montant(unique), tolerance))) {
+        trouve = unique; mode = cle; break;
+      }
+      const modeChoix = cle === "numero" ? "numero_ambigu" : cle;
+      proposes.push(...choix.map(d => ({ document: d, mode: modeChoix })));
+      // N° de BL d'abord : on s'arrête à la première clé qui trouve quelque
+      // chose (comportement Rexel inchangé). N° de facture d'abord : s'il ne
+      // suffit pas, le n° de BL et le n° de commande sont encore essayés.
+      if (!(regles.numero_facture_d_abord && cle === "numero_facture")) break;
+    }
     if (trouve) {
       utilises.add(trouve.id);
       const ecart = montant(livraison) == null || montant(trouve) == null ? null : montant(livraison) - montant(trouve);
       resultat.push({ livraison, document: trouve, mode, confirmationRequise: false, ecartCentimes: ecart, conforme: ecart != null && Math.abs(ecart) <= tolerance });
       continue;
     }
-    // Même n° de commande mais montant différent : proposition « via n° de commande ».
-    const modeChoix = mode === "commande" ? "commande" : "numero_ambigu";
-    const propositions = [...choix.map(d => ({ document: d, mode: modeChoix })),
-      ...candidats.filter(d => !choix.includes(d) && jours(livraison.date_livraison, d.date_doc) <= 3 &&
+    const propositions = [...proposes,
+      ...candidats.filter(d => !proposes.some(p => p.document === d) && jours(livraison.date_livraison, d.date_doc) <= 3 &&
         memeMontant(montant(livraison), montant(d), tolerance)).map(d => ({ document: d, mode: "montant" }))];
     resultat.push({ livraison, document: null, mode: null, confirmationRequise: propositions.length > 0, propositions, conforme: false });
   }

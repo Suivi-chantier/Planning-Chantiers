@@ -66,8 +66,8 @@ Découpage du reste (proposition, à valider par François) :
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Fournisseur reconnu par n° de TVA : extraction `tva_fournisseur`, TVA des 4 fournisseurs, ordre TVA → alias → nom ; plus de création automatique de fournisseur (liste déroulante) (§4 P1) | en ligne | migration 20261128030653 (4 lignes, sauvegarde) + analyse-facture v13 | à confirmer par François sur les 9 factures du test | #305 |
-| 2 | Rexel « Notre Réf » = n° de commande ; « Votre commande » = référence client ; n° de commande comparé à `numero_commande_fournisseur` et aux `doc_numero` de forme commande Rexel → appariement automatique si montant égal (§6 cas 1.1) | en cours | contrôles verts + tests sur les 29 n° de 961106792 | 960676175 : 383912 apparié sans confirmation | |
-| 3 | Würth : n° de facture essayé contre les tickets ; `numero_livraison` extrait (§4 P1) | à faire | contrôles verts + tests | 4336131218 trouvée si le ticket est en base | |
+| 2 | Rexel « Notre Réf » = n° de commande ; « Votre commande » = référence client ; n° de commande comparé à `numero_commande_fournisseur` et aux `doc_numero` de forme commande Rexel → appariement automatique si montant égal (§6 cas 1.1) | en ligne | contrôles verts + tests sur les 29 n° de 961106792 | 960676175 : 383912 apparié sans confirmation | #306 |
+| 3 | Würth : n° de facture essayé contre les tickets ; `numero_livraison` extrait (§4 P1) | en cours | contrôles verts + tests | 4336131218 trouvée si le ticket est en base | |
 | 4 | Frais affectés automatiquement par fournisseur (`regles_frais` : P.F.A., Frais facturation, FFVDF → frais généraux ; port → chantier du BL) (§6 cas 7.2) | à faire | migration additive | 960676175, 9302109, 28746368 : frais en frais généraux sans action | |
 | 5 | `numero_normalise` rempli à l'enregistrement et utilisé au rapprochement (§4 P1) | à faire | **arrêt** : recalcul de l'existant = reprise de données | 29/29 n° Rexel normalisés | |
 | 6 | Accusé de réception reconnu au scan (`doc_type = accuse_reception`, n° → `numero_commande_fournisseur`) ; alerte « ressemble à une facture » (§6 cas 1.3, §4 P3) | à faire | contrôles verts | accusé 000925398 rangé en commande « BL à venir » | |
@@ -318,3 +318,11 @@ Pourquoi ces BL passent par une proposition : les « CL- » à cause du bug de n
 
 #### Hors rapprochement — à signaler
 - 28/11/2026 ~00h : la base Supabase a refusé une connexion (`remaining connection slots are reserved for roles with the SUPERUSER attribute`) → pool de connexions saturé. Vérifier les fonctions qui ouvrent des connexions sans les fermer (Edge Functions, crons) et l'usage du pooler.
+
+### Tâche 2 — Rexel « Notre Réf » = n° de commande (en ligne le 28/11/2026, #306)
+- analyse-facture v14 : chez Rexel, `commande_numero` = « Notre Réf » (sans la date) ; « Votre commande … (Chantier n° …) » → `reference_client` ; un nom de chantier ne va jamais en n° de commande.
+- Moteur : n° de commande Rexel normalisé (4900000917429 = 4900-000917429 = 000917429 / 4900 = 917429/4900, agence comprise) et comparé à `numero_commande_fournisseur` et à `doc_numero` ; montant égal → appariement « via n° de commande » sans confirmation ; montant différent → proposition. Le n° de BL reste prioritaire.
+- Formats réels vus en base (lecture seule) : `4900-000917429`, `4900-000915728`, `000918754 / 4900`, `000247142 / 4903` — le motif `0009xxxxx` du cahier aurait exclu l'agence 4903, il n'est pas utilisé.
+- Contrôles : 19/19 verts ; tests rapprochement 21/21 (données fictives) ; `verif-analyse-facture` 15/15. Aucune migration, aucun chiffre financier touché.
+- Note : sur 960676175, la commande `4900-000917429` est déjà « facturée » (reliée lors de la reprise du 28/11) : l'appariement automatique vaudra pour les prochaines factures.
+- Non fait : test sur les 29 n° de 961106792 (liste absente du fichier projet).

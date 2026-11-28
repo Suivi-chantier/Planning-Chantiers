@@ -570,8 +570,12 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // Apparie une liste de BL aux commandes NON encore facturées, par NUMÉRO,
   // quel que soit le doc_type : une commande saisie comme "ticket" ou "bon de
   // commande" mais portant le n° de BL doit quand même être retrouvée.
-  const matchBls = useCallback(async (blsList, fournisseur, dateFacture) => {
-    if (!fournisseur?.id) return { matched: blsList.map(b => ({ ...b, commande_id: null, statut: "manquant" })), missing: [] };
+  // Chaque livraison reçoit aussi le n° de la facture (Würth : le ticket comptoir
+  // porte le même n°) ; sans n° de BL lu, le n° de livraison en tient lieu.
+  // L'ordre des clés (n° de BL d'abord, ou n° de facture d'abord pour Würth)
+  // est une règle du fournisseur : regles_numero.numero_facture_d_abord.
+  const matchBls = useCallback(async (blsList, fournisseur, dateFacture, factureNumero) => {
+    if (!fournisseur?.id) return { matched: blsList.map(b => ({ ...b, bl_numero: b.bl_numero || b.numero_livraison || "", commande_id: null, statut: "manquant" })), missing: [] };
     const { data, error } = await supabase.from("commandes")
       .select("id, doc_numero, numero_commande_fournisseur, fournisseur_id, montant_ht, date_doc, statut_facturation, remplace_par_id")
       .eq("fournisseur_id", fournisseur.id).eq("statut_facturation", "en_attente_facture").limit(3000);
@@ -580,7 +584,8 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       fournisseurId: fournisseur.id, dateFacture, regles: fournisseur.regles_numero || {}, toleranceHt: Number(fournisseur.tolerance_ht ?? 0.05),
       periodeDebut: dateFacture ? new Date(Date.UTC(Number(dateFacture.slice(0,4)), Number(dateFacture.slice(5,7))-1, -2)).toISOString().slice(0,10) : undefined,
       periodeFin: dateFacture || undefined,
-      livraisons: blsList.map(b => ({ ...b, date_livraison: b.date_livraison || dateFacture })),
+      livraisons: blsList.map(b => ({ ...b, bl_numero: b.bl_numero || b.numero_livraison || null,
+        facture_numero: factureNumero || null, date_livraison: b.date_livraison || dateFacture })),
       documents: (data || []).map(d => ({ ...d, commande_numero: d.numero_commande_fournisseur })),
     });
     return { matched: result.rapprochements.map(r => ({
@@ -602,11 +607,11 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     });
     setFrais(regle.frais);
     try {
-      const { matched, missing } = await matchBls(regle.bls, fournisseur, p.date_facture);
+      const { matched, missing } = await matchBls(regle.bls, fournisseur, p.date_facture, p.numero);
       setBls(matched);
       setAbsentsFacture(missing);
     } catch (err) {
-      setBls(regle.bls.map(b => ({ ...b, commande_id: null, statut: "manquant" })));
+      setBls(regle.bls.map(b => ({ ...b, bl_numero: b.bl_numero || b.numero_livraison || "", commande_id: null, statut: "manquant" })));
       setAbsentsFacture([]);
       setIaErr("Lecture réussie, mais rapprochement indisponible : " + err.message);
     }
