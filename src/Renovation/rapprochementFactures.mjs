@@ -19,6 +19,47 @@ export function normaliserNumero(value, regles = {}) {
   return numero.replace(/\s*([/-])\s*/g, "$1");
 }
 
+// ── N° de commande fournisseur ─────────────────────────────────────────────
+// Rexel imprime sur chaque bloc BL « Notre Réf: 4900000917429 du 22/09/2026 » :
+// agence (4 chiffres) + n° de commande (9 chiffres). La même commande s'écrit
+// « 4900-000917429 » sur l'extranet et l'accusé de réception, et « 000917429 /
+// 4900 » ou « 917429/4900 » dans l'appli. « Votre commande : FOURMOND » est la
+// référence du client (souvent un nom de chantier), jamais un n° de commande.
+const nettoyerCommande = value => String(value ?? "").trim()
+  .replace(/^notre\s*r[ée]f(?:[ée]rence)?\.?\s*:?\s*/i, "")
+  .replace(/\s+du\s+\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\s*$/i, "")
+  .trim();
+
+// Un n° de commande contient des chiffres et pas de mot : « FOURMOND »,
+// « TOUR BOUTON », « MONTILLERS T3 » sont des références client.
+export function estNumeroCommande(value) {
+  const v = nettoyerCommande(value);
+  return /\d/.test(v) && !/\p{L}{3,}/u.test(v);
+}
+
+// « 4900000917429 », « 4900-000917429 », « 000917429 / 4900 », « 917429/4900 »
+// → « 4900-917429 » (agence-n°, zéros de tête ignorés). Autre forme → null.
+export function normaliserCommandeRexel(value) {
+  const v = nettoyerCommande(value).replace(/\s+/g, "");
+  const sansZeros = n => n.replace(/^0+(?=\d)/, "");
+  let m = v.match(/^(\d{4})-?(\d{9})$/);
+  if (m) return `${m[1]}-${sansZeros(m[2])}`;
+  m = v.match(/^(\d{1,9})\/(\d{4})$/);
+  if (m) return `${m[2]}-${sansZeros(m[1])}`;
+  return null;
+}
+
+// Clé de comparaison d'un n° de commande. La lecture agence + n° ne s'applique
+// qu'aux fournisseurs à agence (règle retirerAgence : Rexel). "" = pas un n°.
+export function cleCommande(value, regles = {}) {
+  if (!estNumeroCommande(value)) return "";
+  if (regles.retirerAgence) {
+    const rexel = normaliserCommandeRexel(value);
+    if (rexel) return `agence:${rexel}`;
+  }
+  return normaliserNumero(nettoyerCommande(value), regles);
+}
+
 const jours = (a, b) => {
   if (!a || !b) return Infinity;
   const x = Date.parse(a + "T00:00:00Z"), y = Date.parse(b + "T00:00:00Z");
@@ -40,13 +81,17 @@ export function rapprocherFacture({ livraisons = [], documents = [], fournisseur
   const resultat = [];
   for (const livraison of livraisons) {
     const nBl = normaliserNumero(livraison.bl_numero, regles);
-    const nCommande = normaliserNumero(livraison.commande_numero, regles);
+    const nCommande = cleCommande(livraison.commande_numero, regles);
     const nFacture = normaliserNumero(livraison.facture_numero, regles);
     const candidats = eligible.filter(d => !utilises.has(d.id));
     const numero = (d, n) => n && [d.doc_numero, d.commande_numero].some(v => normaliserNumero(v, regles) === n);
     const uniques = (n) => candidats.filter(d => numero(d, n));
+    // N° de commande : comparé au n° de commande fournisseur du document ET à
+    // son doc_numero (commande saisie avec son n° de commande Rexel).
+    const memeCommande = d => [d.numero_commande_fournisseur, d.commande_numero, d.doc_numero]
+      .some(v => cleCommande(v, regles) === nCommande);
     const stricts = nBl ? uniques(nBl) : [];
-    const commandes = !stricts.length && nCommande ? uniques(nCommande) : [];
+    const commandes = !stricts.length && nCommande ? candidats.filter(memeCommande) : [];
     const factures = !stricts.length && !commandes.length && nFacture ? uniques(nFacture) : [];
     const choix = stricts.length ? stricts : commandes.length ? commandes : factures;
     let trouve = choix.length === 1 ? choix[0] : null;
@@ -60,7 +105,9 @@ export function rapprocherFacture({ livraisons = [], documents = [], fournisseur
       resultat.push({ livraison, document: trouve, mode, confirmationRequise: false, ecartCentimes: ecart, conforme: ecart != null && Math.abs(ecart) <= tolerance });
       continue;
     }
-    const propositions = [...choix.map(d => ({ document: d, mode: "numero_ambigu" })),
+    // Même n° de commande mais montant différent : proposition « via n° de commande ».
+    const modeChoix = mode === "commande" ? "commande" : "numero_ambigu";
+    const propositions = [...choix.map(d => ({ document: d, mode: modeChoix })),
       ...candidats.filter(d => !choix.includes(d) && jours(livraison.date_livraison, d.date_doc) <= 3 &&
         memeMontant(montant(livraison), montant(d), tolerance)).map(d => ({ document: d, mode: "montant" }))];
     resultat.push({ livraison, document: null, mode: null, confirmationRequise: propositions.length > 0, propositions, conforme: false });

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
     type: "amelioration",
+    titre: "Factures Rexel : un BL est retrouvé par son n° de commande (« Notre Réf ») quand le montant est le même",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Sur une facture Rexel, chaque BL porte « Notre Réf » : c'est le n° de commande Rexel (agence 4900 ou 4903 + n° de commande). Quand un achat a été saisi avec ce n° de commande plutôt qu'avec le n° de BL (par exemple à partir de l'accusé de réception, « 4900-000917429 »), le BL de la facture lui est maintenant relié automatiquement, sans confirmation, si les montants sont égaux. « Votre commande » (FOURMOND, TOUR BOUTON…) est la référence du chantier donnée au comptoir : elle n'est plus jamais prise pour un n° de commande.",
+    comment: "Rien à faire : à la lecture de la facture, le BL apparaît « Apparié » avec la mention « via n° de commande ». Les écritures 4900000917429, 4900-000917429, 000917429 / 4900 ou 917429/4900 sont reconnues comme la même commande. Si le n° de commande correspond mais pas le montant (commande livrée en plusieurs fois, par exemple), l'achat est seulement proposé dans « Correspondances possibles » et c'est vous qui choisissez.",
+  },
+  {
+    date: "2026-11-28",
+    type: "amelioration",
     titre: "Factures : le fournisseur est reconnu par son n° de TVA, et n'est plus jamais créé tout seul",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
     quoi: "Le nom imprimé sur une facture ne correspond pas toujours au fournisseur (Zolpan facture au nom de Cromology, Würth au nom de « Würth France »…). L'application lit maintenant le n° de TVA du fournisseur sur la facture et s'en sert en premier pour le reconnaître ; à défaut, elle essaie ses autres noms, puis son nom. Les n° de TVA de Rexel, Partedis, Würth et Zolpan sont enregistrés. Surtout, l'application ne crée plus jamais un fournisseur en double à partir d'une facture.",

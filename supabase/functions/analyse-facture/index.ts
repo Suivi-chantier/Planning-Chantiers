@@ -61,9 +61,9 @@ const refus = (r: { status: number; code: string; message: string }) =>
 // numéro de commande fournisseur.
 const REGLES_REFERENCES = `Références d'un BL :
 - date_livraison : date d'expédition ou de livraison du BL (Rexel : « expédié le »).
-- commande_numero : numéro de commande DU FOURNISSEUR (Rexel : « Notre Réf », Partedis : « Cde No », Zolpan : « N° Cde »).
-- reference_client : référence donnée PAR LE CLIENT (Rexel : « Votre commande » suivi de « Chantier n° », Partedis : « V/ref client », Zolpan : « Réf. de cde client »).
-- « Votre commande : FOURMOND » est une référence client, jamais un numéro de commande.`
+- commande_numero : numéro de commande DU FOURNISSEUR, recopié tel qu'imprimé, chiffres et séparateurs seulement (Rexel : le numéro qui suit « Notre Réf: », sans la date « du … » — « Notre Réf: 4900000917429 du 22/09/2026 » donne "4900000917429" ; Partedis : « Cde No » ; Zolpan : « N° Cde »). Aucun numéro de commande fournisseur imprimé pour ce BL : null.
+- reference_client : référence donnée PAR LE CLIENT (Rexel : tout le texte qui suit « Votre commande », « Chantier n° … » compris, ex. « FOURMOND Chantier n° TLV » ; Partedis : « V/ref client » ; Zolpan : « Réf. de cde client »).
+- Chez Rexel, « Votre commande » est TOUJOURS la référence client, JAMAIS le numéro de commande : « Votre commande : FOURMOND » ou « Votre commande : TOUR BOUTON » vont dans reference_client. Un nom, un mot ou un nom de chantier ne va jamais dans commande_numero.`
 
 function consigneBlCible(bl: string): string {
   return `Tu lis une facture fournisseur BTP, éventuellement multipages.

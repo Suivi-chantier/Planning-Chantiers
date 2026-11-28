@@ -189,6 +189,10 @@ test("13. index.ts : modèle, plafond, prompt et format de réponse inchangés p
   assert.match(INDEX_CODE, /output_config: \{ effort: "medium" \}/);
   assert.match(INDEX_CODE, /Tu extrais les données de factures fournisseurs BTP/);
   assert.match(INDEX_CODE, /Conserver tous les BL de toutes les pages, sans doublons\./);
+  // Rexel : « Notre Réf » = n° de commande ; « Votre commande » = référence client.
+  assert.match(INDEX, /commande_numero : numéro de commande DU FOURNISSEUR[^\n]*Rexel : le numéro qui suit « Notre Réf: »/);
+  assert.match(INDEX, /« Votre commande » est TOUJOURS la référence client, JAMAIS le numéro de commande/);
+  assert.equal((INDEX.match(/\$\{REGLES_REFERENCES\}/g) || []).length, 2, "les règles de références sont dans les deux consignes");
   assert.match(INDEX_CODE, /const data = await response\.json\(\)/);
   assert.match(INDEX_CODE, /return json\(data, 200\)/);
 });
