@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normaliserNumero, rapprocherFacture, verifierTotalFacture, statutLiaisonBl, appliquerRegleMontantBl } from "../src/Renovation/rapprochementFactures.mjs";
+import { normaliserNumero, rapprocherFacture, verifierTotalFacture, statutLiaisonBl, appliquerRegleMontantBl,
+  normaliserCommandeRexel, cleCommande, estNumeroCommande } from "../src/Renovation/rapprochementFactures.mjs";
 
 test("normalisation conservative et configurable", () => {
   assert.equal(normaliserNumero(" 000383104 "), "383104");
@@ -119,4 +120,98 @@ test("règle montant_bl : sans effet par défaut (Rexel), ni sur plusieurs BL, n
   const deux = appliquerRegleMontantBl({ regles: { montant_bl: "total_ht_facture" }, bls: [{ montant_ht: 5 }, { montant_ht: 5 }], frais, totalHt: 12 });
   assert.equal(deux.applique, false); assert.equal(deux.frais.length, 1);
   assert.equal(appliquerRegleMontantBl({ regles: { montant_bl: "total_ht_facture" }, bls, frais, totalHt: null }).applique, false);
+});
+
+// ── Tâche 2 : « Notre Réf » Rexel = n° de commande (exemples issus des tests,
+// données fictives reprenant les n° du cahier, facture 960676175).
+const REGLES_REXEL = { alias: ["REXEL France"], prefixes: ["CL-4900-", "CL-4903-"], retirerAgence: true };
+const docRexel = (x) => ({ fournisseur_id: "rexel", statut_facturation: "en_attente_facture", date_doc: "2026-09-22", ...x });
+
+test("n° de commande Rexel : toutes les écritures connues donnent la même clé", () => {
+  // Formes vues sur la facture, l'extranet / accusé de réception et en base.
+  for (const v of ["4900000917429", "4900-000917429", "000917429 / 4900", "917429/4900", " 4900 - 000917429 ",
+    "Notre Réf: 4900000917429 du 22/09/2026", "4900000917429 du 22/09/2026"]) {
+    assert.equal(normaliserCommandeRexel(v), "4900-917429", v);
+  }
+  assert.equal(normaliserCommandeRexel("000918754 / 4900"), "4900-918754");
+  assert.equal(normaliserCommandeRexel("000247142 / 4903"), "4903-247142");
+  // Autre agence ou autre commande : clés différentes.
+  assert.notEqual(normaliserCommandeRexel("4903000917429"), normaliserCommandeRexel("4900000917429"));
+  assert.notEqual(normaliserCommandeRexel("4900000917428"), normaliserCommandeRexel("4900000917429"));
+  // Ce qui n'a pas la forme agence + n° n'est pas lu comme une commande Rexel.
+  for (const v of ["FOURMOND", "TOUR BOUTON", "", null, "CL-4900-619330811-02", "619330811-02 / 4900", "490000091742"]) {
+    assert.equal(normaliserCommandeRexel(v), null, String(v));
+  }
+});
+
+test("« Votre commande » (référence client) n'est jamais un n° de commande", () => {
+  for (const v of ["FOURMOND", "FOURMOND Chantier n° TLV", "TOUR BOUTON", "MONTILLERS T3", "KATHLEEN", "", null]) {
+    assert.equal(estNumeroCommande(v), false, String(v));
+    assert.equal(cleCommande(v, REGLES_REXEL), "", String(v));
+  }
+  for (const v of ["4900000917429", "000918754 / 4900", "18046692", "2283584033"]) assert.equal(estNumeroCommande(v), true, v);
+  // Sans la règle d'agence (autre fournisseur), comparaison par n° normalisé.
+  assert.equal(cleCommande("018046692"), "18046692");
+  assert.equal(cleCommande("4900000917429", REGLES_REXEL), cleCommande("4900-000917429", REGLES_REXEL));
+});
+
+test("Rexel : BL 000383912 apparié via « Notre Réf » à la commande saisie 4900-000917429 (même montant)", () => {
+  const r = rapprocherFacture({ fournisseurId: "rexel", dateFacture: "2026-09-30", regles: REGLES_REXEL,
+    livraisons: [{ bl_numero: "000383912", commande_numero: "4900000917429", reference_client: "TOUR BOUTON", date_livraison: "2026-09-22", montant_ht: 33.66 }],
+    documents: [docRexel({ id: "cmd", doc_numero: "4900-000917429", montant_ht: 33.66 }),
+      docRexel({ id: "autre", doc_numero: "384456 / 4900", montant_ht: 116.71 })] });
+  const a = r.rapprochements[0];
+  assert.equal(a.document.id, "cmd");
+  assert.equal(a.mode, "commande");
+  assert.equal(a.confirmationRequise, false);
+  assert.equal(a.conforme, true);
+  assert.equal(statutLiaisonBl({ commande_id: "cmd", montant_ht: 33.66, commandeMontant: 33.66, mode_rapprochement: a.mode }), "rapproche");
+});
+
+test("Rexel : même n° de commande comparé à numero_commande_fournisseur, toutes écritures", () => {
+  for (const ncf of ["4900-000917429", "000917429 / 4900", "917429/4900", "4900000917429"]) {
+    const r = rapprocherFacture({ fournisseurId: "rexel", dateFacture: "2026-09-30", regles: REGLES_REXEL,
+      livraisons: [{ bl_numero: "000383912", commande_numero: "4900000917429", montant_ht: 33.66 }],
+      documents: [docRexel({ id: "a", doc_numero: "999999 / 4900", numero_commande_fournisseur: ncf, montant_ht: 33.66 })] });
+    assert.equal(r.rapprochements[0].document?.id, "a", ncf);
+    assert.equal(r.rapprochements[0].mode, "commande", ncf);
+  }
+});
+
+test("Rexel : même n° de commande mais montant différent → proposition, pas d'appariement", () => {
+  const r = rapprocherFacture({ fournisseurId: "rexel", dateFacture: "2026-09-30", regles: REGLES_REXEL,
+    livraisons: [{ bl_numero: "000383912", commande_numero: "4900000917429", date_livraison: "2026-09-22", montant_ht: 33.66 }],
+    documents: [docRexel({ id: "cmd", doc_numero: "4900-000917429", montant_ht: 40.12 })] });
+  const a = r.rapprochements[0];
+  assert.equal(a.document, null);
+  assert.equal(a.confirmationRequise, true);
+  assert.deepEqual(a.propositions.map(p => [p.document.id, p.mode]), [["cmd", "commande"]]);
+});
+
+test("Rexel : autre agence ou autre commande → pas d'appariement par n° de commande", () => {
+  for (const doc_numero of ["4903-000917429", "4900-000917428"]) {
+    const r = rapprocherFacture({ fournisseurId: "rexel", dateFacture: "2026-09-30", regles: REGLES_REXEL,
+      livraisons: [{ bl_numero: "000383912", commande_numero: "4900000917429", date_livraison: "2026-09-22", montant_ht: 33.66 }],
+      documents: [docRexel({ id: "x", doc_numero, montant_ht: 33.66 })] });
+    assert.equal(r.rapprochements[0].document, null, doc_numero);
+    // Seule la proposition par montant (confirmation humaine) subsiste.
+    assert.deepEqual(r.rapprochements[0].propositions.map(p => p.mode), ["montant"], doc_numero);
+  }
+});
+
+test("« Votre commande FOURMOND » rangé par erreur en n° de commande : jamais d'appariement par commande", () => {
+  const r = rapprocherFacture({ fournisseurId: "rexel", dateFacture: "2026-10-31", regles: REGLES_REXEL,
+    livraisons: [{ bl_numero: "CL-4900-619451058-01", commande_numero: "FOURMOND", date_livraison: "2026-10-23", montant_ht: 1200.75 }],
+    documents: [docRexel({ id: "f", doc_numero: "FOURMOND", numero_commande_fournisseur: "FOURMOND", date_doc: "2026-10-01", montant_ht: 1200.75 })] });
+  assert.equal(r.rapprochements[0].document, null);
+  assert.ok(!r.rapprochements[0].propositions.some(p => p.mode === "commande"));
+});
+
+test("le n° de BL reste prioritaire sur le n° de commande", () => {
+  const r = rapprocherFacture({ fournisseurId: "rexel", dateFacture: "2026-09-30", regles: REGLES_REXEL,
+    livraisons: [{ bl_numero: "000383448", commande_numero: "4900000915728", montant_ht: 423.67 }],
+    documents: [docRexel({ id: "bc", doc_numero: "4900-000915728", montant_ht: 423.67 }),
+      docRexel({ id: "bl", doc_numero: "383448 / 4900", montant_ht: 423.67 })] });
+  assert.equal(r.rapprochements[0].document.id, "bl");
+  assert.equal(r.rapprochements[0].mode, "numero");
 });
