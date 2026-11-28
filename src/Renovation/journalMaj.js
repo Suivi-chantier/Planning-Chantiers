@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-11-28",
+    type: "correctif",
+    titre: "Rapprochement factures : l'enregistrement fonctionne de nouveau (les pages de facture s'archivent)",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Depuis sa mise en place, l'archivage des pages de facture était refusé par la base pour tout le monde : le message « Une ou plusieurs pages n'ont pas pu être archivées » apparaissait et le bouton « Enregistrer le rapprochement » restait grisé. Les frais de facture (port, emballage…) ne pouvaient pas non plus être enregistrés. C'est corrigé pour les administrateurs, conducteurs, bureau et comptable ; les ouvriers n'ont toujours aucun accès aux factures.",
+    comment: "Rien ne change dans l'utilisation. Si l'archivage d'une page échoue malgré tout, l'écran affiche maintenant la raison exacte et un bouton « Réessayer l'archivage », qui renvoie seulement les pages manquantes, sans relancer la lecture de la facture.",
+  },
+  {
     date: "2026-11-25",
     type: "nouveaute",
     titre: "Fiche sécurité : bouton « Dossier de contrôle » et alerte 30 jours avant l'expiration des justificatifs de l'entreprise",
