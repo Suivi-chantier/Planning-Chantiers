@@ -216,6 +216,7 @@ Réponds uniquement par un objet JSON valide. N'invente jamais un numéro ou un 
 Format attendu :
 {
  "fournisseur": "nom ou chaîne vide",
+ "tva_fournisseur": "n° de TVA intracommunautaire du fournisseur ou null",
  "numero": "numéro facture ou null",
  "date_facture": "AAAA-MM-JJ ou null",
  "periode": "AAAA-MM ou null",
@@ -231,6 +232,7 @@ Format attendu :
  "incertitudes": ["motif éventuel"]
 }
 Les montants non lisibles sont null, jamais zéro par défaut.
+tva_fournisseur : n° de TVA intracommunautaire DU FOURNISSEUR qui émet la facture (ex. « FR » + 11 caractères), recopié sans espaces. Jamais celui du client : FR52921024584 est notre propre n° (Profero, le client) et ne doit jamais être renvoyé ; s'il est le seul lisible, renvoyer null.
 Pour chaque BL, utiliser le sous-total imprimé s'il existe ; sinon additionner les montants totaux des lignes d'articles du BL, jamais prix unitaire × quantité.
 Les prix par 100, conditionnements, remises en cascade et litres peuvent différer des documents d'achat.
 Rapprocher visuellement les BL et numéros de commande qui apparaissent sur la même ligne.
