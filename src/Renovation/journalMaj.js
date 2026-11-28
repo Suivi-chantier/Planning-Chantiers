@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
     type: "correctif",
+    titre: "Rapprochement factures Partedis : plus de faux écart dû aux frais de port",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Chez Partedis, le bon d'emporte est valorisé frais de port, énergie et éco-taxe compris. La lecture de la facture sortait pourtant le port en frais séparés : le BL apparaissait en écart (ex. −10 €) et ces frais risquaient d'être comptés deux fois. Désormais, pour une facture Partedis à un seul BL, le montant du BL est le total HT de la facture, hors « Frais facturation » ; seuls ces frais de facturation restent à part. La facture 9302111 a été corrigée : BL 12211060 apparié à 52,61 €, sans frais.",
+    comment: "Rien à faire à l'analyse. Pour une facture Partedis regroupant plusieurs BL, les frais restent proposés à part, à vérifier.",
+  },
+  {
+    date: "2026-11-28",
+    type: "correctif",
     titre: "Rapprochement factures : les factures PDF refusées par l'IA (ex. Partedis) sont relues automatiquement en images",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
     quoi: "Certaines factures PDF, comme celles de Partedis, étaient refusées par l'IA : l'écran affichait seulement « Unexpected end of JSON input ». Désormais, si l'IA refuse un PDF, l'application le convertit en images de pages et relance la lecture toute seule. Si la lecture échoue malgré tout, le message dit pourquoi (« Le document n'a pas pu être lu par l'IA : … »). Par ailleurs, la participation énergie imprimée sur un BL (Partedis) est désormais comptée dans le montant de ce BL, comme sur le BL lui-même, au lieu de partir dans les frais : plus de faux écart de quelques centimes.",
