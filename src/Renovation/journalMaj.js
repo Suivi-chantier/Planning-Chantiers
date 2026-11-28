@@ -57,6 +57,22 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
     type: "correctif",
+    titre: "Rapprochement factures : plus de faux « écart » à 0,00 €, et les BL Rexel « CL-4900-… » sont reconnus par leur numéro",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Un BL relié à sa commande autrement que par son numéro exact (par montant, ou en choisissant une proposition) était marqué « Écart de montant » même quand la facture et la commande étaient identiques au centime. La facture restait alors « À rapprocher » et il fallait justifier chaque faux écart. Désormais, seul le montant compte : si la facture et la commande concordent (à la tolérance du fournisseur près), le BL est « Apparié ». Par ailleurs, les numéros Rexel écrits « CL-4900-619330811-02 » sur la facture sont maintenant reconnus comme le bon « 619330811-02 / 4900 » saisi dans l'application.",
+    comment: "Rien à faire de plus : sous « Apparié », une petite mention indique comment le BL a été retrouvé (« apparié par montant », « via n° de commande »…). La facture Rexel 960676175 a été remise d'aplomb : ses 6 faux écarts sont devenus « Apparié ». Il reste à affecter ses frais (9,90 €) à un chantier puis à cliquer sur « Valider les correspondances conformes ».",
+  },
+  {
+    date: "2026-11-28",
+    type: "correctif",
+    titre: "Bons d'achat : l'ouverture de la liste ne bloque plus l'application",
+    pages: [{ id: "capture-cmd", label: "Saisie commande (mobile)" }],
+    quoi: "Chaque ouverture de la liste des bons d'achat demandait d'un coup une miniature pour plus de 200 documents PDF, ce qui saturait la base de données : l'application refusait alors les connexions pendant plusieurs minutes, pour tout le monde. Les documents PDF affichent maintenant une icône à la place de la miniature, et les photos ne se chargent qu'au moment où elles apparaissent à l'écran.",
+    comment: "Rien ne change à l'usage : touchez un bon pour l'ouvrir, puis « Agrandir » pour voir le document complet.",
+  },
+  {
+    date: "2026-11-28",
+    type: "correctif",
     titre: "Rapprochement factures : l'enregistrement fonctionne de nouveau (les pages de facture s'archivent)",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
     quoi: "Depuis sa mise en place, l'archivage des pages de facture était refusé par la base pour tout le monde : le message « Une ou plusieurs pages n'ont pas pu être archivées » apparaissait et le bouton « Enregistrer le rapprochement » restait grisé. Les frais de facture (port, emballage…) ne pouvaient pas non plus être enregistrés. C'est corrigé pour les administrateurs, conducteurs, bureau et comptable ; les ouvriers n'ont toujours aucun accès aux factures.",
