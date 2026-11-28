@@ -86,6 +86,7 @@ ${REGLES_REFERENCES}
 - montant_ht : sous-total HT imprimé pour ce BL ; à défaut, somme des totaux de ses lignes.
 - Une ligne par article. prix_total = montant total HT imprimé de la ligne, jamais recalculé.
 - Éco-participations (DEEE, ES1408…) : une ligne séparée « Éco-participation » avec sa référence, placée juste après l'article concerné.
+- Participation énergie propre à ce BL (ex. Partedis « Énergie ») : une ligne séparée « Participation énergie », comprise dans montant_ht.
 - La somme des prix_total doit égaler montant_ht ; sinon, explique l'écart dans incertitudes.
 - Les montants non lisibles sont null, jamais zéro par défaut.
 - Si ce BL n'apparaît pas sur la facture : "lignes": [] et une incertitude « BL introuvable ».`
@@ -234,7 +235,9 @@ Pour chaque BL, utiliser le sous-total imprimé s'il existe ; sinon additionner 
 Les prix par 100, conditionnements, remises en cascade et litres peuvent différer des documents d'achat.
 Rapprocher visuellement les BL et numéros de commande qui apparaissent sur la même ligne.
 Ne pas inventer un BL pour les factures directes ou les documents substitutifs.
-Les contributions écologiques incluses dans une ligne d'article restent dans son total ; frais de facturation, énergie, PFA ou port hors articles vont dans frais.
+Les contributions écologiques incluses dans une ligne d'article restent dans son total.
+Une participation énergie (ou contribution) calculée sur un BL et imprimée dans le bloc de ce BL (ex. Partedis : « sous-total articles » puis « Énergie ») fait partie du montant_ht de ce BL : montant_ht du BL = sous-total articles + cette participation, car le BL du fournisseur l'inclut. S'il n'y a qu'un seul BL sur la facture, sa participation énergie lui est rattachée.
+Seuls les frais globaux de la facture, hors de tout BL (frais de facturation, PFA, port facturé à part, énergie globale non détaillée par BL alors que la facture compte plusieurs BL), vont dans frais.
 Ne jamais compter deux fois une taxe ou un frais déjà inclus dans le HT.
 Vérifier la somme des BL et frais contre le total HT ; si elle ne correspond pas, préciser l'incertitude.
 Conserver tous les BL de toutes les pages, sans doublons.
