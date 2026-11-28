@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { normaliserNumero, rapprocherFacture, statutLiaisonBl } from "./rapprochementFactures.mjs";
+import { normaliserNumero, rapprocherFacture, statutLiaisonBl, appliquerRegleMontantBl } from "./rapprochementFactures.mjs";
 import { construireHistoriqueRapprochement, statutHistorique, fmtEur } from "./historiqueRapprochementV1.js";
 import { chargerHistoriqueRapprochement } from "./rapprochementDonnees";
 import { supabase, photoTransform } from "../supabase";
@@ -601,8 +601,13 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         periode: p.periode || "",
         montant_ht: p.montant_ht != null ? String(p.montant_ht) : "",
       });
-      const blsRaw = Array.isArray(p.bls) ? p.bls : [];
-      setFrais(Array.isArray(p.frais) ? p.frais : []);
+      // Règle « montant du BL » du fournisseur (Partedis : total HT facture hors frais de facturation).
+      const regle = appliquerRegleMontantBl({
+        regles: matchFournisseur(p.fournisseur || "", fournisseurs).fournisseur?.regles_numero || {},
+        bls: Array.isArray(p.bls) ? p.bls : [], frais: Array.isArray(p.frais) ? p.frais : [], totalHt: p.montant_ht,
+      });
+      const blsRaw = regle.bls;
+      setFrais(regle.frais);
       setExtraction(p);
       try {
         const { matched, missing } = await matchBls(blsRaw, p.fournisseur || "", p.date_facture);

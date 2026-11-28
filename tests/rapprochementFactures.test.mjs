@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normaliserNumero, rapprocherFacture, verifierTotalFacture, statutLiaisonBl } from "../src/Renovation/rapprochementFactures.mjs";
+import { normaliserNumero, rapprocherFacture, verifierTotalFacture, statutLiaisonBl, appliquerRegleMontantBl } from "../src/Renovation/rapprochementFactures.mjs";
 
 test("normalisation conservative et configurable", () => {
   assert.equal(normaliserNumero(" 000383104 "), "383104");
@@ -92,4 +92,31 @@ test("regroupement : les BL liés au même bon sont comparés ensemble", () => {
   const b = { commande_id: "c", montant_ht: 40, commandeMontant: 100, mode_rapprochement: "regroupement" };
   assert.equal(statutLiaisonBl(a, [a, b]), "rapproche");
   assert.equal(statutLiaisonBl(a, [a]), "ecart");
+});
+
+test("Partedis (montant_bl = total_ht_facture) : port, énergie, éco-taxe dans le BL ; frais de facturation à part", () => {
+  const regles = { retirerClient: true, montant_bl: "total_ht_facture" };
+  // Exemple sur données fictives reprenant les montants des factures Partedis d'octobre.
+  const a = appliquerRegleMontantBl({ regles, totalHt: 52.61,
+    bls: [{ bl_numero: "12211060", montant_ht: 42.61 }],
+    frais: [{ libelle: "Participation frais de port", montant_ht: 10 }] });
+  assert.equal(a.applique, true);
+  assert.equal(a.bls[0].montant_ht, 52.61);
+  assert.deepEqual(a.frais, []);
+  const b = appliquerRegleMontantBl({ regles, totalHt: 30,
+    bls: [{ bl_numero: "1", montant_ht: 20 }],
+    frais: [{ libelle: "Energ.", montant_ht: 1.5 }, { libelle: "Frais facturation", montant_ht: 4.2 }, { libelle: "Part. frais port", montant_ht: 4.3 }] });
+  assert.equal(b.bls[0].montant_ht, 25.8);
+  assert.deepEqual(b.frais.map(f => f.libelle), ["Frais facturation"]);
+  const v = verifierTotalFacture({ livraisons: b.bls, frais: b.frais, total_ht: 30 });
+  assert.equal(v.conforme, true);
+});
+
+test("règle montant_bl : sans effet par défaut (Rexel), ni sur plusieurs BL, ni sans total", () => {
+  const bls = [{ montant_ht: 10 }]; const frais = [{ libelle: "Port", montant_ht: 2 }];
+  assert.equal(appliquerRegleMontantBl({ regles: {}, bls, frais, totalHt: 12 }).applique, false);
+  assert.equal(appliquerRegleMontantBl({ regles: { montant_bl: "sous_total_bl" }, bls, frais, totalHt: 12 }).bls[0].montant_ht, 10);
+  const deux = appliquerRegleMontantBl({ regles: { montant_bl: "total_ht_facture" }, bls: [{ montant_ht: 5 }, { montant_ht: 5 }], frais, totalHt: 12 });
+  assert.equal(deux.applique, false); assert.equal(deux.frais.length, 1);
+  assert.equal(appliquerRegleMontantBl({ regles: { montant_bl: "total_ht_facture" }, bls, frais, totalHt: null }).applique, false);
 });
