@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { normaliserNumero, rapprocherFacture, statutLiaisonBl, appliquerRegleMontantBl } from "./rapprochementFactures.mjs";
+import { normaliserNumero, rapprocherFacture, statutLiaisonBl, appliquerRegleMontantBl, estFraisFacturation } from "./rapprochementFactures.mjs";
 import { construireHistoriqueRapprochement, statutHistorique, fmtEur } from "./historiqueRapprochementV1.js";
 import { chargerHistoriqueRapprochement } from "./rapprochementDonnees";
 import { supabase, photoTransform } from "../supabase";
@@ -148,20 +148,36 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   const chargerLignes = async () => {
     const { data } = await supabase.from("facture_bl").select("id, bl_numero, montant_ht, montant_commande_ht, ecart_ht, mode_rapprochement, commande_id, statut, resolution, justification").eq("facture_id", c.id);
     setBlLignes(data || []);
-    const { data: ff } = await supabase.from("facture_frais").select("id,libelle,montant_ht,chantier_id,justification").eq("facture_id",c.id);
+    const { data: ff } = await supabase.from("facture_frais").select("id,libelle,montant_ht,chantier_id,justification,imputation").eq("facture_id",c.id);
     setFraisLignes(ff || []);
     const ids = (data || []).map(x => x.commande_id).filter(Boolean);
+    let eligibles = [];
     if (ids.length) {
       const { data: lignes } = await supabase.from("commande_lignes").select("chantier_id").in("commande_id", ids);
-      setChantiersEligibles([...new Set((lignes || []).map(x => x.chantier_id).filter(Boolean))]);
+      eligibles = [...new Set((lignes || []).map(x => x.chantier_id).filter(Boolean))];
+      setChantiersEligibles(eligibles);
     }
+    // Pré-choix (décision du 28/11/2026) : frais de facturation → frais généraux ;
+    // frais de livraison (port…) → chantier du BL quand il n'y en a qu'un.
+    setAffectations(prev => {
+      const next = { ...prev };
+      for (const fr of ff || []) {
+        if (next[fr.id] || fr.justification) continue;
+        next[fr.id] = estFraisFacturation(fr.libelle)
+          ? { cible: "frais_generaux", motif: "Frais de facturation du compte fournisseur" }
+          : { cible: "chantier", chantier: eligibles.length === 1 ? eligibles[0] : "", motif: eligibles.length === 1 ? "Frais de livraison du chantier" : "" };
+      }
+      return next;
+    });
   };
   const affecterFrais = async (id) => {
     setValidationError(""); setResolvingId(id);
     const choix = affectations[id] || {};
-    const { error } = await supabase.rpc("affecter_frais_facture", {
-      p_frais_id: id, p_chantier_id: choix.chantier || "", p_justification: choix.motif || "",
-    });
+    const { error } = choix.cible === "frais_generaux"
+      ? await supabase.rpc("affecter_frais_generaux", { p_frais_id: id, p_justification: choix.motif || "" })
+      : await supabase.rpc("affecter_frais_facture", {
+          p_frais_id: id, p_chantier_id: choix.chantier || "", p_justification: choix.motif || "",
+        });
     setResolvingId(null);
     if (error) { setValidationError(error.message); return; }
     await chargerLignes();
@@ -341,16 +357,28 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                 </div>}
                 {fraisLignes.length > 0 && <div style={{ marginTop: 16 }}>
                   <strong>Frais de facture ({fraisLignes.length})</strong>
-                  <p style={{ fontSize: 12, color: T.textSub }}>Affectation manuelle à un chantier présent dans les achats. Aucune répartition automatique.</p>
+                  <p style={{ fontSize: 12, color: T.textSub }}>Frais de livraison (port…) : sur le chantier livré. Frais de facturation ou liés au compte : en frais généraux, sur aucun chantier.</p>
                   {fraisLignes.map(frais => <div key={frais.id} style={{ padding: 10, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 8 }}>
                     <div>{frais.libelle} — {fmtEur(frais.montant_ht)} € HT</div>
-                    {frais.chantier_id ? <div style={{ fontSize: 12, color: SEMANTIC.success.color }}>Affecté à {nomCh(frais.chantier_id)}</div> : c.statut === "a_rapprocher" && <>
-                      <select value={affectations[frais.id]?.chantier || ""} onChange={e => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], chantier: e.target.value } }))} style={{ width: "100%", marginTop: 6, padding: 8, background: T.bg, color: T.text }}>
-                        <option value="">Choisir un chantier…</option>
-                        {chantiersEligibles.map(id => <option key={id} value={id}>{nomCh(id)}</option>)}
-                      </select>
+                    {frais.imputation === "frais_generaux" && frais.justification ? <div style={{ fontSize: 12, color: SEMANTIC.success.color }}>En frais généraux (sur aucun chantier)</div>
+                    : frais.chantier_id ? <div style={{ fontSize: 12, color: SEMANTIC.success.color }}>Affecté à {nomCh(frais.chantier_id)}</div> : c.statut === "a_rapprocher" && <>
+                      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                        {[["chantier", "Sur un chantier"], ["frais_generaux", "Frais généraux"]].map(([v, lib]) => {
+                          const actif = (affectations[frais.id]?.cible || "chantier") === v;
+                          return <button key={v} onClick={() => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], cible: v } }))}
+                            style={{ flex: 1, padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12, border: `1px solid ${actif ? acc.accent : T.border}`, background: actif ? acc.bg10 : "transparent", color: actif ? acc.accent : T.text }}>{lib}</button>;
+                        })}
+                      </div>
+                      {(affectations[frais.id]?.cible || "chantier") === "chantier" && (
+                        <select value={affectations[frais.id]?.chantier || ""} onChange={e => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], chantier: e.target.value } }))} style={{ width: "100%", marginTop: 6, padding: 8, background: T.bg, color: T.text }}>
+                          <option value="">Choisir un chantier…</option>
+                          {chantiersEligibles.map(id => <option key={id} value={id}>{nomCh(id)}</option>)}
+                        </select>
+                      )}
                       <textarea placeholder="Motif de l'affectation (12 caractères minimum)" rows={2} value={affectations[frais.id]?.motif || ""} onChange={e => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], motif: e.target.value } }))} style={{ width: "100%", boxSizing: "border-box", marginTop: 6, background: T.bg, color: T.text }} />
-                      <button disabled={resolvingId === frais.id || !affectations[frais.id]?.chantier || (affectations[frais.id]?.motif || "").trim().length < 12} onClick={() => affecterFrais(frais.id)}>Affecter les frais</button>
+                      <button disabled={resolvingId === frais.id || ((affectations[frais.id]?.cible || "chantier") === "chantier" && !affectations[frais.id]?.chantier) || (affectations[frais.id]?.motif || "").trim().length < 12} onClick={() => affecterFrais(frais.id)}>
+                        {affectations[frais.id]?.cible === "frais_generaux" ? "Mettre en frais généraux" : "Affecter les frais"}
+                      </button>
                     </>}
                   </div>)}
                 </div>}

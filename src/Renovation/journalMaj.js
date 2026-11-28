@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
+    type: "nouveaute",
+    titre: "Rapprochement factures : frais de facturation en frais généraux, frais de livraison sur le chantier",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }, { id: "etats-financiers", label: "États financiers" }],
+    quoi: "Un frais de facture fournisseur peut maintenant être mis en « Frais généraux » : il compte dans le total de la facture mais sur aucun chantier. Règle retenue : les frais liés au compte ou à la facture (frais de facturation) vont en frais généraux ; les frais causés par une livraison (port) restent sur le chantier livré. Les frais généraux issus des factures validées apparaissent dans l'onglet « Frais généraux » des États financiers, mois par mois, avec le détail par facture.",
+    comment: "Dans la fiche d'une facture à rapprocher, chaque frais propose « Sur un chantier » ou « Frais généraux », déjà pré-choisi (frais de facturation → frais généraux ; port → chantier du BL quand il n'y en a qu'un). Vérifie le motif puis valide. Dans les États financiers, le bloc est une information : il n'est pas ajouté au total mensuel saisi à la main.",
+  },
+  {
+    date: "2026-11-28",
     type: "amelioration",
     titre: "Saisie commande : BL sans prix (Wurth) complétés avec les prix de la facture",
     pages: [{ id: "capture-cmd", label: "Saisie commande (mobile)" }],

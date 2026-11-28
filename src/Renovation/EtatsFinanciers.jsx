@@ -4,6 +4,7 @@ import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { chargerChantiers } from "./chantiersDonnees";
 import { filtrerChantiersActifs } from "./chantierActif";
+import { fraisGenerauxParMois } from "./fraisGenerauxFactures.js";
 import {
   SANS_DONNEE,
   donneesLieesLigne,
@@ -3550,6 +3551,20 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
   const [activeAvancementPeriodId, setActiveAvancementPeriodId] = useState(DEFAULT_AVANCEMENT_PERIODS[0].id);
   const [activeAchatPeriodId, setActiveAchatPeriodId] = useState(DEFAULT_ACHAT_PERIODS[0].id);
   const [months, setMonths] = useState(emptyMonths());
+  // Frais de factures fournisseurs imputés en frais généraux (Rapprochement factures).
+  const anneeFg = new Date().getFullYear();
+  const [fgFactures, setFgFactures] = useState(null); // null = pas encore lu ; { erreur } si lecture impossible
+  useEffect(() => {
+    let actif = true;
+    supabase.from("facture_frais")
+      .select("montant_ht, libelle, facture:factures(numero, date_facture, statut, fournisseur_nom)")
+      .eq("imputation", "frais_generaux").limit(5000)
+      .then(({ data, error }) => {
+        if (!actif) return;
+        setFgFactures(error ? { erreur: error.message } : fraisGenerauxParMois(data || [], anneeFg));
+      });
+    return () => { actif = false; };
+  }, [anneeFg]);
   const [avancement, setAvancement] = useState(() => normalizeAvancement());
   const [achat, setAchat] = useState(() => normalizeAchat());
   const [loading, setLoading] = useState(true);
@@ -4671,6 +4686,8 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
             moyH={moyH}
             tauxHoraire={tauxHoraire}
             cellInputStyle={cellInputStyle}
+            fgFactures={fgFactures}
+            anneeFg={anneeFg}
           />
         )}
 
@@ -4747,6 +4764,8 @@ function FraisGenerauxTab({
   moyH,
   tauxHoraire,
   cellInputStyle,
+  fgFactures,
+  anneeFg,
 }) {
   return (
     <>
@@ -4920,6 +4939,42 @@ function FraisGenerauxTab({
             </tfoot>
           </table>
         </div>
+      </div>
+
+      {/* ─── Frais de factures fournisseurs mis en frais généraux ─────────────── */}
+      <div style={{ ...card, marginBottom: 16, padding: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: T.text, marginBottom: 4 }}>
+          Frais de factures fournisseurs mis en frais généraux — {anneeFg}
+        </div>
+        <div style={{ fontSize: 12, color: T.textSub, marginBottom: 10 }}>
+          Frais de facturation imputés « frais généraux » dans Rapprochement factures (factures validées).
+          Information : ces montants ne sont pas ajoutés au total saisi ci-dessus, qui peut déjà les inclure.
+        </div>
+        {fgFactures == null ? (
+          <div style={{ fontSize: 12, color: T.textSub }}>Lecture en cours…</div>
+        ) : fgFactures.erreur ? (
+          <div style={{ fontSize: 12, color: T.danger || "#ef4444" }}>Lecture impossible : {fgFactures.erreur}</div>
+        ) : fgFactures.detail.length === 0 ? (
+          <div style={{ fontSize: 12, color: T.textSub }}>Aucun frais de facture mis en frais généraux sur une facture validée en {anneeFg}.</div>
+        ) : (
+          <>
+            {MOIS.filter(m => fgFactures.parMois[m.id]).map(m => (
+              <div key={m.id} style={{ padding: "6px 0", borderTop: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: T.text }}>
+                  <span>{m.label}</span><span>{fmtEur(fgFactures.parMois[m.id])}</span>
+                </div>
+                {fgFactures.detail.filter(d => d.mois === m.id).map((d, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSub, paddingLeft: 10 }}>
+                    <span>{d.fournisseur} — facture n° {d.numero} — {d.libelle}</span><span>{fmtEur(d.montant)}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: `2px solid ${T.border}`, fontSize: 13, fontWeight: 800, color: T.text }}>
+              <span>Total {anneeFg}</span><span>{fmtEur(fgFactures.total)}</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ─── Note explicative ───────────────────────────────────────────────── */}
