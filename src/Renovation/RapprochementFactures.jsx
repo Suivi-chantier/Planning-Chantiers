@@ -5,7 +5,7 @@ import { chargerHistoriqueRapprochement } from "./rapprochementDonnees";
 import { supabase, photoTransform } from "../supabase";
 import { pdfFileToImages } from "../pdfToImages";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur, LOTS_DEFAUT, loadLots } from "../constants";
-import { preparerLignesBl, proposerChantiers, noteReferenceClient } from "./saisieBlFacture.js";
+import { preparerLignesBl, proposerChantiers, noteReferenceClient, classerAchatsCandidats } from "./saisieBlFacture.js";
 import ConfirmationLignesBl from "./ConfirmationLignesBl.jsx";
 import { Icon } from "../ui";
 import { chargerChantiers } from "./chantiersDonnees";
@@ -173,6 +173,48 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
     if (error) { setValidationError(error.message); return; }
     await chargerLignes();
   };
+  // BL saisi APRÈS la facture : relier une ligne « manquant » à un achat existant.
+  const [rattache, setRattache] = useState(null); // { ligneId, chargement, candidats, erreur, tolerance }
+  const ouvrirRattachement = async (b) => {
+    setRattache({ ligneId: b.id, chargement: true, candidats: [] });
+    try {
+      const [{ data: fo }, { data: achats, error }] = await Promise.all([
+        supabase.from("fournisseurs").select("regles_numero, tolerance_ht").eq("id", c.fournisseur_id).maybeSingle(),
+        supabase.from("commandes").select("id, doc_numero, numero_commande_fournisseur, montant_ht, date_doc, doc_type")
+          .eq("fournisseur_id", c.fournisseur_id).eq("statut_facturation", "en_attente_facture")
+          .is("facture_id", null).is("remplace_par_id", null).limit(1000),
+      ]);
+      if (error) throw error;
+      const ids = (achats || []).map(a => a.id);
+      const { data: liees } = ids.length
+        ? await supabase.from("facture_bl").select("commande_id").in("commande_id", ids)
+        : { data: [] };
+      const pris = new Set((liees || []).map(x => x.commande_id));
+      const tolerance = Number(fo?.tolerance_ht ?? TOLERANCE_ECART);
+      const candidats = classerAchatsCandidats({
+        bl: b, factureNumero: c.numero, regles: fo?.regles_numero || {}, toleranceHt: tolerance,
+        achats: (achats || []).filter(a => !pris.has(a.id)),
+      }).slice(0, 8);
+      setRattache({ ligneId: b.id, candidats, tolerance });
+    } catch (e) {
+      setRattache({ ligneId: b.id, candidats: [], erreur: e?.message || "Recherche impossible" });
+    }
+  };
+  const rattacher = async (b, cand) => {
+    setResolvingId(b.id); setValidationError("");
+    const m = cand.achat.montant_ht == null ? null : Number(cand.achat.montant_ht);
+    const statut = statutLiaisonBl({ commande_id: cand.achat.id, montant_ht: b.montant_ht, commandeMontant: m }, undefined, rattache?.tolerance ?? TOLERANCE_ECART);
+    const { error } = await supabase.from("facture_bl").update({
+      commande_id: cand.achat.id, montant_commande_ht: m,
+      ecart_ht: b.montant_ht == null || m == null ? null : Math.round((Number(b.montant_ht) - m) * 100) / 100,
+      statut, mode_rapprochement: cand.raison,
+    }).eq("id", b.id).is("commande_id", null);
+    setResolvingId(null);
+    if (error) { setValidationError(error.message); return; }
+    setRattache(null);
+    await chargerLignes();
+  };
+
   const accepterEcart = async (id) => {
     setValidationError(""); setResolvingId(id);
     const { error } = await supabase.rpc("resoudre_ecart_facture_bl", { p_ligne_id: id, p_justification: motifs[id] || "" });
@@ -326,6 +368,31 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                       <span style={{ fontSize: 10, fontWeight: 800, color: sem.color }}>{b.statut}</span>
                       {b.resolution === "conteste" && <span style={{ fontSize: 11, color: SEMANTIC.warning.color }}>Litige ouvert</span>}
                       {b.resolution === "accepte" && <span style={{ fontSize: 11, color: SEMANTIC.success.color }}>Écart accepté</span>}
+                      {c.statut === "a_rapprocher" && !b.commande_id && rattache?.ligneId !== b.id && (
+                        <button onClick={() => ouvrirRattachement(b)} style={{ padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontFamily: "inherit", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                          Rattacher un achat
+                        </button>
+                      )}
+                      {rattache?.ligneId === b.id && (
+                        <div style={{ width: "100%", marginTop: 6, background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: 10 }}>
+                          <div style={{ fontSize: 12, color: T.textSub, marginBottom: 6 }}>Achats du même fournisseur en attente de facture :</div>
+                          {rattache.chargement && <div style={{ fontSize: 12, color: T.textSub }}>Recherche…</div>}
+                          {rattache.erreur && <div style={{ fontSize: 12, color: SEMANTIC.danger.color }}>{rattache.erreur}</div>}
+                          {!rattache.chargement && !rattache.erreur && rattache.candidats.length === 0 && (
+                            <div style={{ fontSize: 12, color: T.textSub }}>Aucun achat en attente ne correspond (ni par numéro, ni par montant). Saisis d'abord le BL dans « Saisie commande ».</div>
+                          )}
+                          {rattache.candidats.map(cand => (
+                            <div key={cand.achat.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: `1px solid ${T.border}`, fontSize: 12, color: T.text }}>
+                              <span style={{ flex: 1 }}>
+                                N° {cand.achat.doc_numero || "sans n°"}{cand.achat.date_doc ? ` · ${new Date(cand.achat.date_doc + "T00:00:00").toLocaleDateString("fr-FR")}` : ""} · {cand.achat.montant_ht != null ? `${fmtEur(cand.achat.montant_ht)} €` : "montant ?"}
+                                <span style={{ color: T.textSub }}> — {cand.raison === "numero" ? "même n° de BL" : cand.raison === "numero_facture" ? "saisi avec le n° de la facture" : "même montant"}{cand.ecartHt ? `, écart ${fmtEur(cand.ecartHt)} €` : ""}</span>
+                              </span>
+                              <button onClick={() => rattacher(b, cand)} disabled={resolvingId === b.id} style={{ padding: "5px 10px", borderRadius: RADIUS.md, border: "none", background: acc.accent, color: "#111", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Rattacher</button>
+                            </div>
+                          ))}
+                          <button onClick={() => setRattache(null)} style={{ marginTop: 6, background: "transparent", border: "none", color: T.textSub, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Fermer</button>
+                        </div>
+                      )}
                       {c.statut === "a_rapprocher" && b.statut === "ecart" && b.commande_id && b.resolution !== "accepte" && (
                         <div style={{ width: "100%", marginTop: 8 }}>
                           <div style={{ fontSize: 12, color: T.textSub }}>Écart HT : {b.ecart_ht == null ? "inconnu" : fmtEur(b.ecart_ht) + " €"} · achat : {b.montant_commande_ht == null ? "?" : fmtEur(b.montant_commande_ht) + " €"}</div>

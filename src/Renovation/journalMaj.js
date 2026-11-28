@@ -33,6 +33,22 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
     type: "amelioration",
+    titre: "Rapprochement factures : rattacher un BL saisi après la facture",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Quand une facture est enregistrée avant que son BL soit saisi, la ligne restait « manquant » sans moyen de la relier ensuite. Désormais, une facture « À rapprocher » propose, sur chaque BL manquant, les achats du même fournisseur en attente de facture : d'abord ceux qui portent le même n° de BL, puis ceux saisis avec le n° de la facture (cas fréquent des achats comptoir), puis ceux de même montant.",
+    comment: "Ouvre la facture dans l'historique, bouton « Rattacher un achat » sur la ligne du BL manquant, choisis l'achat, puis « Valider les correspondances conformes ».",
+  },
+  {
+    date: "2026-11-28",
+    type: "correctif",
+    titre: "Rapprochement factures : les factures PDF refusées par l'IA (ex. Partedis) sont relues automatiquement en images",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Certaines factures PDF, comme celles de Partedis, étaient refusées par l'IA : l'écran affichait seulement « Unexpected end of JSON input ». Désormais, si l'IA refuse un PDF, l'application le convertit en images de pages et relance la lecture toute seule. Si la lecture échoue malgré tout, le message dit pourquoi (« Le document n'a pas pu être lu par l'IA : … »). Par ailleurs, la participation énergie imprimée sur un BL (Partedis) est désormais comptée dans le montant de ce BL, comme sur le BL lui-même, au lieu de partir dans les frais : plus de faux écart de quelques centimes.",
+    comment: "Rien à faire : la seconde lecture se lance seule et prend quelques secondes de plus. Vaut aussi pour « Saisir ce BL depuis la facture » et « Compléter depuis la facture ».",
+  },
+  {
+    date: "2026-11-28",
+    type: "amelioration",
     titre: "Rapprochement factures : « Saisir ce BL depuis la facture » crée une vraie commande, avec ses articles",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
     quoi: "Quand un BL de la facture n'existe pas encore dans l'application, il n'est plus créé avec une seule ligne « à détailler ». L'application relit la facture pour ce seul BL et reprend ses articles (référence, désignation, quantité, prix, éco-participation), la date d'expédition du BL, le n° de commande du fournisseur et la référence client. Le total des articles est comparé au montant du BL : s'il diffère, le montant du BL est gardé et l'écart est signalé.",
