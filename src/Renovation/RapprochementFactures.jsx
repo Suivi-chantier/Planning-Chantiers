@@ -129,6 +129,11 @@ function moisLabel(ym) {
 // Modale de détail : facture (avec ses BL rapprochés) ou reçu/ticket comptant (avec ses lignes).
 function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   const isFacture = item.kind === "facture";
+  // Styles communs de la fiche (même police et mêmes arrondis que le reste de l'application).
+  const titreSection = { fontSize: FONT.xs.size, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: T.textSub, marginBottom: 4 };
+  const champ = { width: "100%", boxSizing: "border-box", padding: "9px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: T.surface || T.bg, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none" };
+  const boutonPrincipal = { padding: "9px 14px", borderRadius: RADIUS.md, border: "none", background: acc.accent, color: acc.onAccent || "#111", fontFamily: "inherit", fontWeight: 800, fontSize: FONT.sm.size };
+  const boutonSecondaire = { padding: "9px 14px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontWeight: 700, fontSize: FONT.sm.size, cursor: "pointer" };
   const c = item.row;
   const [blLignes, setBlLignes] = useState([]);
   const [fraisLignes, setFraisLignes] = useState([]);
@@ -335,7 +340,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                 {info("Période", c.periode || "—")}
                 {info("Montant HT", `${fmtEur(c.montant_ht)} €`)}
                 {info("Statut", c.statut === "rapprochee" ? "Rapprochée" : c.statut === "archivee" ? "Archivée" : "À rapprocher")}
-                {c.type_document !== "avoir" && c.statut === "a_rapprocher" && <div style={{ marginTop: 12 }}><button disabled={validating} onClick={valider} style={{ padding: "10px 14px", borderRadius: 8, background: acc.accent, color: "#111", border: "none", cursor: "pointer", fontWeight: 700 }}>{validating ? "Vérification…" : "Valider les correspondances conformes"}</button>{validationError && <p style={{ color: SEMANTIC.danger.color, fontSize: 12 }}>{validationError}</p>}<p style={{ fontSize: 12, color: T.textSub }}>Validation uniquement si tous les BL et le total HT sont conformes. Les écarts restent en attente.</p></div>}
+                {c.type_document !== "avoir" && c.statut === "a_rapprocher" && <div style={{ marginTop: 12 }}><button disabled={validating} onClick={valider} style={{ ...boutonPrincipal, padding: "11px 16px", cursor: "pointer" }}>{validating ? "Vérification…" : "Valider les correspondances conformes"}</button>{validationError && <div style={{ color: SEMANTIC.danger.color, fontSize: FONT.xs.size, marginTop: 6, fontWeight: 600 }}>{validationError}</div>}<div style={{ fontSize: FONT.xs.size, color: T.textSub, marginTop: 6 }}>Validation uniquement si tous les BL et le total HT sont conformes. Les écarts restent en attente.</div></div>}
                 {c.type_document === "avoir" && <div style={{marginTop:14,padding:12,border:`1px solid ${T.border}`,borderRadius:8}}>
                   <strong>Avoir fournisseur — ventilation manuelle</strong>
                   <p style={{fontSize:12,color:T.textSub}}>Les avoirs clôturés réduisent les coûts réels. Montants négatifs en HT ; chaque chantier est choisi explicitement.</p>
@@ -355,32 +360,55 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                   {diagnostic?.eligible && <button disabled={validating} onClick={rattraper}>Confirmer le rattrapage des coûts</button>}
                   {validationError && <p style={{color:SEMANTIC.danger.color}}>{validationError}</p>}
                 </div>}
-                {fraisLignes.length > 0 && <div style={{ marginTop: 16 }}>
-                  <strong>Frais de facture ({fraisLignes.length})</strong>
-                  <p style={{ fontSize: 12, color: T.textSub }}>Frais de livraison (port…) : sur le chantier livré. Frais de facturation ou liés au compte : en frais généraux, sur aucun chantier.</p>
-                  {fraisLignes.map(frais => <div key={frais.id} style={{ padding: 10, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 8 }}>
-                    <div>{frais.libelle} — {fmtEur(frais.montant_ht)} € HT</div>
-                    {frais.imputation === "frais_generaux" && frais.justification ? <div style={{ fontSize: 12, color: SEMANTIC.success.color }}>En frais généraux (sur aucun chantier)</div>
-                    : frais.chantier_id ? <div style={{ fontSize: 12, color: SEMANTIC.success.color }}>Affecté à {nomCh(frais.chantier_id)}</div> : c.statut === "a_rapprocher" && <>
-                      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                        {[["chantier", "Sur un chantier"], ["frais_generaux", "Frais généraux"]].map(([v, lib]) => {
-                          const actif = (affectations[frais.id]?.cible || "chantier") === v;
-                          return <button key={v} onClick={() => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], cible: v } }))}
-                            style={{ flex: 1, padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12, border: `1px solid ${actif ? acc.accent : T.border}`, background: actif ? acc.bg10 : "transparent", color: actif ? acc.accent : T.text }}>{lib}</button>;
-                        })}
+                {fraisLignes.length > 0 && <div style={{ marginTop: 18 }}>
+                  <div style={titreSection}>Frais de facture ({fraisLignes.length})</div>
+                  <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginBottom: 8 }}>
+                    Livraison (port…) → chantier livré · Facturation, frais du compte → frais généraux
+                  </div>
+                  {fraisLignes.map(frais => {
+                    const choix = affectations[frais.id] || {};
+                    const cible = choix.cible || "chantier";
+                    const fait = (frais.imputation === "frais_generaux" && frais.justification) || frais.chantier_id;
+                    const pret = (cible === "frais_generaux" || !!choix.chantier) && (choix.motif || "").trim().length >= 12;
+                    return (
+                      <div key={frais.id} style={{ border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: 12, marginBottom: 8, background: T.bg }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+                          <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>{frais.libelle}</span>
+                          <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>{fmtEur(frais.montant_ht)} € HT</span>
+                        </div>
+                        {fait ? (
+                          <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size, fontWeight: 700, color: SEMANTIC.success.color, background: SEMANTIC.success.bg, border: `1px solid ${SEMANTIC.success.border}`, borderRadius: RADIUS.pill, padding: "3px 10px" }}>
+                            <Icon as={Check} size={12} />
+                            {frais.imputation === "frais_generaux" ? "Frais généraux — sur aucun chantier" : `Chantier : ${nomCh(frais.chantier_id)}`}
+                          </div>
+                        ) : c.statut === "a_rapprocher" && (
+                          <>
+                            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                              {[["chantier", "Sur un chantier"], ["frais_generaux", "Frais généraux"]].map(([v, lib]) => {
+                                const actif = cible === v;
+                                return <button key={v} onClick={() => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], cible: v } }))}
+                                  style={{ flex: 1, padding: "7px 10px", borderRadius: RADIUS.pill, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: FONT.xs.size, border: `1px solid ${actif ? acc.accent : T.border}`, background: actif ? acc.bg10 : "transparent", color: actif ? acc.accent : T.textSub }}>{lib}</button>;
+                              })}
+                            </div>
+                            {cible === "chantier" && (
+                              <select value={choix.chantier || ""} onChange={e => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], chantier: e.target.value } }))} style={{ ...champ, marginTop: 8 }}>
+                                <option value="">Choisir le chantier livré…</option>
+                                {chantiersEligibles.map(id => <option key={id} value={id}>{nomCh(id)}</option>)}
+                              </select>
+                            )}
+                            <input value={choix.motif || ""} onChange={e => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], motif: e.target.value } }))}
+                              placeholder="Motif (12 caractères minimum)" style={{ ...champ, marginTop: 8 }} />
+                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                              <button disabled={resolvingId === frais.id || !pret} onClick={() => affecterFrais(frais.id)}
+                                style={{ ...boutonPrincipal, opacity: pret ? 1 : 0.5, cursor: pret ? "pointer" : "not-allowed" }}>
+                                {resolvingId === frais.id ? "Enregistrement…" : cible === "frais_generaux" ? "Mettre en frais généraux" : "Affecter au chantier"}
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
-                      {(affectations[frais.id]?.cible || "chantier") === "chantier" && (
-                        <select value={affectations[frais.id]?.chantier || ""} onChange={e => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], chantier: e.target.value } }))} style={{ width: "100%", marginTop: 6, padding: 8, background: T.bg, color: T.text }}>
-                          <option value="">Choisir un chantier…</option>
-                          {chantiersEligibles.map(id => <option key={id} value={id}>{nomCh(id)}</option>)}
-                        </select>
-                      )}
-                      <textarea placeholder="Motif de l'affectation (12 caractères minimum)" rows={2} value={affectations[frais.id]?.motif || ""} onChange={e => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], motif: e.target.value } }))} style={{ width: "100%", boxSizing: "border-box", marginTop: 6, background: T.bg, color: T.text }} />
-                      <button disabled={resolvingId === frais.id || ((affectations[frais.id]?.cible || "chantier") === "chantier" && !affectations[frais.id]?.chantier) || (affectations[frais.id]?.motif || "").trim().length < 12} onClick={() => affecterFrais(frais.id)}>
-                        {affectations[frais.id]?.cible === "frais_generaux" ? "Mettre en frais généraux" : "Affecter les frais"}
-                      </button>
-                    </>}
-                  </div>)}
+                    );
+                  })}
                 </div>}
                 <div style={{ fontSize: FONT.xs.size, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: T.textSub, margin: "14px 0 6px" }}>
                   BL rapprochés ({blLignes.length})
@@ -424,9 +452,9 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                       {c.statut === "a_rapprocher" && b.statut === "ecart" && b.commande_id && b.resolution !== "accepte" && (
                         <div style={{ width: "100%", marginTop: 8 }}>
                           <div style={{ fontSize: 12, color: T.textSub }}>Écart HT : {b.ecart_ht == null ? "inconnu" : fmtEur(b.ecart_ht) + " €"} · achat : {b.montant_commande_ht == null ? "?" : fmtEur(b.montant_commande_ht) + " €"}</div>
-                          <textarea placeholder="Justification de l'acceptation (12 caractères minimum)" value={motifs[b.id] || ""} onChange={e => setMotifs(prev => ({ ...prev, [b.id]: e.target.value }))} rows={2} style={{ width: "100%", boxSizing: "border-box", marginTop: 8, borderRadius: 6, padding: 8, background: T.bg, color: T.text, border: `1px solid ${T.border}` }} />
-                          <button onClick={() => accepterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ padding: "8px 12px", marginTop: 6, cursor: "pointer" }}>Accepter cet écart</button>
-                        <button onClick={() => contesterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ padding: "8px 12px", margin: "6px 0 0 8px", cursor: "pointer" }}>Contester / ouvrir un litige</button>
+                          <textarea placeholder="Justification de l'acceptation (12 caractères minimum)" value={motifs[b.id] || ""} onChange={e => setMotifs(prev => ({ ...prev, [b.id]: e.target.value }))} rows={2} style={{ ...champ, marginTop: 8, resize: "vertical" }} />
+                          <button onClick={() => accepterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ ...boutonPrincipal, marginTop: 8, cursor: "pointer" }}>Accepter cet écart</button>
+                        <button onClick={() => contesterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ ...boutonSecondaire, margin: "8px 0 0 8px" }}>Contester / ouvrir un litige</button>
                         </div>
                       )}
 
