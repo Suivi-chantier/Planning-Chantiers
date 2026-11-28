@@ -73,7 +73,7 @@ Découpage du reste (proposition, à valider par François) :
 | 6 | Accusé de réception reconnu au scan (`doc_type = accuse_reception`, n° → `numero_commande_fournisseur`) ; alerte « ressemble à une facture » (§6 cas 1.3, §4 P3) | à faire | contrôles verts | accusé 000925398 rangé en commande « BL à venir » | |
 | 7 | Reprise : commandes dont `doc_numero` est un n° de commande Rexel (4900-000917429, 4900-000915728…) ; n° Partedis 92xxxxx saisis comme BL (§6 cas 1.4, §3) | à faire | **arrêt** : reprise de données | liste avant / après | |
 | 8 | Bons de commande consommés par leurs BL : proposition au scan, reliquat au rapprochement (§6 cas 5.1–5.3) | à faire | contrôles verts | 4900-000915728 : reliquat 54,78 € proposé | |
-| 9 | Coûts chantier : un bon de commande n'est plus compté en plus de ses BL (§6 cas 5.4) | en attente de François | **arrêt** : chiffres financiers, tableau avant / après | aucun double comptage | |
+| 9 | Coûts chantier : un bon de commande n'entre plus du tout dans le coût chantier (décision du 28/11/2026, §6 cas 5.4) | à faire | **arrêt** : chiffres financiers, tableau avant / après | aucun double comptage | |
 | 10 | Reprise des 13 bons de commande ouverts (§6 cas 5.5) | à faire | **arrêt** : reprise de données | 13 traités, tableau avant / après | |
 | 11 | Commandes multi-BL : regroupement proposé via n° de commande (§6 cas 1.2) | à faire | contrôles verts + tests | MONTILLERS T3 : 5 BL regroupés | |
 | 12 | Consignes de lecture par fournisseur injectées dans le prompt (§4 P2) | à faire | redéploiement analyse-facture | — | |
@@ -87,6 +87,8 @@ Découpage du reste (proposition, à valider par François) :
 - 28/11/2026 — Alias fournisseur rangés dans `fournisseurs.regles_numero.alias` (tâche 0.11) plutôt qu'une colonne `alias text[]` ; la tâche 1 pourra créer la colonne si François le préfère.
 - 28/11/2026 — Frais généraux (option B choisie par François) : bloc d'information dans les États financiers, non ajouté au total mensuel saisi à la main (risque de double comptage).
 - 28/11/2026 — Question posée à François (tâche 9) : un bon de commande ouvert compte-t-il dans le coût chantier pour sa partie non livrée, ou pas du tout ?
+- 28/11/2026 — Réponse de François : « pas du tout dans le coût ». Un bon de commande (ou accusé de réception) n'entre jamais dans le coût chantier ; seuls ses BL / la facture y entrent. La tâche 9 passe de « en attente de François » à « à faire » (elle reste un arrêt obligatoire : chiffres financiers, tableau avant / après).
+- 28/11/2026 — François : « oui lance le projet ». Mode projet ouvert sur ce fichier ; découpage accepté. Ordre retenu : tâches sans arrêt d'abord (1, 2, 3, 4, 6, 8, 11, 12, 13, 14), puis celles qui demandent son accord (5, 7, 9, 10, 15), préparées jusqu'au point d'arrêt.
 
 ## Comptes rendus
 
