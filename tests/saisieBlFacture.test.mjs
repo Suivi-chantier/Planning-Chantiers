@@ -1,7 +1,7 @@
 // Données fictives inspirées des factures Rexel / Partedis : aucun appel à la base.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lireQuantite, preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl, squelette } from "../src/Renovation/saisieBlFacture.mjs";
+import { diviserLigne, lireQuantite, preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl, squelette } from "../src/Renovation/saisieBlFacture.mjs";
 
 const CHANTIERS = [
   { id: "f001", nom: "FOURMOND 001" }, { id: "f101", nom: "FOURMOND 101" },
@@ -77,6 +77,9 @@ test("numéro de BL lu = numéro de la commande", () => {
   assert.equal(memeNumeroBl("000383912", "383912"), true);
   assert.equal(memeNumeroBl("CL-4900-619451058-01", "CL-4900-619451058-02"), false);
   assert.equal(memeNumeroBl("", ""), false);
+  // Rexel : même BL écrit à la façon de la facture et à la façon du BL.
+  assert.equal(memeNumeroBl("619451058-01 / 4900", "CL-4900-619451058-01"), true);
+  assert.equal(memeNumeroBl("619451058-02 / 4900", "CL-4900-619451058-01"), false);
 });
 
 test("quantités lues sur un BL (texte libre)", () => {
@@ -88,4 +91,15 @@ test("quantités lues sur un BL (texte libre)", () => {
   assert.equal(r.lignes[0].libelle, "Plaque");
   assert.equal(r.lignes[0].quantite, 10);
   assert.equal(r.lignes[0].unite, "m²");
+});
+
+test("diviser une ligne : deux moitiés dont la somme = la ligne", () => {
+  const [a, b] = diviserLigne({ libelle: "SOLIUS", quantite: 3, prix_total: 495, chantier_id: "f001", lot_id: "elec" });
+  assert.equal(a.quantite, 2); assert.equal(b.quantite, 1);
+  assert.equal(a.prix_total, 330); assert.equal(b.prix_total, 165);
+  assert.equal(a.chantier_id, "f001"); assert.equal(b.chantier_id, ""); assert.equal(b.lot_id, "");
+  const [c, d] = diviserLigne({ quantite: 3, prix_total: 5.25 });
+  assert.equal(Math.round((c.prix_total + d.prix_total) * 100), 525);
+  const [e, f] = diviserLigne({ quantite: null, prix_total: 10.01 });
+  assert.equal(Math.round((e.prix_total + f.prix_total) * 100), 1001);
 });

@@ -269,14 +269,12 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
       setCompletion({ etat: "erreur", erreur: e?.message || "Lecture impossible." });
     }
   };
-  const remplacerLignes = async ({ chantierId, lotId }) => {
+  const remplacerLignes = async (lignesFinales) => {
     const cp = completion; if (!cp?.controle) return;
     setCompletion({ ...cp, enregistrement: true, erreur: "" });
     const verrou = factureLiee || c.statut_facturation === "facture";
-    const { error: eIns } = await supabase.from("commande_lignes").insert(cp.controle.lignes.map(l => ({
-      commande_id: c.id, reference: l.reference || null, libelle: l.libelle || "Article",
-      quantite: l.quantite, unite: l.unite, prix_unitaire: l.prix_unitaire, prix_total: l.prix_total,
-      chantier_id: chantierId, lot_id: lotId, nature: "materiaux", prix_verrouille: verrou,
+    const { error: eIns } = await supabase.from("commande_lignes").insert(lignesFinales.map(l => ({
+      ...l, commande_id: c.id, prix_verrouille: verrou,
     })));
     if (eIns) { setCompletion({ ...cp, enregistrement: false, erreur: "Lignes non enregistrées : " + eIns.message }); return; }
     const anciennes = (c.lignes || []).map(l => l.id).filter(Boolean);
@@ -466,6 +464,7 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
       </div>
       {completion && (
         <ConfirmationLignesBl
+          key={completion.etat}
           titre={`Compléter le BL ${c.doc_numero || ""}`}
           etat={completion.etat} erreur={completion.erreur} lecture={completion.lecture} controle={completion.controle}
           montantBl={c.montant_ht} chantiers={chantiers} lots={lots} propositions={completion.propositions}

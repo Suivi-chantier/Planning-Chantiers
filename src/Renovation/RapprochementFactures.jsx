@@ -547,7 +547,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     }
   };
 
-  const creerCommandeBl = async ({ chantierId, lotId }) => {
+  const creerCommandeBl = async (lignesFinales) => {
     const sb = saisieBl; if (!sb?.controle) return;
     const bl = bls[sb.index];
     const montant = toNum(bl.montant_ht);
@@ -563,11 +563,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       statut_completude: "a_completer", statut_facturation: "en_attente_facture",
     }).select("id").single();
     if (error || !cmd) { setSaisieBl({ ...sb, enregistrement: false, erreur: "Erreur création BL : " + (error?.message || "inconnue") }); return; }
-    const { error: eL } = await supabase.from("commande_lignes").insert(sb.controle.lignes.map(l => ({
-      commande_id: cmd.id, reference: l.reference || null, libelle: l.libelle || "Article",
-      quantite: l.quantite, unite: l.unite, prix_unitaire: l.prix_unitaire, prix_total: l.prix_total,
-      chantier_id: chantierId, lot_id: lotId, nature: "materiaux",
-    })));
+    const { error: eL } = await supabase.from("commande_lignes").insert(lignesFinales.map(l => ({ ...l, commande_id: cmd.id })));
     if (eL) { setSaisieBl({ ...sb, enregistrement: false, erreur: "BL créé, mais lignes non enregistrées : " + eL.message }); return; }
     setBls(prev => prev.map((b, j) => j === sb.index
       ? { ...b, commande_id: cmd.id, commandeMontant: montant, fournisseurCmd: fact.fournisseur, statut: "rapproche" }
@@ -1031,6 +1027,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
       {saisieBl && (
         <ConfirmationLignesBl
+          key={saisieBl.etat} toleranceHt={toleranceFournisseur}
           titre={`Saisir le BL ${bls[saisieBl.index]?.bl_numero || ""}`}
           etat={saisieBl.etat} erreur={saisieBl.erreur} lecture={saisieBl.lecture} controle={saisieBl.controle}
           montantBl={toNum(bls[saisieBl.index]?.montant_ht)} chantiers={listeChantiers} lots={lots}
