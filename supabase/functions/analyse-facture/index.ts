@@ -56,6 +56,41 @@ const json = (corps: unknown, status = 200) =>
 const refus = (r: { status: number; code: string; message: string }) =>
   json({ error: { code: r.code, message: r.message } }, r.status)
 
+// Où lire les références d'un BL selon le fournisseur. « Votre commande » chez
+// Rexel est la référence DU CLIENT (souvent un nom de chantier), jamais un
+// numéro de commande fournisseur.
+const REGLES_REFERENCES = `Références d'un BL :
+- date_livraison : date d'expédition ou de livraison du BL (Rexel : « expédié le »).
+- commande_numero : numéro de commande DU FOURNISSEUR (Rexel : « Notre Réf », Partedis : « Cde No », Zolpan : « N° Cde »).
+- reference_client : référence donnée PAR LE CLIENT (Rexel : « Votre commande » suivi de « Chantier n° », Partedis : « V/ref client », Zolpan : « Réf. de cde client »).
+- « Votre commande : FOURMOND » est une référence client, jamais un numéro de commande.`
+
+function consigneBlCible(bl: string): string {
+  return `Tu lis une facture fournisseur BTP, éventuellement multipages.
+Extrais UNIQUEMENT le bon de livraison n° ${bl} (ignore tous les autres BL).
+Réponds uniquement par un objet JSON valide. N'invente jamais un numéro ou un montant.
+Format attendu :
+{
+ "bl_numero": "numéro du BL tel qu'imprimé",
+ "date_bl": "AAAA-MM-JJ ou null",
+ "commande_numero": "numéro de commande fournisseur ou null",
+ "reference_client": "référence client ou null",
+ "montant_ht": 0.0,
+ "lignes": [
+  {"reference":"référence article ou chaîne vide","libelle":"désignation","quantite":0.0,"unite":"U","prix_unitaire":0.0,"prix_total":0.0}
+ ],
+ "incertitudes": ["motif éventuel"]
+}
+${REGLES_REFERENCES}
+- date_bl : date d'expédition ou de livraison de CE BL.
+- montant_ht : sous-total HT imprimé pour ce BL ; à défaut, somme des totaux de ses lignes.
+- Une ligne par article. prix_total = montant total HT imprimé de la ligne, jamais recalculé.
+- Éco-participations (DEEE, ES1408…) : une ligne séparée « Éco-participation » avec sa référence, placée juste après l'article concerné.
+- La somme des prix_total doit égaler montant_ht ; sinon, explique l'écart dans incertitudes.
+- Les montants non lisibles sont null, jamais zéro par défaut.
+- Si ce BL n'apparaît pas sur la facture : "lignes": [] et une incertitude « BL introuvable ».`
+}
+
 serve(async (req) => {
   const t0 = Date.now()
 
@@ -146,6 +181,14 @@ serve(async (req) => {
       : { type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } }
     const contentBlocks = valide.images.map(mkBlock)
 
+    // Mode ciblé (bouton « Saisir ce BL depuis la facture ») : même document,
+    // mais on ne demande QUE le détail d'un BL. Le numéro est nettoyé ici :
+    // seuls lettres, chiffres, espaces et / . - _ passent, 60 caractères au plus.
+    const blCibleBrut = (corps as { bl_cible?: unknown })?.bl_cible
+    const blCible = typeof blCibleBrut === "string"
+      ? blCibleBrut.replace(/[^A-Za-z0-9 /._-]/g, "").trim().slice(0, 60)
+      : ""
+
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -167,7 +210,7 @@ serve(async (req) => {
             ...contentBlocks,
             {
               type: "text",
-              text: `Tu extrais les données de factures fournisseurs BTP, éventuellement multipages.
+              text: blCible ? consigneBlCible(blCible) : `Tu extrais les données de factures fournisseurs BTP, éventuellement multipages.
 Réponds uniquement par un objet JSON valide. N'invente jamais un numéro ou un montant.
 Format attendu :
 {
@@ -181,7 +224,7 @@ Format attendu :
  "montant_tva": 0.0,
  "montant_ttc": 0.0,
  "bls": [
-  {"bl_numero":"numéro BL ou null","commande_numero":"numéro de commande fournisseur ou null","date_livraison":"AAAA-MM-JJ ou null","montant_ht":0.0}
+  {"bl_numero":"numéro BL ou null","commande_numero":"numéro de commande fournisseur ou null","date_livraison":"AAAA-MM-JJ ou null","reference_client":"référence client ou null","montant_ht":0.0}
  ],
  "frais": [{"libelle":"libellé","montant_ht":0.0}],
  "incertitudes": ["motif éventuel"]
@@ -195,6 +238,7 @@ Les contributions écologiques incluses dans une ligne d'article restent dans so
 Ne jamais compter deux fois une taxe ou un frais déjà inclus dans le HT.
 Vérifier la somme des BL et frais contre le total HT ; si elle ne correspond pas, préciser l'incertitude.
 Conserver tous les BL de toutes les pages, sans doublons.
+${REGLES_REFERENCES}
 `
             }
           ]
@@ -205,7 +249,7 @@ Conserver tous les BL de toutes les pages, sans doublons.
     const data = await response.json()
     // Journal : de quoi diagnostiquer, rien de plus. Ni document, ni réponse
     // brute, ni identité, ni clé.
-    console.log(`[analyse-facture] ok rôle=${autorisation.role} pages=${valide.images.length} anthropic=${response.status} (${Date.now() - t0} ms)`)
+    console.log(`[analyse-facture] ok rôle=${autorisation.role} pages=${valide.images.length} cible=${blCible ? "bl" : "facture"} anthropic=${response.status} (${Date.now() - t0} ms)`)
     // Format de réponse INCHANGÉ : le navigateur reçoit ce qu'Anthropic renvoie,
     // exactement comme avant.
     return json(data, 200)

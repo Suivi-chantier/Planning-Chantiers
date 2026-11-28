@@ -24,6 +24,22 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
+    type: "amelioration",
+    titre: "Rapprochement factures : « Saisir ce BL depuis la facture » crée une vraie commande, avec ses articles",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Quand un BL de la facture n'existe pas encore dans l'application, il n'est plus créé avec une seule ligne « à détailler ». L'application relit la facture pour ce seul BL et reprend ses articles (référence, désignation, quantité, prix, éco-participation), la date d'expédition du BL, le n° de commande du fournisseur et la référence client. Le total des articles est comparé au montant du BL : s'il diffère, le montant du BL est gardé et l'écart est signalé.",
+    comment: "Sur un BL marqué « BL manquant », bouton « Saisir ce BL depuis la facture ». Une fenêtre montre les articles lus et propose le chantier d'après la référence client (« KATELEEN » → Kathleen…) ; quand plusieurs chantiers portent ce nom (FOURMOND 001, 101, 102…), ils sont proposés en choix rapide. Choisis le chantier et, si tu veux, le lot, puis « Créer la commande ».",
+  },
+  {
+    date: "2026-11-28",
+    type: "amelioration",
+    titre: "Saisie commande : compléter une commande « à détailler » avec le PDF du BL, et facture affichée sur les achats facturés",
+    pages: [{ id: "capture-cmd", label: "Saisie commande (mobile)" }],
+    quoi: "Une commande créée avec une ligne provisoire « à détailler » peut maintenant recevoir ses vrais articles sans créer de doublon : ils remplacent la ligne provisoire de cette même commande. Par ailleurs, un achat rattaché à une facture n'affiche plus la case « Déjà payé / pas de facture à venir », qui laissait croire à un paiement comptant : il indique « Facturé — facture REXEL n° … du … », avec un bouton pour voir la facture.",
+    comment: "Ouvre la commande, touche le crayon : « Compléter avec le PDF du BL » (choisis le PDF ou une photo du BL) ou, si la commande est déjà rattachée à une facture, « Compléter depuis la facture ». L'application alerte si le n° du BL lu ne correspond pas à la commande, ou si le total des articles diffère du montant. Les anciennes lignes restent récupérables dans Admin → Historique.",
+  },
+  {
+    date: "2026-11-28",
     type: "correctif",
     titre: "Rapprochement factures : plus de faux « écart » à 0,00 €, et les BL Rexel « CL-4900-… » sont reconnus par leur numéro",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
