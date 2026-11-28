@@ -1,7 +1,7 @@
 // Données fictives inspirées des factures Rexel / Partedis : aucun appel à la base.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classerAchatsCandidats, diviserLigne, lireQuantite, preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl, squelette } from "../src/Renovation/saisieBlFacture.mjs";
+import { reporterPrix, totalLigne, classerAchatsCandidats, diviserLigne, lireQuantite, preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl, squelette } from "../src/Renovation/saisieBlFacture.mjs";
 
 const CHANTIERS = [
   { id: "f001", nom: "FOURMOND 001" }, { id: "f101", nom: "FOURMOND 101" },
@@ -118,4 +118,35 @@ test("BL saisi après la facture : achats candidats classés", () => {
   // Rexel : n° de BL de la facture vs n° saisi « … / agence ».
   const rx = classerAchatsCandidats({ bl: { bl_numero: "CL-4900-619451058-01", montant_ht: 1 }, achats: [{ id: "a", doc_numero: "619451058-01 / 4900", montant_ht: 5 }] });
   assert.equal(rx[0]?.raison, "numero");
+});
+
+test("BL Wurth sans prix : prix repris de la facture par référence article", () => {
+  // Exemple sur données fictives reprenant la facture Wurth 4336073034.
+  const bl = [
+    { reference: "071566 098", libelle: "LAME DE CUTTER 25 MM SECABLE ACIER", quantite: 10, prix_unitaire: null, prix_total: null },
+    { reference: "071566 350", libelle: "CUTTER PRO A VIS LAME LARGE 25MM", quantite: 1, prix_unitaire: null, prix_total: null },
+  ];
+  const facture = [
+    { reference: "071566098", libelle: "Lames de couteaux et cutters", quantite: 10, prix_unitaire: 1.83, prix_total: 18.3 },
+    { reference: "071566 350", libelle: "Cutter", quantite: 1, prix_unitaire: 15.54, prix_total: 15.54 },
+  ];
+  const r = reporterPrix(bl, facture);
+  assert.equal(r.sansPrix, 0);
+  assert.deepEqual(r.lignes.map(l => [l.prix_unitaire, l.prix_total]), [[1.83, 18.3], [15.54, 15.54]]);
+  assert.equal(preparerLignesBl(r.lignes, 33.84).conforme, true);
+});
+
+test("report de prix : quantité différente → total recalculé ; prix existant jamais écrasé ; sans source → reste sans prix", () => {
+  const r = reporterPrix([{ reference: "A", quantite: 4 }], [{ reference: "a", quantite: 10, prix_total: 25 }]);
+  assert.equal(r.lignes[0].prix_unitaire, 2.5); assert.equal(r.lignes[0].prix_total, 10);
+  const k = reporterPrix([{ reference: "A", quantite: 1, prix_unitaire: 9, prix_total: 9 }], [{ reference: "A", quantite: 1, prix_unitaire: 1, prix_total: 1 }]);
+  assert.equal(k.lignes[0].prix_total, 9);
+  assert.equal(reporterPrix([{ reference: "Z", quantite: 1 }], []).sansPrix, 1);
+  assert.equal(reporterPrix([{ libelle: "Vis inox", quantite: 2 }], [{ libelle: "VIS INOX", quantite: 1, prix_unitaire: 0.5 }]).lignes[0].prix_total, 1);
+});
+
+test("total d'une ligne = quantité × prix unitaire", () => {
+  assert.equal(totalLigne("10", "1,83"), 18.3);
+  assert.equal(totalLigne(3, 0.3745), 1.12);
+  assert.equal(totalLigne("", 2), null);
 });

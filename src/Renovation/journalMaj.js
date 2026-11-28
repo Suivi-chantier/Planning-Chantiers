@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
+    type: "amelioration",
+    titre: "Saisie commande : BL sans prix (Wurth) complétés avec les prix de la facture",
+    pages: [{ id: "capture-cmd", label: "Saisie commande (mobile)" }],
+    quoi: "Les BL Wurth ne portent pas de prix : « Compléter avec le PDF du BL » donnait des lignes à 0 €. Désormais, les prix manquants sont repris, par référence article, des lignes déjà connues de la commande, puis de la facture du BL si elle est déjà enregistrée dans Rapprochement factures. Dans la fenêtre, saisir le prix unitaire calcule aussi le total de la ligne.",
+    comment: "Rien à faire de plus : un message dans la fenêtre indique d'où viennent les prix, ou combien de lignes restent sans prix.",
+  },
+  {
+    date: "2026-11-28",
     type: "correctif",
     titre: "Rapprochement factures : les factures PDF refusées par l'IA (ex. Partedis) sont relues automatiquement en images",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],

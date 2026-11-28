@@ -6,7 +6,7 @@ import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_D
 import { Icon } from "../ui";
 import { repartirRemiseGlobale, ecartLignesDocument } from "./prixLignesAchat.js";
 import { NATURES_COUT, lignesChantierSansLot, messageLotObligatoire, natureSaisie } from "./saisieLotNature.js";
-import { preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl } from "./saisieBlFacture.js";
+import { preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl, reporterPrix } from "./saisieBlFacture.js";
 import ConfirmationLignesBl from "./ConfirmationLignesBl.jsx";
 import { analyserFactureAvecRepli } from "./RapprochementFactures.jsx";
 import {
@@ -209,7 +209,41 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
   // (Admin → Historique).
   const filePdfBl = useRef(null);
   const [completion, setCompletion] = useState(null); // { etat, lecture, controle, propositions, alertes, photoUrl, erreur, enregistrement }
-  const ouvrirCompletion = (lu, photoUrl) => {
+  // Facture du BL : rattachée et validée (c.facture) ou seulement liée au
+  // rapprochement en cours (facture_bl) — sert aux prix d'un BL qui n'en porte pas.
+  const [factureDuBl, setFactureDuBl] = useState(c.facture || null);
+  useEffect(() => {
+    if (c.facture || !c.id) return;
+    let actif = true;
+    supabase.from("facture_bl").select("facture:factures(id, numero, date_facture, fournisseur_nom, fichiers)")
+      .eq("commande_id", c.id).limit(1).maybeSingle()
+      .then(({ data }) => { if (actif && data?.facture) setFactureDuBl(data.facture); });
+    return () => { actif = false; };
+  }, [c.id, c.facture]);
+
+  const ouvrirCompletion = async (luBrut, photoUrl, { depuisFacture = false } = {}) => {
+    // BL sans prix (Wurth) : prix repris des lignes déjà connues de la commande,
+    // puis de la facture du BL si elle est connue (même référence article).
+    let lu = luBrut;
+    let lignesLues = Array.isArray(lu?.lignes) ? lu.lignes : [];
+    const sansPrix = (ls) => ls.some(l => l.prix_total == null || l.prix_total === "");
+    let infoPrix = "";
+    if (lignesLues.length && sansPrix(lignesLues)) {
+      let r = reporterPrix(lignesLues, c.lignes || []);
+      if (r.sansPrix && !depuisFacture && factureDuBl?.fichiers?.length && c.doc_numero) {
+        setCompletion({ etat: "lecture", message: `Prix absents du BL : lecture des prix sur la facture n° ${factureDuBl.numero || ""}…` });
+        try {
+          const surFacture = await lireBlSurFacture(factureDuBl.fichiers, c.doc_numero);
+          r = reporterPrix(r.lignes, surFacture?.lignes || []);
+          infoPrix = r.sansPrix ? "" : `Prix repris de la facture n° ${factureDuBl.numero || ""} (le BL n'en porte pas).`;
+        } catch { /* on garde ce qu'on a : les prix manquants restent à saisir */ }
+      } else if (!r.sansPrix) {
+        infoPrix = "Prix repris des lignes déjà saisies sur cette commande (le BL n'en porte pas).";
+      }
+      lignesLues = r.lignes;
+      if (r.sansPrix) infoPrix = `${r.sansPrix} ligne${r.sansPrix > 1 ? "s" : ""} sans prix : le BL n'en porte pas${factureDuBl ? "" : " et aucune facture n'est encore rattachée"}. Saisis le prix unitaire, le total se calcule.`;
+      lu = { ...lu, lignes: lignesLues };
+    }
     const controle = preparerLignesBl(lu?.lignes, c.montant_ht);
     const lecture = {
       bl_numero: lu?.bl_numero || lu?.doc_numero || "",
@@ -217,7 +251,7 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
       commande_numero: lu?.commande_numero || c.numero_commande_fournisseur || null,
       reference_client: lu?.reference_client || null,
     };
-    const alertes = [];
+    const alertes = infoPrix ? [infoPrix] : [];
     if (lecture.bl_numero && c.doc_numero && !memeNumeroBl(lecture.bl_numero, c.doc_numero)) {
       alertes.push(`Le document lu porte le n° ${lecture.bl_numero}, différent de cette commande (${c.doc_numero}). Vérifie que c'est le bon BL avant de confirmer.`);
     } else if (!lecture.bl_numero && c.doc_numero) {
@@ -248,7 +282,7 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
           return analyseCommande(parPage.flat());
         })(),
       ]);
-      ouvrirCompletion(lu, ups.find(u => u?.url)?.url || null);
+      await ouvrirCompletion(lu, ups.find(u => u?.url)?.url || null);
     } catch (e) {
       setCompletion({ etat: "erreur", erreur: e?.message || "Lecture impossible." });
     }
@@ -256,7 +290,7 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
   const completerDepuisFacture = async () => {
     setCompletion({ etat: "lecture" });
     try {
-      ouvrirCompletion(await lireBlSurFacture(c.facture?.fichiers, c.doc_numero), null);
+      await ouvrirCompletion(await lireBlSurFacture(factureDuBl?.fichiers, c.doc_numero), null, { depuisFacture: true });
     } catch (e) {
       setCompletion({ etat: "erreur", erreur: e?.message || "Lecture impossible." });
     }
@@ -362,9 +396,9 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
                 <button onClick={() => filePdfBl.current?.click()} style={{ padding: "10px", borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontFamily: "inherit", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                   <Icon as={FileText} size={16} /> Compléter avec le PDF du BL
                 </button>
-                {c.facture?.fichiers?.length > 0 && c.doc_numero && (
+                {factureDuBl?.fichiers?.length > 0 && c.doc_numero && (
                   <button onClick={completerDepuisFacture} style={{ padding: "10px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
-                    Compléter depuis la facture {c.facture?.numero ? `n° ${c.facture.numero}` : ""}
+                    Compléter depuis la facture {factureDuBl?.numero ? `n° ${factureDuBl.numero}` : ""}
                   </button>
                 )}
                 <div style={{ fontSize: FONT.xs.size, color: T.textSub }}>Les lignes lues remplacent celles de cette commande (aucune nouvelle commande n'est créée).</div>
@@ -458,7 +492,7 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
         <ConfirmationLignesBl
           key={completion.etat}
           titre={`Compléter le BL ${c.doc_numero || ""}`}
-          etat={completion.etat} erreur={completion.erreur} lecture={completion.lecture} controle={completion.controle}
+          etat={completion.etat} message={completion.message} erreur={completion.erreur} lecture={completion.lecture} controle={completion.controle}
           montantBl={c.montant_ht} chantiers={chantiers} lots={lots} propositions={completion.propositions}
           alertes={completion.alertes || []} enregistrement={completion.enregistrement}
           libelleValider={completion.alertes?.length ? "Confirmer et remplacer les lignes" : "Remplacer les lignes"}
