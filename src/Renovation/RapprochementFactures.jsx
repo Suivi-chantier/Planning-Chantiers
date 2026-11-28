@@ -344,6 +344,9 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const [fact, setFact] = useState({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
   const [bls, setBls] = useState([]);
   const [fichiers, setFichiers] = useState([]);
+  const [archives, setArchives] = useState([]); // chemin archivé par page, dans l'ordre des pages (null = échec)
+  const [archivageErr, setArchivageErr] = useState("");
+  const [archivageEnCours, setArchivageEnCours] = useState(false);
   const [frais, setFrais] = useState([]);
   const [absentsFacture, setAbsentsFacture] = useState([]);
   const [extraction, setExtraction] = useState(null); // { bl_numero, montant_ht, commande_id, commandeMontant, fournisseurCmd, statut }
@@ -417,7 +420,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
   const nouvelleFacture = () => {
     setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
-    setBls([]); setAbsentsFacture([]); setPhotoUrl(""); setPhotos([]); setFichiers([]); setFrais([]); setExtraction(null); setIaErr(""); setSaveErr("");
+    setBls([]); setAbsentsFacture([]); setPhotoUrl(""); setPhotos([]); setFichiers([]); setArchives([]); setArchivageErr(""); setFrais([]); setExtraction(null); setIaErr(""); setSaveErr("");
     setStep("capture");
   };
 
@@ -432,9 +435,35 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   };
   const removePhoto = (i) => setPhotos(prev => prev.filter((_, j) => j !== i));
 
+  // Résultat d'archivage page par page : fichiers n'est rempli que si TOUTES les
+  // pages sont archivées (le bouton d'enregistrement en dépend). En cas d'échec,
+  // on affiche l'erreur réelle renvoyée par Supabase, pas un message générique.
+  const appliquerArchives = (resultats) => {
+    const chemins = resultats.map(r => r?.path || null);
+    setArchives(chemins);
+    const echecs = resultats.filter(r => !r?.path);
+    if (!echecs.length) { setFichiers(chemins); setArchivageErr(""); return; }
+    setFichiers([]);
+    const messages = [...new Set(echecs.map(r => r?.error || "Erreur inconnue"))].join(" · ");
+    setArchivageErr(`${echecs.length} page${echecs.length > 1 ? "s" : ""} sur ${resultats.length} n’${echecs.length > 1 ? "ont" : "a"} pas pu être archivée${echecs.length > 1 ? "s" : ""}. Erreur renvoyée : ${messages}`);
+  };
+
+  // Relance uniquement l'envoi des pages en échec (pas de nouvelle analyse IA).
+  const reessayerArchivage = async () => {
+    if (archivageEnCours || !photos.length) return;
+    setArchivageEnCours(true);
+    try {
+      const resultats = await Promise.all(photos.map((p, i) =>
+        archives[i] ? { path: archives[i] } : uploadPhoto(p.file, "factures")));
+      appliquerArchives(resultats);
+    } finally {
+      setArchivageEnCours(false);
+    }
+  };
+
   const lancerAnalyse = async () => {
     if (!photos.length) return;
-    setIaErr(""); setSaveErr("");
+    setIaErr(""); setSaveErr(""); setArchivageErr(""); setArchives([]); setFichiers([]);
     setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
     setBls([]); setAbsentsFacture([]); setPhotoUrl("");
     setStep("analyzing");
@@ -447,11 +476,8 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       })(),
     ]);
 
-    if (ups.status === "fulfilled") {
-      const paths = ups.value.filter(u => u?.path).map(u => u.path);
-      setFichiers(paths);
-      if (paths.length !== photos.length) setSaveErr("Une ou plusieurs pages n’ont pas pu être archivées. Réessaie avant de valider.");
-    }
+    if (ups.status === "fulfilled") appliquerArchives(ups.value);
+    else appliquerArchives(photos.map(() => ({ error: ups.reason?.message || "Erreur réseau" })));
 
     if (ia.status === "fulfilled" && ia.value) {
       const p = ia.value;
@@ -910,6 +936,21 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
           </div>
         )}
       </div>
+
+      {archivageErr && (
+        <div style={{ ...card, background: SEMANTIC.danger.bg, border: `1px solid ${SEMANTIC.danger.border}`, color: SEMANTIC.danger.color, fontSize: FONT.sm.size }}>
+          <div>{archivageErr}</div>
+          <button onClick={reessayerArchivage} disabled={archivageEnCours} style={{
+            marginTop: SPACING.sm, padding: "8px 12px", borderRadius: RADIUS.md,
+            border: `1px solid ${SEMANTIC.danger.border}`, background: "transparent", color: SEMANTIC.danger.color,
+            fontFamily: "inherit", fontWeight: 600, fontSize: 14, cursor: archivageEnCours ? "not-allowed" : "pointer",
+            display: "inline-flex", alignItems: "center", gap: 6,
+          }}>
+            {archivageEnCours && <Icon as={Loader2} size={16} className="spin" />}
+            {archivageEnCours ? "Archivage en cours…" : "Réessayer l’archivage"}
+          </button>
+        </div>
+      )}
 
       {saveErr && (
         <div style={{ ...card, background: SEMANTIC.danger.bg, border: `1px solid ${SEMANTIC.danger.border}`, color: SEMANTIC.danger.color, fontSize: FONT.sm.size }}>{saveErr}</div>
