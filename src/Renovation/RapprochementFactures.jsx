@@ -4,14 +4,15 @@ import { construireHistoriqueRapprochement, statutHistorique, fmtEur } from "./h
 import { chargerHistoriqueRapprochement } from "./rapprochementDonnees";
 import { supabase, photoTransform } from "../supabase";
 import { pdfFileToImages } from "../pdfToImages";
-import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur, LOTS_DEFAUT, loadLots } from "../constants";
+import { normFournisseur, normTva } from "../fournisseursNoms.js";
+import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, reconnaitreFournisseur, LOTS_DEFAUT, loadLots } from "../constants";
 import { preparerLignesBl, proposerChantiers, noteReferenceClient, classerAchatsCandidats } from "./saisieBlFacture.js";
 import ConfirmationLignesBl from "./ConfirmationLignesBl.jsx";
 import { Icon } from "../ui";
 import { chargerChantiers } from "./chantiersDonnees";
 import {
   Receipt, Image as ImageIcon, Camera, Loader2, Check, X, AlertTriangle,
-  ChevronLeft, FileText, Plus, Link2, CheckCircle2, Search,
+  ChevronLeft, ChevronDown, FileText, Plus, Link2, CheckCircle2, Search,
 } from "lucide-react";
 
 const EDGE_ANALYSE_FACTURE =
@@ -19,6 +20,8 @@ const EDGE_ANALYSE_FACTURE =
 
 // Tolérance d'écart de montant (remises, arrondis) avant de signaler un "écart"
 const TOLERANCE_ECART = 0.05;
+// Notre propre n° de TVA (Profero, le client) : jamais celui d'un fournisseur.
+const TVA_PROFERO = "FR52921024584";
 // Badge discret : comment le BL a été apparié (le n° exact n'a pas de badge).
 const MODES_APPARIEMENT = {
   montant: "apparié par montant",
@@ -512,7 +515,13 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const [iaErr, setIaErr] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
-  const [fact, setFact] = useState({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
+  const [fact, setFact] = useState({ numero: "", date_facture: "", periode: "", montant_ht: "" });
+  // Fournisseur de la facture : TOUJOURS un fournisseur existant (id), reconnu
+  // (n° de TVA, puis autres noms, puis nom) ou choisi à la main. L'appli ne crée
+  // plus jamais de fournisseur d'elle-même (cahier §4 P1).
+  const [fournId, setFournId] = useState("");
+  const [fournLecture, setFournLecture] = useState({ nom: "", tva: "", par: null }); // ce que l'IA a lu, et comment il a été reconnu
+  const [creationFourn, setCreationFourn] = useState({ enCours: false, erreur: "" });
   const [bls, setBls] = useState([]);
   const [fichiers, setFichiers] = useState([]);
   const [archives, setArchives] = useState([]); // chemin archivé par page, dans l'ordre des pages (null = échec)
@@ -549,26 +558,19 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         liste.forEach(c => { map[String(c.id)] = { nom: c.nom || c.id, couleur: c.couleur }; });
         setChantiersMap(map);
       });
-    supabase.from("fournisseurs").select("id, nom, type_facturation, regles_numero, tolerance_ht").order("nom").then(({ data }) => setFournisseurs(data || []));
+    supabase.from("fournisseurs").select("id, nom, type_facturation, regles_numero, tolerance_ht, tva_intracom").order("nom").then(({ data }) => setFournisseurs(data || []));
     loadLots().then(l => { if (Array.isArray(l) && l.length) setLots(l); }).catch(() => {});
   }, []);
 
-  // Rattache le fournisseur saisi à l'existant le plus proche, sinon le crée.
-  const resolveFourn = async () => {
-    const nom = (fact.fournisseur || "").trim();
-    if (!nom) return { id: null, nom: null };
-    const { fournisseur: f } = matchFournisseur(nom, fournisseurs);
-    if (f) return { id: f.id, nom: f.nom };
-    const { data: nf } = await supabase.from("fournisseurs").insert({ nom }).select("id, nom").single();
-    if (nf) { setFournisseurs(prev => [...prev, nf]); return { id: nf.id, nom: nf.nom }; }
-    return { id: null, nom };
-  };
+  // Fournisseur retenu pour la facture. Ne crée JAMAIS de fournisseur :
+  // { id: null } tant que rien n'est reconnu, choisi ou créé volontairement.
+  const fournSel = fournisseurs.find(f => f.id === fournId) || null;
+  const resolveFourn = () => (fournSel ? { id: fournSel.id, nom: fournSel.nom } : { id: null, nom: null });
 
   // Apparie une liste de BL aux commandes NON encore facturées, par NUMÉRO,
   // quel que soit le doc_type : une commande saisie comme "ticket" ou "bon de
   // commande" mais portant le n° de BL doit quand même être retrouvée.
-  const matchBls = useCallback(async (blsList, fournisseurFacture, dateFacture) => {
-    const { fournisseur: fournisseur } = matchFournisseur(fournisseurFacture, fournisseurs);
+  const matchBls = useCallback(async (blsList, fournisseur, dateFacture) => {
     if (!fournisseur?.id) return { matched: blsList.map(b => ({ ...b, commande_id: null, statut: "manquant" })), missing: [] };
     const { data, error } = await supabase.from("commandes")
       .select("id, doc_numero, numero_commande_fournisseur, fournisseur_id, montant_ht, date_doc, statut_facturation, remplace_par_id")
@@ -588,10 +590,55 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       statut: r.document ? (r.conforme ? "rapproche" : "ecart") : "manquant",
       propositions: r.propositions || [], mode_rapprochement: r.mode,
     })), missing: fournisseur.type_facturation === "recapitulative" ? result.absentsFacture : [] };
-  }, [fournisseurs]);
+  }, []);
+
+  // Règle « montant du BL » du fournisseur (Partedis : total HT facture hors
+  // frais de facturation), puis appariement aux commandes de CE fournisseur.
+  // Rejoué quand l'utilisateur choisit (ou crée) le fournisseur après lecture.
+  const rapprocherLecture = async (p, fournisseur) => {
+    const regle = appliquerRegleMontantBl({
+      regles: fournisseur?.regles_numero || {},
+      bls: Array.isArray(p.bls) ? p.bls : [], frais: Array.isArray(p.frais) ? p.frais : [], totalHt: p.montant_ht,
+    });
+    setFrais(regle.frais);
+    try {
+      const { matched, missing } = await matchBls(regle.bls, fournisseur, p.date_facture);
+      setBls(matched);
+      setAbsentsFacture(missing);
+    } catch (err) {
+      setBls(regle.bls.map(b => ({ ...b, commande_id: null, statut: "manquant" })));
+      setAbsentsFacture([]);
+      setIaErr("Lecture réussie, mais rapprochement indisponible : " + err.message);
+    }
+  };
+
+  // Choix manuel du fournisseur dans la liste (ou après création volontaire).
+  const choisirFournisseur = async (id, liste = fournisseurs) => {
+    setFournId(id);
+    setFournLecture(l => ({ ...l, par: id ? "choix" : null }));
+    const f = liste.find(x => x.id === id) || null;
+    if (extraction) await rapprocherLecture(extraction, f);
+  };
+
+  // Action humaine volontaire : créer le fournisseur au nom lu sur la facture.
+  const creerFournisseurLu = async () => {
+    const nom = (fournLecture.nom || "").trim();
+    if (!nom || creationFourn.enCours) return;
+    setCreationFourn({ enCours: true, erreur: "" });
+    const tva = normTva(fournLecture.tva);
+    const { data: nf, error } = await supabase.from("fournisseurs")
+      .insert({ nom, tva_intracom: tva && tva !== TVA_PROFERO ? tva : null })
+      .select("id, nom, type_facturation, regles_numero, tolerance_ht, tva_intracom").single();
+    if (error || !nf) { setCreationFourn({ enCours: false, erreur: "Création impossible : " + (error?.message || "erreur inconnue") }); return; }
+    const liste = [...fournisseurs, nf].sort((a, b) => String(a.nom).localeCompare(String(b.nom)));
+    setFournisseurs(liste);
+    setCreationFourn({ enCours: false, erreur: "" });
+    await choisirFournisseur(nf.id, liste);
+  };
 
   const nouvelleFacture = () => {
-    setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
+    setFact({ numero: "", date_facture: "", periode: "", montant_ht: "" });
+    setFournId(""); setFournLecture({ nom: "", tva: "", par: null }); setCreationFourn({ enCours: false, erreur: "" });
     setBls([]); setAbsentsFacture([]); setPhotoUrl(""); setPhotos([]); setFichiers([]); setArchives([]); setArchivageErr(""); setFrais([]); setExtraction(null); setIaErr(""); setSaveErr("");
     setStep("capture");
   };
@@ -636,7 +683,8 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const lancerAnalyse = async () => {
     if (!photos.length) return;
     setIaErr(""); setSaveErr(""); setArchivageErr(""); setArchives([]); setFichiers([]);
-    setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
+    setFact({ numero: "", date_facture: "", periode: "", montant_ht: "" });
+    setFournId(""); setFournLecture({ nom: "", tva: "", par: null }); setCreationFourn({ enCours: false, erreur: "" });
     setBls([]); setAbsentsFacture([]); setPhotoUrl("");
     setStep("analyzing");
 
@@ -650,29 +698,19 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
     if (ia.status === "fulfilled" && ia.value) {
       const p = ia.value;
+      // Reconnaissance : n° de TVA du fournisseur d'abord, puis autres noms / nom.
+      const tvaLue = normTva(p.tva_fournisseur) === TVA_PROFERO ? "" : (p.tva_fournisseur || "");
+      const reco = reconnaitreFournisseur({ tva: tvaLue, nom: p.fournisseur || "" }, fournisseurs);
+      setFournId(reco.fournisseur?.id || "");
+      setFournLecture({ nom: p.fournisseur || "", tva: tvaLue, par: reco.par });
       setFact({
-        fournisseur: (matchFournisseur(p.fournisseur || "", fournisseurs).fournisseur?.nom) || p.fournisseur || "",
         numero: p.numero || "",
         date_facture: p.date_facture || "",
         periode: p.periode || "",
         montant_ht: p.montant_ht != null ? String(p.montant_ht) : "",
       });
-      // Règle « montant du BL » du fournisseur (Partedis : total HT facture hors frais de facturation).
-      const regle = appliquerRegleMontantBl({
-        regles: matchFournisseur(p.fournisseur || "", fournisseurs).fournisseur?.regles_numero || {},
-        bls: Array.isArray(p.bls) ? p.bls : [], frais: Array.isArray(p.frais) ? p.frais : [], totalHt: p.montant_ht,
-      });
-      const blsRaw = regle.bls;
-      setFrais(regle.frais);
       setExtraction(p);
-      try {
-        const { matched, missing } = await matchBls(blsRaw, p.fournisseur || "", p.date_facture);
-        setBls(matched);
-        setAbsentsFacture(missing);
-      } catch (err) {
-        setBls(blsRaw.map(b => ({ ...b, commande_id: null, statut: "manquant" })));
-        setIaErr("Lecture réussie, mais rapprochement indisponible : " + err.message);
-      }
+      await rapprocherLecture(p, reco.fournisseur);
     } else {
       setIaErr((ia.status === "rejected" ? (ia.reason?.message || "Analyse impossible") : "Analyse impossible") + " — vérifie le document.");
     }
@@ -709,8 +747,9 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     const sb = saisieBl; if (!sb?.controle) return;
     const bl = bls[sb.index];
     const montant = toNum(bl.montant_ht);
+    const fr = resolveFourn();
+    if (!fr.id) { setSaisieBl({ ...sb, enregistrement: false, erreur: "Choisis d'abord le fournisseur de la facture (en haut de l'écran)." }); return; }
     setSaisieBl({ ...sb, enregistrement: true, erreur: "" });
-    const fr = await resolveFourn();
     const { data: cmd, error } = await supabase.from("commandes").insert({
       type_evenement: "livraison", doc_type: "bl", doc_numero: sb.lecture.bl_numero || null,
       numero_en_attente: false, fournisseur_id: fr.id, fournisseur_nom: fr.nom,
@@ -724,7 +763,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     const { error: eL } = await supabase.from("commande_lignes").insert(lignesFinales.map(l => ({ ...l, commande_id: cmd.id })));
     if (eL) { setSaisieBl({ ...sb, enregistrement: false, erreur: "BL créé, mais lignes non enregistrées : " + eL.message }); return; }
     setBls(prev => prev.map((b, j) => j === sb.index
-      ? { ...b, commande_id: cmd.id, commandeMontant: montant, fournisseurCmd: fact.fournisseur, statut: "rapproche" }
+      ? { ...b, commande_id: cmd.id, commandeMontant: montant, fournisseurCmd: fr.nom, statut: "rapproche" }
       : b));
     setSaisieBl(null);
   };
@@ -732,7 +771,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // Statut d'affichage d'un BL (ajoute la détection d'écart)
   // Le statut ne dépend que des montants (tolérance du fournisseur) ; le mode
   // d'appariement est conservé pour la traçabilité et affiché en badge.
-  const toleranceFournisseur = Number(matchFournisseur(fact.fournisseur || "", fournisseurs).fournisseur?.tolerance_ht ?? TOLERANCE_ECART);
+  const toleranceFournisseur = Number(fournSel?.tolerance_ht ?? TOLERANCE_ECART);
   const blStatut = (b) => statutLiaisonBl(b, bls, toleranceFournisseur);
 
   const aucunManquant = bls.every(b => blStatut(b) !== "manquant");
@@ -744,8 +783,8 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     if (saving || fichiers.length !== photos.length) return;
     setSaving(true); setSaveErr("");
 
-    const fr = await resolveFourn();
-    if (!fr.id) { setSaveErr("Fournisseur non reconnu : sélectionne un fournisseur existant."); setSaving(false); return; }
+    const fr = resolveFourn();
+    if (!fr.id) { setSaveErr("Fournisseur non reconnu : choisis-le dans la liste, ou crée-le avec le bouton prévu."); setSaving(false); return; }
     if (!fact.numero?.trim()) { setSaveErr("Numéro de facture obligatoire."); setSaving(false); return; }
     const { data: doublon } = await supabase.from("factures").select("id")
       .eq("fournisseur_id", fr.id).ilike("numero", fact.numero.trim()).maybeSingle();
@@ -793,8 +832,9 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const archiverSansRapprocher = async () => {
     if (saving || fichiers.length !== photos.length) return;
     if (!confirm("Archiver cette facture sans rapprocher les BL ?\n\nAucune commande ne sera modifiée. À utiliser pour les factures d'une période antérieure à la saisie des BL, ou les fournisseurs sans BL.")) return;
+    const fr = resolveFourn();
+    if (!fr.id) { setSaveErr("Fournisseur non reconnu : choisis-le dans la liste, ou crée-le avec le bouton prévu."); return; }
     setSaving(true); setSaveErr("");
-    const fr = await resolveFourn();
     const { error } = await supabase.from("factures").insert({
       fournisseur_id: fr.id, fournisseur_nom: fr.nom, numero: fact.numero || null,
       date_facture: fact.date_facture || null, periode: fact.periode || null,
@@ -1046,9 +1086,60 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       {/* En-tête facture */}
       <div style={card}>
         <div className="responsive-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-          <div><label style={labelStyle}>Fournisseur</label><input value={fact.fournisseur} onChange={e => setFact(f => ({ ...f, fournisseur: e.target.value }))} style={inputStyle} /></div>
+          <div>
+            <label style={labelStyle}>Fournisseur</label>
+            <div style={{ position: "relative" }}>
+              <select value={fournId} onChange={e => choisirFournisseur(e.target.value)}
+                style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", MozAppearance: "none", paddingRight: 36, cursor: "pointer",
+                  borderColor: fournSel ? T.border : SEMANTIC.warning.border }}>
+                <option value="">Choisir le fournisseur…</option>
+                {fournisseurs.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+              </select>
+              <Icon as={ChevronDown} size={18} color={T.textSub} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+            </div>
+          </div>
           <div><label style={labelStyle}>N° facture</label><input value={fact.numero} onChange={e => setFact(f => ({ ...f, numero: e.target.value }))} style={inputStyle} /></div>
         </div>
+        {fournSel && fournLecture.par === "tva" && (
+          <div style={{ marginBottom: 10, fontSize: FONT.sm.size, color: T.textSub, display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <Icon as={CheckCircle2} size={16} color={SEMANTIC.success.color} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>
+              Reconnu par son n° de TVA ({normTva(fournLecture.tva)}) : <strong style={{ color: T.text }}>{fournSel.nom}</strong>.
+              {fournLecture.nom && normFournisseur(fournLecture.nom) !== normFournisseur(fournSel.nom) && <> Nom imprimé sur la facture : « {fournLecture.nom} ».</>}
+            </span>
+          </div>
+        )}
+        {fournSel && fournLecture.par === "nom" && (
+          <div style={{ marginBottom: 10, fontSize: FONT.sm.size, color: T.textSub, display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <Icon as={CheckCircle2} size={16} color={SEMANTIC.success.color} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>Reconnu par son nom : <strong style={{ color: T.text }}>{fournSel.nom}</strong>{fournLecture.nom && normFournisseur(fournLecture.nom) !== normFournisseur(fournSel.nom) && <> (imprimé « {fournLecture.nom} »)</>}. Vérifie qu'il s'agit bien du bon fournisseur.</span>
+          </div>
+        )}
+        {!fournSel && (
+          <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: RADIUS.md, background: SEMANTIC.warning.bg, border: `1px solid ${SEMANTIC.warning.border}`, fontSize: FONT.sm.size }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+              <Icon as={AlertTriangle} size={16} color={SEMANTIC.warning.color} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                {fournLecture.nom
+                  ? <>Fournisseur « {fournLecture.nom} »{fournLecture.tva ? <> (TVA {normTva(fournLecture.tva)})</> : null} non reconnu.</>
+                  : <>Fournisseur non lu sur la facture.</>}
+                {" "}Choisis-le dans la liste{fournLecture.nom ? ", ou crée-le s'il est vraiment nouveau" : ""}. La facture ne peut pas être enregistrée sans fournisseur.
+              </span>
+            </div>
+            {fournLecture.nom && (
+              <button onClick={creerFournisseurLu} disabled={creationFourn.enCours} style={{
+                marginTop: SPACING.sm, padding: "8px 12px", borderRadius: RADIUS.md,
+                border: `1px solid ${SEMANTIC.warning.border}`, background: "transparent", color: T.text,
+                fontFamily: "inherit", fontWeight: 600, fontSize: 14, cursor: creationFourn.enCours ? "not-allowed" : "pointer",
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}>
+                <Icon as={creationFourn.enCours ? Loader2 : Plus} size={16} className={creationFourn.enCours ? "spin" : undefined} />
+                Créer le fournisseur « {fournLecture.nom.trim()} »
+              </button>
+            )}
+            {creationFourn.erreur && <div style={{ marginTop: 6, color: SEMANTIC.danger.color }}>{creationFourn.erreur}</div>}
+          </div>
+        )}
         <div className="responsive-grid-3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
           <div><label style={labelStyle}>Date</label><input type="date" value={fact.date_facture} onChange={e => setFact(f => ({ ...f, date_facture: e.target.value }))} style={inputStyle} /></div>
           <div><label style={labelStyle}>Période</label><input value={fact.periode} onChange={e => setFact(f => ({ ...f, periode: e.target.value }))} placeholder="2026-06" style={inputStyle} /></div>
@@ -1166,15 +1257,15 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
           : <span style={{ color: SEMANTIC.success.color, fontWeight: 600 }}>Tous les BL sont identifiés — validation comptable encore nécessaire.</span>}
       </div>
 
-      <button onClick={confirmer} disabled={saving || fichiers.length !== photos.length} style={btnPrimary(saving || fichiers.length !== photos.length)}>
+      <button onClick={confirmer} disabled={saving || !fournSel || fichiers.length !== photos.length} style={btnPrimary(saving || !fournSel || fichiers.length !== photos.length)}>
         {saving ? <Icon as={Loader2} size={20} className="spin" /> : <Icon as={Check} size={20} strokeWidth={2.5} />}
         {saving ? "Enregistrement…" : aucunManquant ? "Enregistrer le rapprochement" : "Enregistrer avec anomalies à traiter"}
       </button>
 
-      <button onClick={archiverSansRapprocher} disabled={saving} style={{
+      <button onClick={archiverSansRapprocher} disabled={saving || !fournSel} style={{
         width: "100%", marginTop: SPACING.sm, padding: "12px", borderRadius: RADIUS.md,
-        border: `1px solid ${T.border}`, background: "transparent", color: T.textSub,
-        fontFamily: "inherit", fontWeight: 600, fontSize: 14, cursor: saving ? "not-allowed" : "pointer",
+        border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, opacity: fournSel ? 1 : 0.5,
+        fontFamily: "inherit", fontWeight: 600, fontSize: 14, cursor: saving || !fournSel ? "not-allowed" : "pointer",
         display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
       }}>
         Archiver sans rapprocher

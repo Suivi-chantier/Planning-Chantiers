@@ -49,3 +49,27 @@ export function matchFournisseur(raw, fournisseurs) {
   return { fournisseur: bestScore >= 0.6 ? best : null, score: bestScore };
 }
 
+
+// N° de TVA intracommunautaire normalisé : majuscules, sans espaces ni
+// ponctuation (« fr 26 309.304.616 » → « FR26309304616 »). "" si vide.
+export function normTva(s) {
+  return String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+// Reconnaît le fournisseur d'une facture (cahier §4 P1) :
+//   1. n° de TVA lu = fournisseurs.tva_intracom (égalité exacte après normalisation) ;
+//   2. sinon nom / autres noms via matchFournisseur.
+// Renvoie { fournisseur, par: "tva" | "nom" | null, score }.
+// fournisseur = null : rien de reconnu, c'est à l'utilisateur de choisir —
+// jamais de création automatique.
+export function reconnaitreFournisseur({ tva, nom } = {}, fournisseurs) {
+  const t = normTva(tva);
+  if (t) {
+    const parTva = (fournisseurs || []).filter(f => normTva(f?.tva_intracom) === t);
+    if (parTva.length === 1) return { fournisseur: parTva[0], par: "tva", score: 1 };
+  }
+  const m = matchFournisseur(nom, fournisseurs);
+  return m.fournisseur
+    ? { fournisseur: m.fournisseur, par: "nom", score: m.score }
+    : { fournisseur: null, par: null, score: m.score };
+}

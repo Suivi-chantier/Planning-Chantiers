@@ -397,7 +397,7 @@ export function guessLotId(libelle) {
 
 // Rapprochement des noms de fournisseurs : logique pure dans fournisseursNoms.mjs
 // (testée), réexportée ici pour les écrans existants.
-export { matchFournisseur } from "./fournisseursNoms.mjs";
+export { matchFournisseur, reconnaitreFournisseur } from "./fournisseursNoms.mjs";
 
 // Charge les phases personnalisées depuis Supabase, sinon retourne PHASES_DEFAUT.
 import { supabase as _supabase } from "./supabase";

@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
+    type: "amelioration",
+    titre: "Factures : le fournisseur est reconnu par son n° de TVA, et n'est plus jamais créé tout seul",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Le nom imprimé sur une facture ne correspond pas toujours au fournisseur (Zolpan facture au nom de Cromology, Würth au nom de « Würth France »…). L'application lit maintenant le n° de TVA du fournisseur sur la facture et s'en sert en premier pour le reconnaître ; à défaut, elle essaie ses autres noms, puis son nom. Les n° de TVA de Rexel, Partedis, Würth et Zolpan sont enregistrés. Surtout, l'application ne crée plus jamais un fournisseur en double à partir d'une facture.",
+    comment: "À l'analyse, le fournisseur reconnu s'affiche avec la raison (« Reconnu par son n° de TVA », et le nom imprimé s'il est différent). S'il n'est pas reconnu, choisis-le dans la liste des fournisseurs : les BL sont alors recherchés chez lui. S'il est vraiment nouveau, le bouton « Créer le fournisseur « … » » le crée. Tant qu'aucun fournisseur n'est choisi, la facture ne peut pas être enregistrée.",
+  },
+  {
+    date: "2026-11-28",
     type: "correctif",
     titre: "Factures Zolpan au nom de « Cromology » reconnues comme Zolpan",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }, { id: "capture-cmd", label: "Saisie commande (mobile)" }],
