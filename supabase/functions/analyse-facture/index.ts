@@ -247,6 +247,22 @@ ${REGLES_REFERENCES}
     })
 
     const data = await response.json()
+
+    // Refus d'Anthropic (ex. PDF « exotique » généré par Ghostscript → 400) :
+    // ne plus le maquiller en succès. Le navigateur reçoit un 502 avec un code
+    // stable et le motif d'Anthropic (type + message, tronqué) — jamais le
+    // document ni la clé. DOCUMENT_REFUSE permet au navigateur de réessayer
+    // avec les pages converties en images.
+    if (!response.ok) {
+      const motifType = String(data?.error?.type || "erreur").slice(0, 60)
+      const motifTexte = String(data?.error?.message || "réponse inattendue").slice(0, 300)
+      console.warn(`[analyse-facture] refus anthropic=${response.status} type=${motifType} rôle=${autorisation.role} pages=${valide.images.length} cible=${blCible ? "bl" : "facture"} (${Date.now() - t0} ms)`)
+      return refus({
+        status: 502,
+        code: response.status === 400 ? "DOCUMENT_REFUSE" : "ANALYSE_INDISPONIBLE",
+        message: `Le document n'a pas pu être lu par l'IA : ${motifType} — ${motifTexte}`,
+      })
+    }
     // Journal : de quoi diagnostiquer, rien de plus. Ni document, ni réponse
     // brute, ni identité, ni clé.
     console.log(`[analyse-facture] ok rôle=${autorisation.role} pages=${valide.images.length} cible=${blCible ? "bl" : "facture"} anthropic=${response.status} (${Date.now() - t0} ms)`)
