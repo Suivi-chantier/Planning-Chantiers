@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
+    type: "correctif",
+    titre: "Factures Zolpan au nom de « Cromology » reconnues comme Zolpan",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }, { id: "capture-cmd", label: "Saisie commande (mobile)" }],
+    quoi: "Zolpan facture au nom de sa raison sociale, « Cromology Distribution Centre Ouest ». L'application ne reconnaissait pas Zolpan : ses BL apparaissaient « manquants » et l'enregistrement aurait créé un fournisseur en double. Un fournisseur peut désormais avoir d'autres noms ; « Cromology » est rattaché à Zolpan.",
+    comment: "Rien à faire : à l'analyse, le fournisseur affiché est « ZOLPAN » et ses BL sont retrouvés.",
+  },
+  {
+    date: "2026-11-28",
     type: "nouveaute",
     titre: "Rapprochement factures : frais de facturation en frais généraux, frais de livraison sur le chantier",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }, { id: "etats-financiers", label: "États financiers" }],
