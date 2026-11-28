@@ -1,7 +1,7 @@
 // Données fictives inspirées des factures Rexel / Partedis : aucun appel à la base.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { diviserLigne, lireQuantite, preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl, squelette } from "../src/Renovation/saisieBlFacture.mjs";
+import { classerAchatsCandidats, diviserLigne, lireQuantite, preparerLignesBl, proposerChantiers, noteReferenceClient, memeNumeroBl, squelette } from "../src/Renovation/saisieBlFacture.mjs";
 
 const CHANTIERS = [
   { id: "f001", nom: "FOURMOND 001" }, { id: "f101", nom: "FOURMOND 101" },
@@ -102,4 +102,20 @@ test("diviser une ligne : deux moitiés dont la somme = la ligne", () => {
   assert.equal(Math.round((c.prix_total + d.prix_total) * 100), 525);
   const [e, f] = diviserLigne({ quantite: null, prix_total: 10.01 });
   assert.equal(Math.round((e.prix_total + f.prix_total) * 100), 1001);
+});
+
+test("BL saisi après la facture : achats candidats classés", () => {
+  const achats = [
+    { id: "montant", doc_numero: "X1", montant_ht: 74.92 },
+    { id: "fact", doc_numero: "4335906658", montant_ht: 74.92 },
+    { id: "bl", doc_numero: "8169781139", montant_ht: 70 },
+    { id: "rien", doc_numero: "Z9", montant_ht: 12 },
+  ];
+  const r = classerAchatsCandidats({ bl: { bl_numero: "8169781139", montant_ht: 74.92 }, factureNumero: "4335906658", achats });
+  assert.deepEqual(r.map(x => [x.achat.id, x.raison]), [["bl", "numero"], ["fact", "numero_facture"], ["montant", "montant"]]);
+  assert.equal(r[1].ecartHt, 0);
+  assert.equal(r[0].ecartHt, 4.92);
+  // Rexel : n° de BL de la facture vs n° saisi « … / agence ».
+  const rx = classerAchatsCandidats({ bl: { bl_numero: "CL-4900-619451058-01", montant_ht: 1 }, achats: [{ id: "a", doc_numero: "619451058-01 / 4900", montant_ht: 5 }] });
+  assert.equal(rx[0]?.raison, "numero");
 });

@@ -149,3 +149,31 @@ export function diviserLigne(l) {
     { ...l, quantite: q2 || null, prix_total: tot == null ? null : euros(tot - t1), chantier_id: "", lot_id: "" },
   ];
 }
+
+/**
+ * Achats candidats pour une ligne « BL manquant » d'une facture déjà
+ * enregistrée (BL saisi après la facture). Classement :
+ *   1. n° du BL      = n° de l'achat (doc_numero ou n° de commande fournisseur)
+ *   2. n° de facture = n° de l'achat (comptoir saisi avec le n° de facture)
+ *   3. même montant (tolérance du fournisseur)
+ * Les achats sans aucun de ces liens ne sont pas proposés.
+ * @returns [{ achat, raison: "numero"|"numero_facture"|"montant", ecartHt }]
+ */
+export function classerAchatsCandidats({ bl, factureNumero, achats = [], regles = {}, toleranceHt = 0.05 }) {
+  const n = (v) => normaliserNumero(v, { ...regles, retirerAgence: regles.retirerAgence ?? true });
+  const nBl = n(bl?.bl_numero);
+  const nFact = n(factureNumero);
+  const cible = centimes(bl?.montant_ht);
+  const tol = centimes(toleranceHt) ?? 5;
+  const ordre = { numero: 0, numero_facture: 1, montant: 2 };
+  return achats.map((a) => {
+    const nums = [a.doc_numero, a.numero_commande_fournisseur].map(n).filter(Boolean);
+    const m = centimes(a.montant_ht);
+    const ecart = cible == null || m == null ? null : cible - m;
+    const raison = nBl && nums.includes(nBl) ? "numero"
+      : nFact && nums.includes(nFact) ? "numero_facture"
+      : ecart != null && Math.abs(ecart) <= tol ? "montant" : null;
+    return raison ? { achat: a, raison, ecartHt: euros(ecart) } : null;
+  }).filter(Boolean)
+    .sort((x, y) => ordre[x.raison] - ordre[y.raison] || Math.abs(x.ecartHt ?? 1e9) - Math.abs(y.ecartHt ?? 1e9));
+}

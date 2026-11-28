@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-28",
+    type: "amelioration",
+    titre: "Rapprochement factures : rattacher un BL saisi après la facture",
+    pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
+    quoi: "Quand une facture est enregistrée avant que son BL soit saisi, la ligne restait « manquant » sans moyen de la relier ensuite. Désormais, une facture « À rapprocher » propose, sur chaque BL manquant, les achats du même fournisseur en attente de facture : d'abord ceux qui portent le même n° de BL, puis ceux saisis avec le n° de la facture (cas fréquent des achats comptoir), puis ceux de même montant.",
+    comment: "Ouvre la facture dans l'historique, bouton « Rattacher un achat » sur la ligne du BL manquant, choisis l'achat, puis « Valider les correspondances conformes ».",
+  },
+  {
+    date: "2026-11-28",
     type: "correctif",
     titre: "Rapprochement factures : les factures PDF refusées par l'IA (ex. Partedis) sont relues automatiquement en images",
     pages: [{ id: "rapprochement", label: "Rapprochement factures" }],
